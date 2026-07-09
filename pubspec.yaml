@@ -1,0 +1,56 @@
+name: homegrown
+description: Homegrown Community Mobile App Platform for Homegrown Athletes in Legazpi City, Albay
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.3
+
+  # Maps & Location
+  google_maps_flutter: ^2.9.0      # Keep for future use
+  flutter_map: ^7.0.2              # OpenStreetMap
+  latlong2: ^0.9.1
+  http: ^1.2.2
+  geolocator: ^13.0.1
+  url_launcher: ^6.3.1
+  
+
+  # Authentication
+  google_sign_in: ^6.2.1
+
+  # UI
+  google_fonts: ^6.2.1
+  iconsax: ^0.0.8
+  fl_chart: ^0.69.0
+  cached_network_image: ^3.4.1
+
+  # Utils
+  image_picker: ^1.1.2
+  shared_preferences: ^2.3.2
+  intl: ^0.19.0
+  get: ^4.6.6
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/

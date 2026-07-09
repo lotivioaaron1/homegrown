@@ -1,0 +1,646 @@
+// lib/screens/events/create_event_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:get/get.dart';
+import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
+import '../../theme/app_theme.dart';
+
+const _kRadius   = 14.0;
+const _kErrorRed = Color(0xFFFF5C5C);
+const List<String> _kSports     = ['Basketball', 'Volleyball', 'Badminton'];
+const List<String> _kEventTypes = ['Tournament', 'Friendly', 'League'];
+const List<int>    _kMaxPlayers = [10, 15, 20];
+
+class CreateEventScreen extends StatefulWidget {
+  const CreateEventScreen({super.key});
+  @override
+  State<CreateEventScreen> createState() => _CreateEventScreenState();
+}
+
+class _CreateEventScreenState extends State<CreateEventScreen> {
+  int  _step = 0; bool _isLoading = false;
+  final _step1Key = GlobalKey<FormState>();
+  final _nameCtrl  = TextEditingController();
+  final _descCtrl  = TextEditingController();
+  final _venueCtrl = TextEditingController();
+  String _sport = ''; String _eventType = '';
+  DateTime? _eventDate; TimeOfDay? _eventTime;
+  final _searchCtrl = TextEditingController();
+  final List<Map<String, dynamic>> _addedPlayers = [];
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false; int? _maxPlayers;
+  bool _isPublic = true; bool _isDraft = false;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose(); _descCtrl.dispose();
+    _venueCtrl.dispose(); _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _nextStep() {
+    if (_step == 0) {
+      if (!_step1Key.currentState!.validate()) return;
+      if (_sport.isEmpty)     { _snack('Select Sport', 'Please select a sport.'); return; }
+      if (_eventType.isEmpty) { _snack('Event Type', 'Please select an event type.'); return; }
+      if (_eventDate == null) { _snack('Select Date', 'Please select a date.'); return; }
+    }
+    if (_step == 1 && _addedPlayers.isEmpty) {
+      _snack('No Players', 'Please add at least one player.'); return;
+    }
+    setState(() => _step++);
+  }
+
+  void _prevStep() { if (_step > 0) setState(() => _step--); }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _eventDate ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(colorScheme: ColorScheme.dark(
+          primary: AppTheme.accent, onPrimary: AppTheme.buttonFg,
+          surface: AppTheme.card, onSurface: AppTheme.textPrimary)),
+        child: child!),
+    );
+    if (picked != null) setState(() => _eventDate = picked);
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context, initialTime: _eventTime ?? TimeOfDay.now(),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(colorScheme: ColorScheme.dark(
+          primary: AppTheme.accent, onPrimary: AppTheme.buttonFg,
+          surface: AppTheme.card, onSurface: AppTheme.textPrimary)),
+        child: child!),
+    );
+    if (picked != null) setState(() => _eventTime = picked);
+  }
+
+  Future<void> _searchAthletes(String query) async {
+    if (query.trim().isEmpty) { setState(() => _searchResults = []); return; }
+    setState(() => _isSearching = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'athlete')
+          .where('primarySports', arrayContains: _sport)
+          .get();
+      final results = snapshot.docs.map((d) => d.data()).where((d) {
+        final name = '${d['firstName']} ${d['lastName']}'.toLowerCase();
+        return name.contains(query.toLowerCase()) &&
+            !_addedPlayers.any((p) => p['uid'] == d['uid']);
+      }).toList();
+      if (mounted) setState(() => _searchResults = results);
+    } catch (_) {
+      if (mounted) setState(() => _searchResults = []);
+    } finally {
+      if (mounted) setState(() => _isSearching = false);
+    }
+  }
+
+  void _addPlayer(Map<String, dynamic> player) => setState(() {
+    _addedPlayers.add(player);
+    _searchResults.removeWhere((p) => p['uid'] == player['uid']);
+    _searchCtrl.clear(); _searchResults = [];
+  });
+
+  void _removePlayer(String uid) =>
+      setState(() => _addedPlayers.removeWhere((p) => p['uid'] == uid));
+
+  Future<void> _onPublish({bool draft = false}) async {
+    setState(() { _isLoading = true; _isDraft = draft; });
+    try {
+      final uid     = FirebaseAuth.instance.currentUser!.uid;
+      final eventId = const Uuid().v4();
+      final dateTime = _eventDate != null
+          ? DateTime(_eventDate!.year, _eventDate!.month, _eventDate!.day,
+              _eventTime?.hour ?? 0, _eventTime?.minute ?? 0)
+          : null;
+
+      await FirebaseFirestore.instance.collection('events').doc(eventId).set({
+        'eventId':     eventId,
+        'organizerId': uid,
+        'name':        _nameCtrl.text.trim(),
+        'description': _descCtrl.text.trim(),
+        'sport':       _sport,
+        'eventType':   _eventType,
+        'venue':       _venueCtrl.text.trim(),
+        'eventDate':   dateTime != null ? Timestamp.fromDate(dateTime) : null,
+        'players': _addedPlayers.map((p) => {
+          'uid': p['uid'], 'fullName': p['fullName'] ?? '', 'position': p['position'] ?? '',
+        }).toList(),
+        // ← Flat UID array — lets athletes query events they're in
+        'playerUids':  _addedPlayers.map((p) => p['uid'] as String).toList(),
+        'playerCount': _addedPlayers.length,
+        'maxPlayers':  _maxPlayers,
+        'isPublic':    _isPublic,
+        'status':      draft ? 'draft' : 'upcoming',
+        'createdAt':   FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      Get.back();
+      Get.snackbar(
+        draft ? 'Draft Saved' : 'Event Published! 🏆',
+        draft ? 'Saved as draft.' : '${_nameCtrl.text.trim()} is now live!',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: AppTheme.accentSurface, colorText: AppTheme.accentText,
+        margin: const EdgeInsets.all(16), borderRadius: 12,
+        duration: const Duration(seconds: 3));
+    } catch (e) {
+      _snack('Error', e.toString(), isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _snack(String title, String msg, {bool isError = false}) {
+    Get.snackbar(title, msg,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: isError ? const Color(0xFF2A1A1A) : AppTheme.card,
+      colorText: isError ? _kErrorRed : AppTheme.textPrimary,
+      margin: const EdgeInsets.all(16), borderRadius: 12,
+      duration: const Duration(seconds: 3));
+  }
+
+  String _formatDate() => _eventDate == null
+      ? 'Select date' : DateFormat('MMM dd, yyyy').format(_eventDate!);
+
+  String _formatTime() {
+    if (_eventTime == null) return 'Select time';
+    final h = _eventTime!.hourOfPeriod == 0 ? 12 : _eventTime!.hourOfPeriod;
+    final m = _eventTime!.minute.toString().padLeft(2, '0');
+    return '$h:$m ${_eventTime!.period == DayPeriod.am ? 'AM' : 'PM'}';
+  }
+
+  String _initials(Map<String, dynamic> p) {
+    final f = (p['firstName'] as String? ?? '').isNotEmpty
+        ? (p['firstName'] as String)[0].toUpperCase() : '';
+    final l = (p['lastName'] as String? ?? '').isNotEmpty
+        ? (p['lastName'] as String)[0].toUpperCase() : '';
+    return '$f$l';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.bg,
+      body: SafeArea(child: Column(children: [
+        // Top bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(children: [
+            GestureDetector(
+              onTap: _step > 0 ? _prevStep : () => Get.back(),
+              child: Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(color: AppTheme.card,
+                  borderRadius: BorderRadius.circular(10), border: Border.all(color: AppTheme.border)),
+                child: Icon(_step > 0 ? Icons.arrow_back_ios_new_rounded : Icons.close_rounded,
+                  color: AppTheme.textPrimary, size: _step > 0 ? 16 : 18),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text('Create Event', style: TextStyle(
+              color: AppTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(color: AppTheme.accentSurface,
+                borderRadius: BorderRadius.circular(20), border: Border.all(color: AppTheme.accent)),
+              child: Text('Step ${_step + 1} of 3', style: TextStyle(
+                color: AppTheme.accentText, fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+          ]),
+        ),
+        // Progress bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(children: List.generate(3, (i) => Expanded(
+            child: Container(
+              height: 4, margin: EdgeInsets.only(right: i < 2 ? 4 : 0),
+              decoration: BoxDecoration(
+                color: i <= _step ? AppTheme.accent : AppTheme.border,
+                borderRadius: BorderRadius.circular(2)),
+            ),
+          ))),
+        ),
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (child, anim) => SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0.08, 0), end: Offset.zero).animate(anim),
+              child: FadeTransition(opacity: anim, child: child)),
+            child: KeyedSubtree(key: ValueKey<int>(_step), child: _buildStep()),
+          ),
+        ),
+      ])),
+    );
+  }
+
+  Widget _buildStep() {
+    switch (_step) {
+      case 0:  return _buildStep1();
+      case 1:  return _buildStep2();
+      default: return _buildStep3();
+    }
+  }
+
+  // ── Step 1 ──────────────────────────────────────────────────────
+  Widget _buildStep1() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      child: Form(key: _step1Key, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const _SectionHeader(icon: Icons.event_rounded, title: 'Event Info', subtitle: 'Name, sport & type'),
+        const SizedBox(height: 16),
+        _field(ctrl: _nameCtrl, hint: 'e.g. Barangay Cup 2025', icon: Icons.emoji_events_outlined,
+          validator: (v) => v!.trim().isEmpty ? 'Event name is required' : null),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _descCtrl, maxLines: 2, maxLength: 120,
+          style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+          decoration: _deco(hint: 'Description (optional)', icon: Icons.description_outlined)
+              .copyWith(counterStyle: TextStyle(color: AppTheme.sub, fontSize: 11)),
+        ),
+        const _SectionLabel(label: 'Sport'),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: _kSports.map((s) => _Chip(
+          label: s, sel: _sport == s, onTap: () => setState(() => _sport = s))).toList()),
+        const SizedBox(height: 16),
+        const _SectionLabel(label: 'Event Type'),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, children: _kEventTypes.map((t) => _Chip(
+          label: t, sel: _eventType == t, onTap: () => setState(() => _eventType = t))).toList()),
+        const SizedBox(height: 16),
+        const _SectionHeader(icon: Icons.schedule_rounded, title: 'Schedule & Venue', subtitle: 'When and where'),
+        const SizedBox(height: 16),
+        Row(children: [
+          Expanded(child: _dateTile()),
+          const SizedBox(width: 10),
+          Expanded(child: _timeTile()),
+        ]),
+        const SizedBox(height: 12),
+        _field(ctrl: _venueCtrl, hint: 'e.g. Legazpi Sports Complex', icon: Icons.location_on_outlined,
+          cap: TextCapitalization.words,
+          validator: (v) => v!.trim().isEmpty ? 'Venue is required' : null),
+        const SizedBox(height: 32),
+        _Btn(label: 'Continue', onTap: _nextStep),
+      ])),
+    );
+  }
+
+  Widget _dateTile() => GestureDetector(
+    onTap: _pickDate,
+    child: Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: AppTheme.card, borderRadius: BorderRadius.circular(_kRadius),
+        border: Border.all(color: _eventDate != null ? AppTheme.accent : AppTheme.border, width: 1.5)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Date', style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+        const SizedBox(height: 4),
+        Row(children: [
+          Icon(Icons.calendar_today_outlined,
+            color: _eventDate != null ? AppTheme.accent : AppTheme.muted, size: 14),
+          const SizedBox(width: 6),
+          Flexible(child: Text(_formatDate(), style: TextStyle(
+            color: _eventDate != null ? AppTheme.accentText : AppTheme.muted,
+            fontSize: 12, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
+        ]),
+      ]),
+    ),
+  );
+
+  Widget _timeTile() => GestureDetector(
+    onTap: _pickTime,
+    child: Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: AppTheme.card, borderRadius: BorderRadius.circular(_kRadius),
+        border: Border.all(color: _eventTime != null ? AppTheme.accent : AppTheme.border, width: 1.5)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Time', style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+        const SizedBox(height: 4),
+        Row(children: [
+          Icon(Icons.access_time_rounded,
+            color: _eventTime != null ? AppTheme.accent : AppTheme.muted, size: 14),
+          const SizedBox(width: 6),
+          Text(_formatTime(), style: TextStyle(
+            color: _eventTime != null ? AppTheme.accentText : AppTheme.muted,
+            fontSize: 12, fontWeight: FontWeight.w600)),
+        ]),
+      ]),
+    ),
+  );
+
+  // ── Step 2 ──────────────────────────────────────────────────────
+  Widget _buildStep2() {
+    return Column(children: [
+      Expanded(child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _SectionHeader(icon: Icons.group_add_rounded, title: 'Add Players',
+            subtitle: '${_nameCtrl.text.trim()} · $_sport'),
+          const SizedBox(height: 16),
+          TextField(controller: _searchCtrl, onChanged: _searchAthletes,
+            style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+            decoration: _deco(hint: 'Search athletes by name...', icon: Icons.search_rounded)),
+          const SizedBox(height: 10),
+          if (_isSearching)
+            const Center(child: Padding(padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(color: AppTheme.accent, strokeWidth: 2)))
+          else if (_searchResults.isNotEmpty)
+            Container(
+              decoration: BoxDecoration(color: AppTheme.card,
+                borderRadius: BorderRadius.circular(_kRadius), border: Border.all(color: AppTheme.border)),
+              child: Column(children: _searchResults.map((p) => ListTile(
+                dense: true,
+                leading: _Av(initials: _initials(p)),
+                title: Text(p['fullName'] ?? '', style: TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600)),
+                subtitle: Text(p['position'] ?? '',
+                  style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                trailing: GestureDetector(
+                  onTap: () => _addPlayer(p),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(color: AppTheme.accentSurface,
+                      borderRadius: BorderRadius.circular(8), border: Border.all(color: AppTheme.accent)),
+                    child: Text('Add', style: TextStyle(
+                      color: AppTheme.accentText, fontSize: 11, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              )).toList()),
+            ),
+          const SizedBox(height: 16),
+          Row(children: [
+            const _SectionLabel(label: 'Added Players'),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: AppTheme.accentSurface,
+                borderRadius: BorderRadius.circular(10), border: Border.all(color: AppTheme.accent)),
+              child: Text('${_addedPlayers.length}', style: TextStyle(
+                color: AppTheme.accentText, fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          if (_addedPlayers.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: AppTheme.card,
+                borderRadius: BorderRadius.circular(_kRadius), border: Border.all(color: AppTheme.border)),
+              child: Center(child: Column(children: [
+                Icon(Icons.group_outlined, color: AppTheme.muted, size: 32),
+                const SizedBox(height: 8),
+                Text('No players added yet', style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+                Text('Search for athletes above', style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+              ])),
+            )
+          else
+            Container(
+              decoration: BoxDecoration(color: AppTheme.card,
+                borderRadius: BorderRadius.circular(_kRadius), border: Border.all(color: AppTheme.border)),
+              child: Column(children: _addedPlayers.map((p) {
+                final isLast = _addedPlayers.last['uid'] == p['uid'];
+                return Container(
+                  decoration: BoxDecoration(border: Border(
+                    bottom: isLast ? BorderSide.none : BorderSide(color: AppTheme.border))),
+                  child: ListTile(
+                    dense: true,
+                    leading: _Av(initials: _initials(p)),
+                    title: Text(p['fullName'] ?? '', style: TextStyle(
+                      color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600)),
+                    subtitle: Text(p['position'] ?? '',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                    trailing: GestureDetector(
+                      onTap: () => _removePlayer(p['uid'] as String),
+                      child: const Icon(Icons.remove_circle_outline, color: _kErrorRed, size: 20)),
+                  ),
+                );
+              }).toList()),
+            ),
+          const SizedBox(height: 20),
+          const _SectionLabel(label: 'Max Players (optional)'),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, children: [
+            ..._kMaxPlayers.map((n) => _Chip(label: '$n', sel: _maxPlayers == n,
+              onTap: () => setState(() => _maxPlayers = _maxPlayers == n ? null : n))),
+            _Chip(label: 'No limit', sel: _maxPlayers == null,
+              onTap: () => setState(() => _maxPlayers = null)),
+          ]),
+          const SizedBox(height: 24),
+        ]),
+      )),
+      Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        child: _Btn(label: 'Continue', onTap: _nextStep)),
+    ]);
+  }
+
+  // ── Step 3 ──────────────────────────────────────────────────────
+  Widget _buildStep3() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const _SectionHeader(icon: Icons.checklist_rounded,
+          title: 'Review & Publish', subtitle: 'Confirm details'),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: AppTheme.card, borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.accent, width: 1.5)),
+          child: Column(children: [
+            _Row(label: 'Event',   value: _nameCtrl.text.trim()),
+            _Row(label: 'Sport',   value: _sport),
+            _Row(label: 'Type',    value: _eventType),
+            _Row(label: 'Date',
+              value: _eventDate != null ? '${_formatDate()} · ${_formatTime()}' : 'Not set'),
+            _Row(label: 'Venue',   value: _venueCtrl.text.trim()),
+            _Row(label: 'Players', value: '${_addedPlayers.length} registered', isAccent: true),
+            if (_maxPlayers != null)
+              _Row(label: 'Max', value: '$_maxPlayers players'),
+          ]),
+        ),
+        const SizedBox(height: 20),
+        const _SectionLabel(label: 'Registered Players'),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(color: AppTheme.card,
+            borderRadius: BorderRadius.circular(_kRadius), border: Border.all(color: AppTheme.border)),
+          child: Column(children: _addedPlayers.asMap().entries.map((e) {
+            final isLast = e.key == _addedPlayers.length - 1;
+            final p = e.value;
+            return Container(
+              decoration: BoxDecoration(border: Border(
+                bottom: isLast ? BorderSide.none : BorderSide(color: AppTheme.border))),
+              child: ListTile(
+                dense: true, leading: _Av(initials: _initials(p)),
+                title: Text(p['fullName'] ?? '', style: TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600)),
+                subtitle: Text(p['position'] ?? '',
+                  style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+              ),
+            );
+          }).toList()),
+        ),
+        const SizedBox(height: 20),
+        const _SectionLabel(label: 'Visibility'),
+        const SizedBox(height: 8),
+        Row(children: [
+          _Chip(label: '🌐  Public',  sel: _isPublic,  onTap: () => setState(() => _isPublic = true)),
+          const SizedBox(width: 8),
+          _Chip(label: '🔒  Private', sel: !_isPublic, onTap: () => setState(() => _isPublic = false)),
+        ]),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(color: AppTheme.accentSurface,
+            borderRadius: BorderRadius.circular(_kRadius), border: Border.all(color: AppTheme.accent)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Icon(Icons.star_outline_rounded, color: AppTheme.accent, size: 18),
+            const SizedBox(width: 10),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('After the game', style: TextStyle(
+                color: AppTheme.accentText, fontSize: 12, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 3),
+              Text('You can add stats for all ${_addedPlayers.length} players from this event. Points calculated automatically.',
+                style: TextStyle(color: AppTheme.sub, fontSize: 12, height: 1.5)),
+            ])),
+          ]),
+        ),
+        const SizedBox(height: 24),
+        _isLoading && !_isDraft
+            ? const Center(child: CircularProgressIndicator(color: AppTheme.accent, strokeWidth: 2.5))
+            : _Btn(label: '🏆  Publish Event', onTap: () => _onPublish(draft: false)),
+        const SizedBox(height: 12),
+        _isLoading && _isDraft
+            ? const Center(child: CircularProgressIndicator(color: AppTheme.accent, strokeWidth: 2.5))
+            : SizedBox(
+                width: double.infinity, height: 54,
+                child: OutlinedButton(
+                  onPressed: () => _onPublish(draft: true),
+                  child: Text('Save as Draft', style: TextStyle(
+                    color: AppTheme.sub, fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+              ),
+      ]),
+    );
+  }
+
+  Widget _field({required TextEditingController ctrl, required String hint,
+    required IconData icon, TextCapitalization cap = TextCapitalization.none,
+    TextInputAction? action, String? Function(String?)? validator}) {
+    return TextFormField(
+      controller: ctrl, textCapitalization: cap, textInputAction: action,
+      style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+      decoration: _deco(hint: hint, icon: icon), validator: validator);
+  }
+
+  InputDecoration _deco({required String hint, required IconData icon}) => InputDecoration(
+    hintText: hint, hintStyle: TextStyle(color: AppTheme.muted, fontSize: 14),
+    prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
+    filled: true, fillColor: AppTheme.card,
+    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(_kRadius), borderSide: BorderSide.none),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(_kRadius),
+      borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(_kRadius),
+      borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
+    errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(_kRadius),
+      borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),
+    focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(_kRadius),
+      borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),
+    errorStyle: const TextStyle(color: _kErrorRed, fontSize: 11),
+  );
+}
+
+// ── Shared Widgets ──────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  final IconData icon; final String title, subtitle;
+  const _SectionHeader({required this.icon, required this.title, required this.subtitle});
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    Container(width: 40, height: 40,
+      decoration: BoxDecoration(color: AppTheme.accentSurface,
+        borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.accent)),
+      child: Icon(icon, color: AppTheme.accent, size: 20)),
+    const SizedBox(width: 12),
+    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+      Text(subtitle, style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+    ]),
+  ]);
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  const _SectionLabel({required this.label});
+  @override
+  Widget build(BuildContext context) => Text(label,
+    style: TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700));
+}
+
+class _Row extends StatelessWidget {
+  final String label, value; final bool isAccent;
+  const _Row({required this.label, required this.value, this.isAccent = false});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(children: [
+      Text(label, style: TextStyle(color: AppTheme.sub, fontSize: 13)), const Spacer(),
+      Text(value, style: TextStyle(
+        color: isAccent ? AppTheme.accent : AppTheme.textPrimary,
+        fontSize: 13, fontWeight: FontWeight.w600)),
+    ]),
+  );
+}
+
+class _Av extends StatelessWidget {
+  final String initials;
+  const _Av({required this.initials});
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 34, height: 34,
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+        colors: [AppTheme.accent, AppTheme.accent2]),
+      borderRadius: BorderRadius.circular(10)),
+    child: Center(child: Text(initials, style: const TextStyle(
+      color: AppTheme.buttonFg, fontSize: 12, fontWeight: FontWeight.w800))),
+  );
+}
+
+class _Chip extends StatelessWidget {
+  final String label; final bool sel; final VoidCallback onTap;
+  const _Chip({required this.label, required this.sel, required this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: sel ? AppTheme.accentSurface : AppTheme.card,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: sel ? AppTheme.accent : AppTheme.border, width: sel ? 2 : 1.5)),
+      child: Text(label, style: TextStyle(
+        color: sel ? AppTheme.accentText : AppTheme.muted,
+        fontSize: 13, fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
+    ),
+  );
+}
+
+class _Btn extends StatelessWidget {
+  final String label; final VoidCallback onTap;
+  const _Btn({required this.label, required this.onTap});
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity, height: 54,
+    child: ElevatedButton(onPressed: onTap, child: Text(label)));
+}
