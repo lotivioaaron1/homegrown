@@ -8,9 +8,14 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 
-class PerformanceDashboardScreen extends StatelessWidget {
+class PerformanceDashboardScreen extends StatefulWidget {
   const PerformanceDashboardScreen({super.key});
 
+  @override
+  State<PerformanceDashboardScreen> createState() => _PerformanceDashboardScreenState();
+}
+
+class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen> {
   String get uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   int _toInt(dynamic v) {
@@ -113,10 +118,17 @@ class PerformanceDashboardScreen extends StatelessWidget {
 
     final chartStats = stats.reversed.take(6).toList().reversed.toList();
 
-    return ListView(
+    return RefreshIndicator(
+      color:           AppTheme.accent,
+      backgroundColor: AppTheme.card,
+      onRefresh: () async {
+        setState(() {});
+        await Future.delayed(const Duration(milliseconds: 800));
+      },
+      child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        // Hero row with real rank
         _buildHeroRow(totalPts, gamesPlayed, avgPts),
         const SizedBox(height: 16),
         if (chartStats.isNotEmpty) ...[
@@ -134,7 +146,7 @@ class PerformanceDashboardScreen extends StatelessWidget {
         _buildSectionTitle('🗂 Game History'),
         const SizedBox(height: 8),
         _buildGameHistory(stats),
-      ],
+      ]),
     );
   }
 

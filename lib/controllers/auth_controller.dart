@@ -39,16 +39,9 @@ class AuthController extends GetxController {
 
       await _authService.signInWithEmail(email, password);
 
-      // Block unverified email/password accounts.
-      // Google accounts are already verified by Google, so skip them.
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null &&
-          !user.emailVerified &&
-          !_isGoogleProvider(user)) {
-        Get.offAllNamed('/verify-email');
-        return;
-      }
-
+      // Always allow login — unverified users see a
+      // soft reminder banner on the home screen instead
+      // of being blocked from accessing the app.
       Get.offAllNamed('/home');
 
     } on FirebaseAuthException catch (e) {
@@ -61,9 +54,6 @@ class AuthController extends GetxController {
       isLoading.value = false;
     }
   }
-
-  bool _isGoogleProvider(User user) =>
-      user.providerData.any((p) => p.providerId == 'google.com');
 
   // ── Register (Email) ───────────────────────────
 

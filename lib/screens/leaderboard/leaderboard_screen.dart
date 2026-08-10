@@ -171,7 +171,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             final userData = userSnap.data?.data() as Map<String, dynamic>? ?? {};
             final role     = userData['role'] as String? ?? 'athlete';
 
-            return ListView(
+            return RefreshIndicator(
+              color:           AppTheme.accent,
+              backgroundColor: AppTheme.card,
+              onRefresh: () async {
+                setState(() {});
+                await Future.delayed(const Duration(milliseconds: 800));
+              },
+              child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               children: [
                 // ── Podium ──────────────────
@@ -214,7 +222,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     ),
                   ),
                 ],
-              ],
+              ]),
             );
           },
         );

@@ -12,6 +12,7 @@ import 'screens/auth/email_verification_screen.dart';
 import 'screens/auth/google_profile_setup_screen.dart';
 import 'screens/auth/forgot_password_screen.dart';
 import 'screens/venues/venue_locator_screen.dart';
+import 'screens/scout/scout_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/auth/athlete_register_screen.dart';
 import 'screens/auth/coach_register_screen.dart';
@@ -24,6 +25,8 @@ import 'screens/dashboard/performance_dashboard_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/theme_controller.dart';
+import 'services/connectivity_service.dart';
+import 'widgets/no_internet_overlay.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +47,10 @@ class HomegrownApp extends StatelessWidget {
       theme:     AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.light,
+      builder:   (context, child) => NoInternetOverlay(
+          child: child ?? const SizedBox()),
       initialBinding: BindingsBuilder(() {
+        Get.put(ConnectivityService());
         Get.put(ThemeController());
         Get.put(AuthController());
       }),
@@ -57,6 +63,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/google-profile-setup',    page: () => const GoogleProfileSetupScreen()),
         GetPage(name: '/forgot-password',         page: () => const ForgotPasswordScreen()),
         GetPage(name: '/venues',                  page: () => const VenueLocatorScreen()),
+        GetPage(name: '/scout',                   page: () => const ScoutScreen()),
         GetPage(name: '/register',           page: () => const RegisterScreen()),
         GetPage(name: '/register/athlete',   page: () => const AthleteRegisterScreen()),
         GetPage(name: '/register/coach',     page: () => const CoachRegisterScreen()),

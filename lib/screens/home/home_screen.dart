@@ -18,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  bool _bannerDismissed = false;
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -133,7 +134,12 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         break;
       case 'coach':
-        if (index == 1 || index == 2) {
+        if (index == 1) {
+          Get.toNamed('/scout')
+              ?.then((_) { if (mounted) setState(() => _navIndex = 0); });
+          return;
+        }
+        if (index == 2) {
           Get.toNamed('/leaderboard')
               ?.then((_) { if (mounted) setState(() => _navIndex = 0); });
           return;
@@ -159,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'Add Stats':      Get.toNamed('/stats/add');     return;
       case 'My Events':      Get.toNamed('/events/create'); return;
       case 'Leaderboard':    Get.toNamed('/leaderboard');   return;
-      case 'Scout Athletes': Get.toNamed('/leaderboard');   return;
+      case 'Scout Athletes': Get.toNamed('/scout');         return;
       case 'My Dashboard':   Get.toNamed('/dashboard');     return;
       case 'My Profile':     Get.toNamed('/profile');       return;
       case 'Find Games':     Get.toNamed('/venues');        return;
@@ -209,12 +215,87 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: const Icon(Icons.add_rounded))
               : null,
           body: SafeArea(child: Column(children: [
-            Expanded(child: SingleChildScrollView(
-              child: _buildBody(data, role, firstName, lastName))),
+            // ── Verification banner ───────────
+            _buildVerificationBanner(),
+            Expanded(child: RefreshIndicator(
+              color:        AppTheme.accent,
+              backgroundColor: AppTheme.card,
+              onRefresh: () async {
+                setState(() {});
+                await Future.delayed(const Duration(milliseconds: 800));
+              },
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: _buildBody(data, role, firstName, lastName)))),
             _buildBottomNav(role),
           ])),
         );
       },
+    );
+  }
+
+  Widget _buildVerificationBanner() {
+    final user = FirebaseAuth.instance.currentUser;
+    // Don't show for Google users or verified users or if dismissed
+    if (user == null || _bannerDismissed) return const SizedBox.shrink();
+    final isGoogle = user.providerData
+        .any((p) => p.providerId == 'google.com');
+    if (isGoogle || user.emailVerified) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1200),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: AppTheme.accent.withValues(alpha: 0.6))),
+      child: Row(children: [
+        const Text('✉️', style: TextStyle(fontSize: 16)),
+        const SizedBox(width: 10),
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Verify your email', style: TextStyle(
+              color: AppTheme.accentText, fontSize: 12,
+              fontWeight: FontWeight.w700)),
+            Text('Check your inbox and click the link we sent.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+          ])),
+        const SizedBox(width: 8),
+        // Resend button
+        GestureDetector(
+          onTap: () async {
+            try {
+              await FirebaseAuth.instance.currentUser
+                  ?.sendEmailVerification();
+              Get.snackbar('Email Sent ✉️',
+                'Verification link sent to ${user.email}',
+                snackPosition:   SnackPosition.BOTTOM,
+                backgroundColor: AppTheme.accentSurface,
+                colorText:       AppTheme.accentText,
+                margin:          const EdgeInsets.all(16),
+                borderRadius:    12);
+            } catch (_) {}
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppTheme.accentSurface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.accent)),
+            child: Text('Resend', style: TextStyle(
+              color: AppTheme.accentText, fontSize: 11,
+              fontWeight: FontWeight.w700))),
+        ),
+        const SizedBox(width: 6),
+        // Dismiss button
+        GestureDetector(
+          onTap: () => setState(() => _bannerDismissed = true),
+          child: Icon(Icons.close_rounded,
+              color: AppTheme.muted, size: 18)),
+      ]),
     );
   }
 

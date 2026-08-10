@@ -1,5 +1,4 @@
 // lib/screens/splash_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -198,21 +197,6 @@ class _SplashScreenState extends State<SplashScreen>
                   const Spacer(flex: 2),
 
                   // ── Dot decoration ────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(3, (i) => Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      width:  i == 0 ? 24 : 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color:        i == 0
-                            ? AppTheme.accent
-                            : const Color(0xFF2A2A3E),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    )),
-                  ),
-
                   const SizedBox(height: 24),
 
                   // ── Buttons — fade in only for new users ──
@@ -265,7 +249,7 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                   ),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 48),
                 ],
               ),
             ),

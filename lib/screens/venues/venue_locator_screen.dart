@@ -3,8 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
@@ -15,15 +14,15 @@ import '../../theme/app_theme.dart';
 // Config
 // ─────────────────────────────────────────────
 
-const _kOrsApiKey = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImU5ZTFmODZkZjgwNTRiN2ZhMmIzYzI0M2VmZDViNTQwIiwiaCI6Im11cm11cjY0In0=';
-const _kCenter    = LatLng(13.1391, 123.7438);
+const _kCenter      = LatLng(13.1391, 123.7438);
+const _kDefaultZoom = 13.5;
 
+// Known venue coordinates in Legazpi City
 const Map<String, LatLng> _kVenueCoords = {
   'legazpi sports complex':  LatLng(13.1420, 123.7391),
   'legazpi city astrodome':  LatLng(13.1355, 123.7406),
   'astrodome':               LatLng(13.1355, 123.7406),
   'penaranda park':          LatLng(13.1403, 123.7438),
-  'pennaranda park':         LatLng(13.1403, 123.7438),
   'city hall':               LatLng(13.1397, 123.7430),
   'legazpi city hall':       LatLng(13.1397, 123.7430),
   'sagumbayan court':        LatLng(13.1310, 123.7450),
@@ -35,15 +34,23 @@ const Map<String, LatLng> _kVenueCoords = {
   'landing sports complex':  LatLng(13.1370, 123.7420),
 };
 
-const List<String> _kFilters = [
-  'All', 'Basketball', 'Volleyball', 'Badminton'
-];
+// Sport → marker hue
+const Map<String, double> _kSportHue = {
+  'Basketball': BitmapDescriptor.hueYellow,
+  'Volleyball': BitmapDescriptor.hueBlue,
+  'Badminton':  BitmapDescriptor.hueGreen,
+};
 
+// Sport → legend color
 const Map<String, Color> _kSportColor = {
   'Basketball': Color(0xFFFFB800),
   'Volleyball': Color(0xFF4285F4),
   'Badminton':  Color(0xFF0F9D58),
 };
+
+const List<String> _kFilters = [
+  'All', 'Basketball', 'Volleyball', 'Badminton'
+];
 
 // ─────────────────────────────────────────────
 // VenueLocatorScreen
@@ -56,21 +63,23 @@ class VenueLocatorScreen extends StatefulWidget {
       _VenueLocatorScreenState();
 }
 
-class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
-  final MapController _mapCtrl = MapController();
+class _VenueLocatorScreenState
+    extends State<VenueLocatorScreen> {
 
-  String  _filter       = 'All';
-  bool    _isLoading    = true;
+  final Completer<GoogleMapController> _mapCompleter = Completer();
+
+  String  _filter    = 'All';
+  bool    _isLoading = true;
   String? _error;
 
   List<Map<String, dynamic>> _events      = [];
   Map<String, dynamic>?      _selected;
-  List<LatLng>               _routePoints = [];
-  bool    _isRouting    = false;
-  String  _routeDist    = '';
-  String  _routeDur     = '';
+  Set<Polyline>              _polylines   = {};
+  bool    _isRouting  = false;
+  String  _routeDist  = '';
+  String  _routeDur   = '';
 
-  // Demo user location — Legazpi City center
+  // Simulated user location — Legazpi City center
   final LatLng _userLoc = const LatLng(13.1391, 123.7438);
 
   @override
@@ -114,41 +123,76 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
         return _kVenueCoords[k]!;
       }
     }
-    // Unique offset so stacked venues spread out
     return LatLng(
       _kCenter.latitude  + (venue.hashCode % 100) * 0.0005,
       _kCenter.longitude + (venue.hashCode % 50)  * 0.0005,
     );
   }
 
-  // ── Directions ────────────────────────────
+  // ── Build markers ─────────────────────────
 
-  // ── Directions via OpenRouteService API ─────
+  Set<Marker> _buildMarkers() {
+    final markers = <Marker>{};
+    for (final ev in _filtered) {
+      final venue  = ev['venue'] as String? ?? '';
+      final sport  = ev['sport'] as String? ?? '';
+      final coords = _coordsFor(venue);
+      final hue    = _kSportHue[sport] ?? BitmapDescriptor.hueRed;
+      final isSel  = _selected?['eventId'] == ev['eventId'];
+
+      markers.add(Marker(
+        markerId: MarkerId(ev['eventId'] as String? ?? venue),
+        position: coords,
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+            isSel ? BitmapDescriptor.hueOrange : hue),
+        infoWindow: InfoWindow(
+          title:   ev['name'] as String? ?? '',
+          snippet: '$sport · $venue',
+        ),
+        onTap: () => _onMarkerTap(ev),
+      ));
+    }
+
+    // User location marker (blue dot)
+    markers.add(Marker(
+      markerId: const MarkerId('user_location'),
+      position: _userLoc,
+      icon: BitmapDescriptor.defaultMarkerWithHue(
+          BitmapDescriptor.hueAzure),
+      infoWindow: const InfoWindow(title: 'Your Location'),
+    ));
+
+    return markers;
+  }
+
+  // ── Directions via OSRM (free routing) ────
 
   Future<void> _getDirections(LatLng dest) async {
-    setState(() { _isRouting = true; _routePoints = []; });
+    setState(() { _isRouting = true; _polylines = {}; });
     try {
       final url = Uri.parse(
-        'https://api.openrouteservice.org/v2/directions/driving-car'
-        '?api_key=$_kOrsApiKey'
-        '&start=${_userLoc.longitude},${_userLoc.latitude}'
-        '&end=${dest.longitude},${dest.latitude}',
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${_userLoc.longitude},${_userLoc.latitude};'
+        '${dest.longitude},${dest.latitude}'
+        '?overview=full&geometries=geojson',
       );
 
       final res = await http.get(url, headers: {
-        'Accept':       'application/json, application/geo+json',
-        'Content-Type': 'application/json',
-      }).timeout(const Duration(seconds: 15));
+        'Accept': 'application/json',
+      }).timeout(const Duration(seconds: 10));
 
       if (res.statusCode == 200) {
-        final data    = jsonDecode(res.body);
-        final feature = data['features'][0];
-        final coords  = feature['geometry']['coordinates'] as List;
-        final segment = feature['properties']['segments'][0];
-        final distM   = (segment['distance'] as num).toDouble();
-        final durSec  = (segment['duration'] as num).toDouble();
+        final data   = jsonDecode(res.body);
+        final routes = data['routes'] as List;
+        if (routes.isEmpty) throw Exception('No route found');
 
-        final points  = coords.map((c) =>
+        final route  = routes[0];
+        final coords = route['geometry']['coordinates'] as List;
+        final distM  = (route['distance'] as num).toDouble();
+        final durSec = (route['duration'] as num).toDouble();
+
+        // Convert coords to LatLng list
+        final points = coords.map((c) =>
             LatLng((c[1] as num).toDouble(),
                    (c[0] as num).toDouble())).toList();
 
@@ -160,16 +204,26 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
             ? '${durMin ~/ 60}h ${durMin % 60}min'
             : '$durMin min';
 
+        // Build Google Maps polyline
+        final polyline = Polyline(
+          polylineId: const PolylineId('route'),
+          points:     points,
+          color:      AppTheme.accent,
+          width:      5,
+          patterns:   [],
+        );
+
         if (!mounted) return;
         setState(() {
-          _routePoints = points;
-          _routeDist   = distKm;
-          _routeDur    = durStr;
-          _isRouting   = false;
+          _polylines  = {polyline};
+          _routeDist  = distKm;
+          _routeDur   = durStr;
+          _isRouting  = false;
         });
 
-        // Auto-fit map to show full route
+        // Fit camera to show full route
         if (points.length > 1) {
+          final ctrl = await _mapCompleter.future;
           final minLat = points.map((p) => p.latitude)
               .reduce((a, b) => a < b ? a : b);
           final maxLat = points.map((p) => p.latitude)
@@ -178,36 +232,45 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
               .reduce((a, b) => a < b ? a : b);
           final maxLng = points.map((p) => p.longitude)
               .reduce((a, b) => a > b ? a : b);
-          _mapCtrl.fitCamera(CameraFit.bounds(
-            bounds: LatLngBounds(
-              LatLng(minLat - 0.003, minLng - 0.003),
-              LatLng(maxLat + 0.003, maxLng + 0.003),
+
+          ctrl.animateCamera(CameraUpdate.newLatLngBounds(
+            LatLngBounds(
+              southwest: LatLng(minLat - 0.005, minLng - 0.005),
+              northeast: LatLng(maxLat + 0.005, maxLng + 0.005),
             ),
-            padding: const EdgeInsets.all(40)));
+            60,
+          ));
         }
       } else {
-        throw Exception('ORS error ${res.statusCode}: ${res.body}');
+        throw Exception('OSRM HTTP ${res.statusCode}');
       }
-    } on TimeoutException {
-      if (mounted) setState(() { _isRouting = false; });
-      _snack('Timeout', 'Request timed out. Check your connection.');
     } catch (e) {
       if (mounted) setState(() { _isRouting = false; });
-      _snack('Directions Error', e.toString());
+      _snack('Directions Error',
+          'Could not get route. Check internet and try again.');
     }
   }
 
-
   void _clearRoute() => setState(() {
-    _routePoints = []; _routeDist = '';
-    _routeDur    = ''; _selected  = null;
+    _polylines  = {};
+    _routeDist  = '';
+    _routeDur   = '';
+    _selected   = null;
   });
+
+  // ── Marker tap ────────────────────────────
 
   void _onMarkerTap(Map<String, dynamic> ev) {
     final dest = _coordsFor(ev['venue'] as String? ?? '');
     setState(() => _selected = ev);
-    _mapCtrl.move(dest, 15);
     _showSheet(ev, dest);
+  }
+
+  // ── Animate camera to venue ───────────────
+
+  Future<void> _animateTo(LatLng dest) async {
+    final ctrl = await _mapCompleter.future;
+    ctrl.animateCamera(CameraUpdate.newLatLngZoom(dest, 16));
   }
 
   // ── Bottom sheet ──────────────────────────
@@ -236,10 +299,13 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
       builder: (_) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          // Handle
           Center(child: Container(width: 40, height: 4,
             decoration: BoxDecoration(color: AppTheme.border,
                 borderRadius: BorderRadius.circular(2)))),
           const SizedBox(height: 16),
+
+          // Header
           Row(children: [
             Container(
               width: 50, height: 50,
@@ -271,19 +337,24 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
                 color: AppTheme.accentText, fontSize: 9,
                 fontWeight: FontWeight.w700))),
           ]),
+
           const SizedBox(height: 16),
           Divider(color: AppTheme.border),
           const SizedBox(height: 12),
+
+          // Details
           _DetailRow(icon: Icons.location_on_outlined,
-              label: 'Venue', value: venue),
+              label: 'Venue',       value: venue),
           const SizedBox(height: 10),
           _DetailRow(icon: Icons.calendar_today_outlined,
               label: 'Date & Time', value: fmt),
           const SizedBox(height: 10),
           _DetailRow(icon: Icons.people_outline_rounded,
-              label: 'Players', value: '$count registered'),
+              label: 'Players',     value: '$count registered'),
+
+          // Route info banner
           if (_routeDist.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -301,7 +372,10 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
               ]),
             ),
           ],
+
           const SizedBox(height: 20),
+
+          // Action buttons
           Row(children: [
             Expanded(child: SizedBox(height: 50,
               child: ElevatedButton.icon(
@@ -312,8 +386,8 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
                 icon: _isRouting
                     ? const SizedBox(width: 16, height: 16,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppTheme.buttonFg))
+                            strokeWidth: 2,
+                            color: AppTheme.buttonFg))
                     : const Icon(Icons.directions_rounded, size: 18),
                 label: Text(
                     _isRouting ? 'Loading...' : 'Get Directions'),
@@ -341,61 +415,6 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
     colorText: AppTheme.textPrimary,
     margin: const EdgeInsets.all(16), borderRadius: 12);
 
-  // ── Markers ───────────────────────────────
-
-  List<Marker> _buildMarkers() {
-    final out = <Marker>[];
-    for (final ev in _filtered) {
-      final venue  = ev['venue'] as String? ?? '';
-      final sport  = ev['sport'] as String? ?? '';
-      final coords = _coordsFor(venue);
-      final color  = _kSportColor[sport] ?? AppTheme.accent;
-      final isSel  = _selected?['eventId'] == ev['eventId'];
-      final sz     = isSel ? 52.0 : 40.0;
-
-      out.add(Marker(
-        point: coords, width: sz + 8, height: sz + 18,
-        child: GestureDetector(
-          onTap: () => _onMarkerTap(ev),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              width: sz, height: sz,
-              decoration: BoxDecoration(
-                color: color, shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2.5),
-                boxShadow: [BoxShadow(
-                  color: color.withValues(alpha: 0.5),
-                  blurRadius: isSel ? 14 : 6,
-                  spreadRadius: isSel ? 2 : 0)]),
-              child: Center(child: Text(
-                sport == 'Basketball' ? '🏀'
-                    : sport == 'Volleyball' ? '🏐' : '🏸',
-                style: TextStyle(
-                    fontSize: isSel ? 22 : 16)))),
-            Container(width: 2.5, height: 10, color: color),
-            Container(width: 6, height: 6,
-              decoration: BoxDecoration(
-                  color: color, shape: BoxShape.circle)),
-          ]),
-        ),
-      ));
-    }
-
-    // Blue dot for user location
-    out.add(Marker(
-      point: _userLoc, width: 24, height: 24,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.blue, shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2.5),
-          boxShadow: [BoxShadow(
-              color: Colors.blue.withValues(alpha: 0.4),
-              blurRadius: 8, spreadRadius: 2)]),
-      ),
-    ));
-    return out;
-  }
-
   // ── Build ─────────────────────────────────
 
   @override
@@ -413,6 +432,8 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
       ])),
     );
   }
+
+  // ── Top bar ───────────────────────────────
 
   Widget _buildTopBar() => Padding(
     padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -436,7 +457,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
             style: TextStyle(color: AppTheme.sub, fontSize: 12)),
       ]),
       const Spacer(),
-      if (_routePoints.isNotEmpty)
+      if (_polylines.isNotEmpty)
         GestureDetector(
           onTap: _clearRoute,
           child: Container(
@@ -462,6 +483,8 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
       ),
     ]),
   );
+
+  // ── Sport filters ─────────────────────────
 
   Widget _buildFilters() => SingleChildScrollView(
     scrollDirection: Axis.horizontal,
@@ -495,45 +518,39 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
     }).toList()),
   );
 
+  // ── Main body ─────────────────────────────
+
   Widget _buildBody() {
     final events = _filtered;
     return Column(children: [
-      // ── Map ──────────────────────────────
-      Expanded(flex: 48, child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: FlutterMap(
-            mapController: _mapCtrl,
-            options: const MapOptions(
-              initialCenter: _kCenter,
-              initialZoom:   13.5,
-              maxZoom:       18.0,
-              minZoom:       10.0,
+      // ── Google Map ────────────────────────
+      Expanded(
+        flex: 48,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: GoogleMap(
+              initialCameraPosition: const CameraPosition(
+                target: _kCenter,
+                zoom:   _kDefaultZoom),
+              onMapCreated: (ctrl) {
+                if (!_mapCompleter.isCompleted) {
+                  _mapCompleter.complete(ctrl);
+                }
+              },
+              markers:   _buildMarkers(),
+              polylines: _polylines,
+              myLocationEnabled:       false,
+              myLocationButtonEnabled: false,
+              mapToolbarEnabled:       false,
+              zoomControlsEnabled:     true,
+              compassEnabled:          false,
+              mapType:                 MapType.normal,
             ),
-            children: [
-              TileLayer(
-                urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.homegrown.homegrown',
-                maxZoom: 18),
-              if (_routePoints.isNotEmpty)
-                PolylineLayer(polylines: [
-                  Polyline(
-                    points:           _routePoints,
-                    color:            AppTheme.accent,
-                    strokeWidth:      4.5,
-                    borderColor:      Colors.white,
-                    borderStrokeWidth: 1.5),
-                ]),
-              MarkerLayer(markers: _buildMarkers()),
-              const SimpleAttributionWidget(
-                source: Text('© OpenStreetMap contributors',
-                    style: TextStyle(fontSize: 9))),
-            ],
           ),
         ),
-      )),
+      ),
 
       // ── Route banner ─────────────────────
       if (_isRouting)
@@ -556,7 +573,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
             ]),
           ),
         )
-      else if (_routePoints.isNotEmpty && _routeDist.isNotEmpty)
+      else if (_polylines.isNotEmpty && _routeDist.isNotEmpty)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Container(
@@ -581,7 +598,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           ),
         ),
 
-      // ── Legend ───────────────────────────
+      // ── Legend + count ───────────────────
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         child: Row(children: [
@@ -590,14 +607,14 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
             style: TextStyle(color: AppTheme.textPrimary,
                 fontSize: 12, fontWeight: FontWeight.w700)),
           const Spacer(),
-          _LegendDot(
-              color: _kSportColor['Basketball']!, label: 'Basketball'),
+          _LegendDot(color: _kSportColor['Basketball']!,
+              label: 'Basketball'),
           const SizedBox(width: 10),
-          _LegendDot(
-              color: _kSportColor['Volleyball']!, label: 'Volleyball'),
+          _LegendDot(color: _kSportColor['Volleyball']!,
+              label: 'Volleyball'),
           const SizedBox(width: 10),
-          _LegendDot(
-              color: _kSportColor['Badminton']!,  label: 'Badminton'),
+          _LegendDot(color: _kSportColor['Badminton']!,
+              label: 'Badminton'),
         ]),
       ),
 
@@ -606,22 +623,31 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
         flex: 52,
         child: events.isEmpty
             ? _buildEmpty()
-            : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                itemCount: events.length,
-                itemBuilder: (_, i) {
-                  final ev  = events[i];
-                  final sel =
-                      _selected?['eventId'] == ev['eventId'];
-                  return _EventTile(
-                    event: ev, isSelected: sel,
-                    onTap: () {
-                      _onMarkerTap(ev);
-                      _mapCtrl.move(
-                          _coordsFor(ev['venue'] as String? ?? ''),
-                          15);
-                    });
-                }),
+            : RefreshIndicator(
+                color:           AppTheme.accent,
+                backgroundColor: AppTheme.card,
+                onRefresh:       _loadEvents,
+                child: ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  itemCount: events.length,
+                  itemBuilder: (_, i) {
+                    final ev  = events[i];
+                    final sel =
+                        _selected?['eventId'] == ev['eventId'];
+                    return _EventTile(
+                      event:      ev,
+                      isSelected: sel,
+                      onTap: () {
+                        setState(() => _selected = ev);
+                        final dest = _coordsFor(
+                            ev['venue'] as String? ?? '');
+                        _animateTo(dest);
+                        _showSheet(ev, dest);
+                      },
+                    );
+                  }),
+              ),
       ),
     ]);
   }

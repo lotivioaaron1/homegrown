@@ -173,7 +173,6 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         email:    _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      await cred.user?.sendEmailVerification();
       await FirebaseFirestore.instance
           .collection('users').doc(cred.user!.uid).set({
         'uid':               cred.user!.uid,
@@ -192,6 +191,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         'profileImageUrl':   '',
         'createdAt':         FieldValue.serverTimestamp(),
       });
+      await cred.user?.sendEmailVerification();
       if (mounted) setState(() => _showSuccess = true);
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
