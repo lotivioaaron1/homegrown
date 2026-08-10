@@ -400,7 +400,7 @@ class _OrganizerRegisterScreenState
                 return 'Passwords do not match';
               return null;
             }),
-          const SizedBox(height: 32),
+          const SizedBox(height: 262),
           _PrimaryButton(label: 'Next', onTap: _nextStep),
         ]),
       ),
