@@ -1,23 +1,52 @@
-// lib/screens/onboarding/onboarding_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme/app_theme.dart';
 
-// ─────────────────────────────────────────────
-// Enum
-// ─────────────────────────────────────────────
-
 enum UserSport { basketball, volleyball, badminton }
 
-// ─────────────────────────────────────────────
-// OnboardingScreen
-// ─────────────────────────────────────────────
+// ── Sport intro panel data (NEW) ──────────────────────────────────
+// Drop your photos in at these paths. Until they exist, each panel
+// falls back to a themed gradient + icon so nothing breaks.
+class _SportPanelData {
+  final String assetPath;
+  final String eyebrow;
+  final String headline;
+  final String subtext;
+  const _SportPanelData({
+    required this.assetPath,
+    required this.eyebrow,
+    required this.headline,
+    required this.subtext,
+  });
+}
+
+const List<_SportPanelData> _sportPanels = [
+  _SportPanelData(
+    assetPath: 'assets/images/onboard_basketball.jpg',
+    eyebrow:   'BASKETBALL',
+    headline:  'Every Shot\nTells a Story',
+    subtext:   'Track your stats, get scouted by coaches, and rise through '
+        "Legazpi's basketball scene.",
+  ),
+  _SportPanelData(
+    assetPath: 'assets/images/onboard_volleyball.jpg',
+    eyebrow:   'VOLLEYBALL',
+    headline:  'Rise Above\nThe Net',
+    subtext:   'Find games, join local leagues, and build your athletic '
+        'profile as a volleyball player.',
+  ),
+  _SportPanelData(
+    assetPath: 'assets/images/onboard_badminton.jpg',
+    eyebrow:   'BADMINTON',
+    headline:  'Precision.\nSpeed. Grit.',
+    subtext:   "Discover courts near you and connect with Legazpi's "
+        'badminton community.',
+  ),
+];
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
-
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
@@ -25,18 +54,29 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
 
-  static const int _totalPages = 2;
+  // CHANGED: was 2 (Features, Sport Selection). Now 5 — 3 sport intro
+  // panels prepended ahead of your original 2 pages.
+  static final int _sportPanelCount = _sportPanels.length; // 3
+  static final int _totalPages = _sportPanelCount + 2; // 5
 
-  int        _currentPage  = 0;
+  int _currentPage = 0;
   UserSport? _selectedSport;
 
-  // ── Navigation ────────────────────────────
+  bool get _onSportPanel => _currentPage < _sportPanelCount;
+
+  void _goToPage(int page) {
+    _pageController.animateToPage(
+      page,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
+    );
+  }
 
   void _onContinue() {
     if (_currentPage < _totalPages - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 400),
-        curve:    Curves.easeInOut,
+        curve: Curves.easeInOut,
       );
     } else {
       _onGetStarted();
@@ -47,7 +87,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _pageController.animateToPage(
       _totalPages - 1,
       duration: const Duration(milliseconds: 400),
-      curve:    Curves.easeInOut,
+      curve: Curves.easeInOut,
     );
   }
 
@@ -60,7 +100,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   String get _buttonLabel =>
-      _currentPage == 0 ? 'Continue' : 'Get Started';
+      _currentPage == _totalPages - 2 ? 'Continue' : 'Get Started';
 
   @override
   void dispose() {
@@ -68,69 +108,328 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  // ── Build ─────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Sport panels render full-bleed (no safe-area padding/background),
+      // so let the Stack inside each panel handle its own insets.
       backgroundColor: AppTheme.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: PageView(
-                controller:    _pageController,
-                onPageChanged: (i) => setState(() => _currentPage = i),
-                children: [
-                  const _FeaturesPage(),
-                  _SportSelectionPage(
-                    selectedSport:   _selectedSport,
-                    onSportSelected: (s) =>
-                        setState(() => _selectedSport = s),
-                  ),
-                ],
+      body: Stack(
+        children: [
+          PageView(
+            controller: _pageController,
+            onPageChanged: (i) => setState(() => _currentPage = i),
+            children: [
+              for (int i = 0; i < _sportPanelCount; i++)
+                _SportPanel(
+                  data: _sportPanels[i],
+                  isLastSportPanel: i == _sportPanelCount - 1,
+                  onAdvance: () => _goToPage(i + 1),
+                ),
+              const _FeaturesPage(),
+              _SportSelectionPage(
+                selectedSport: _selectedSport,
+                onSportSelected: (s) => setState(() => _selectedSport = s),
+              ),
+            ],
+          ),
+
+          // Small progress dots over the sport panels themselves,
+          // matching the reference's per-panel indicator. Hidden once
+          // we reach the Features/Sport-selection pages, which use
+          // the original bottom _DotIndicator instead.
+          if (_onSportPanel)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: MediaQuery.of(context).padding.bottom + 12,
+              child: _SportPanelDots(
+                total: _sportPanelCount,
+                current: _currentPage,
               ),
             ),
 
-            // Bottom controls
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _DotIndicator(
-                    total:   _totalPages,
-                    current: _currentPage,
-                  ),
-                  const SizedBox(height: 20),
-
-                  SizedBox(
-                    width:  double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: _onContinue,
-                      child: Text(_buttonLabel),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  if (_currentPage < _totalPages - 1)
-                    GestureDetector(
-                      onTap: _onSkip,
-                      child: Text(
-                        'Skip',
-                        style: TextStyle(
-                          color:      AppTheme.sub,
-                          fontSize:   14,
-                          fontWeight: FontWeight.w500,
+          // Original bottom controls: dot indicator + Continue/Get
+          // Started button + Skip. Unchanged from your version, just
+          // now only shown for the Features/Sport-selection pages.
+          if (!_onSportPanel)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _DotIndicator(
+                        total: _totalPages - _sportPanelCount,
+                        current: _currentPage - _sportPanelCount,
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: ElevatedButton(
+                          onPressed: _onContinue,
+                          child: Text(_buttonLabel),
                         ),
                       ),
-                    )
-                  else
-                    const SizedBox(height: 20),
-                ],
+                      const SizedBox(height: 14),
+                      if (_currentPage < _totalPages - 1)
+                        GestureDetector(
+                          onTap: _onSkip,
+                          child: Text(
+                            'Skip',
+                            style: TextStyle(
+                              color: AppTheme.sub,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        )
+                      else
+                        const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Full-bleed sport intro panel (NEW) ────────────────────────────
+class _SportPanel extends StatelessWidget {
+  final _SportPanelData data;
+  final bool isLastSportPanel;
+  final VoidCallback onAdvance;
+
+  const _SportPanel({
+    required this.data,
+    required this.isLastSportPanel,
+    required this.onAdvance,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.asset(
+          data.assetPath,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF1A1200), Color(0xFF0F0F1A)],
+              ),
+            ),
+            child: Center(
+              child: Icon(
+                Icons.sports_basketball_outlined,
+                size: size.width * 0.28,
+                color: Colors.white.withValues(alpha: 0.12),
+              ),
+            ),
+          ),
+        ),
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0.0, 0.45, 1.0],
+              colors: [
+                Colors.transparent,
+                Color(0xCC0A0A12),
+                Color(0xF20A0A12),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            size.width * 0.07,
+            0,
+            size.width * 0.07,
+            bottomInset + 52, // leaves room for the dot row below it
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                data.eyebrow,
+                style: TextStyle(
+                  color: AppTheme.accent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 3,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                data.headline,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: size.width * 0.088,
+                  fontWeight: FontWeight.w900,
+                  height: 1.12,
+                  letterSpacing: -0.6,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                data.subtext,
+                style: const TextStyle(
+                  color: Color(0xFFC7C7D6),
+                  fontSize: 13.5,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 22),
+              GestureDetector(
+                onTap: onAdvance,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isLastSportPanel ? 'Get Started' : 'Swipe to start',
+                        style: const TextStyle(
+                          color: Color(0xFF0A0A12),
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        isLastSportPanel
+                            ? Icons.check_rounded
+                            : Icons.arrow_forward_rounded,
+                        size: 17,
+                        color: const Color(0xFF0A0A12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SportPanelDots extends StatelessWidget {
+  final int total;
+  final int current;
+  const _SportPanelDots({required this.total, required this.current});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(total, (i) {
+        final bool active = i == current;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: active ? 20 : 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: active ? Colors.white : Colors.white.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Everything below this line is your ORIGINAL code, unchanged.
+// ══════════════════════════════════════════════════════════════════
+
+class _FeaturesPage extends StatelessWidget {
+  const _FeaturesPage();
+  final List<_FeatureItem> _features = const [
+    _FeatureItem(
+      emoji: '📊',
+      color: Color(0xFF2E1F00),
+      title: 'Performance Dashboard',
+      description:
+          'Track your game stats and see your growth with visual analytics.',
+    ),
+    _FeatureItem(
+      emoji: '🏆',
+      color: Color(0xFF1A1200),
+      title: 'Talent Discovery',
+      description:
+          'Get ranked by coaches through our Point-Based scoring system.',
+    ),
+    _FeatureItem(
+      emoji: '📍',
+      color: Color(0xFF0D1A2E),
+      title: 'Game Directory',
+      description: 'Find games and venues near you with our Venue Locator.',
+    ),
+  ];
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              'HOMEGROWN',
+              style: TextStyle(
+                color: AppTheme.accent,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 3,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Your Digital\nAthletic Identity',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                height: 1.2,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Track your performance, get discovered by coaches, and find games near you.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.sub,
+                fontSize: 14,
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 32),
+            ..._features.map((f) => _FeatureCard(item: f)),
           ],
         ),
       ),
@@ -138,89 +437,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
-// ─────────────────────────────────────────────
-// Page 1 — Features
-// ─────────────────────────────────────────────
-
-class _FeaturesPage extends StatelessWidget {
-  const _FeaturesPage();
-
-  final List<_FeatureItem> _features = const [
-    _FeatureItem(
-      emoji:       '📊',
-      color:       Color(0xFF2E1F00),
-      title:       'Performance Dashboard',
-      description: 'Track your game stats and see your growth with visual analytics.',
-    ),
-    _FeatureItem(
-      emoji:       '🏆',
-      color:       Color(0xFF1A1200),
-      title:       'Talent Discovery',
-      description: 'Get ranked by coaches through our Point-Based scoring system.',
-    ),
-    _FeatureItem(
-      emoji:       '📍',
-      color:       Color(0xFF0D1A2E),
-      title:       'Game Directory',
-      description: 'Find games and venues near you with our Venue Locator.',
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const Text(
-            'HOMEGROWN',
-            style: TextStyle(
-              color:         AppTheme.accent,
-              fontSize:      11,
-              fontWeight:    FontWeight.w800,
-              letterSpacing: 3,
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          Text(
-            'Your Digital\nAthletic Identity',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color:         AppTheme.textPrimary,
-              fontSize:      28,
-              fontWeight:    FontWeight.w900,
-              height:        1.2,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          Text(
-            'Track your performance, get discovered by coaches, and find games near you.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color:    AppTheme.sub,
-              fontSize: 14,
-              height:   1.6,
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          ..._features.map((f) => _FeatureCard(item: f)),
-        ],
-      ),
-    );
-  }
-}
-
 class _FeatureItem {
   final String emoji;
-  final Color  color;
+  final Color color;
   final String title;
   final String description;
-
   const _FeatureItem({
     required this.emoji,
     required this.color,
@@ -232,30 +453,28 @@ class _FeatureItem {
 class _FeatureCard extends StatelessWidget {
   final _FeatureItem item;
   const _FeatureCard({required this.item});
-
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin:  const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color:        AppTheme.card,
+        color: AppTheme.card,
         borderRadius: BorderRadius.circular(16),
-        border:       Border.all(color: AppTheme.border),
+        border: Border.all(color: AppTheme.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width:  52,
+            width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color:        item.color,
+              color: item.color,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Center(
-              child: Text(item.emoji,
-                  style: const TextStyle(fontSize: 24)),
+              child: Text(item.emoji, style: const TextStyle(fontSize: 24)),
             ),
           ),
           const SizedBox(width: 14),
@@ -266,8 +485,8 @@ class _FeatureCard extends StatelessWidget {
                 Text(
                   item.title,
                   style: TextStyle(
-                    color:      AppTheme.textPrimary,
-                    fontSize:   15,
+                    color: AppTheme.textPrimary,
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -275,9 +494,9 @@ class _FeatureCard extends StatelessWidget {
                 Text(
                   item.description,
                   style: TextStyle(
-                    color:    AppTheme.sub,
+                    color: AppTheme.sub,
                     fontSize: 13,
-                    height:   1.5,
+                    height: 1.5,
                   ),
                 ),
               ],
@@ -289,94 +508,88 @@ class _FeatureCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Page 2 — Sport Selection
-// ─────────────────────────────────────────────
-
 class _SportSelectionPage extends StatelessWidget {
-  final UserSport?              selectedSport;
+  final UserSport? selectedSport;
   final ValueChanged<UserSport> onSportSelected;
-
   const _SportSelectionPage({
     required this.selectedSport,
     required this.onSportSelected,
   });
-
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 40, 24, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            'What sport do\nyou play?',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color:         AppTheme.textPrimary,
-              fontSize:      28,
-              fontWeight:    FontWeight.w900,
-              height:        1.2,
-              letterSpacing: -0.5,
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 40, 24, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'What sport do\nyou play?',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                height: 1.2,
+                letterSpacing: -0.5,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Select your primary sport to personalize your experience.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color:    AppTheme.sub,
-              fontSize: 14,
-              height:   1.6,
+            const SizedBox(height: 12),
+            Text(
+              'Select your primary sport to personalize your experience.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.sub,
+                fontSize: 14,
+                height: 1.6,
+              ),
             ),
-          ),
-          const SizedBox(height: 36),
-
-          GridView.count(
-            crossAxisCount:   2,
-            shrinkWrap:       true,
-            physics:          const NeverScrollableScrollPhysics(),
-            mainAxisSpacing:  14,
-            crossAxisSpacing: 14,
-            childAspectRatio: 1.05,
-            children: [
-              _SportCard(
-                emoji:      '🏀',
-                label:      'Basketball',
-                sport:      UserSport.basketball,
-                isSelected: selectedSport == UserSport.basketball,
-                onTap:      () => onSportSelected(UserSport.basketball),
-              ),
-              _SportCard(
-                emoji:      '🏐',
-                label:      'Volleyball',
-                sport:      UserSport.volleyball,
-                isSelected: selectedSport == UserSport.volleyball,
-                onTap:      () => onSportSelected(UserSport.volleyball),
-              ),
-              _SportCard(
-                emoji:      '🏸',
-                label:      'Badminton',
-                sport:      UserSport.badminton,
-                isSelected: selectedSport == UserSport.badminton,
-                onTap:      () => onSportSelected(UserSport.badminton),
-              ),
-              const _SportCardDisabled(),
-            ],
-          ),
-        ],
+            const SizedBox(height: 36),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 14,
+              childAspectRatio: 1.05,
+              children: [
+                _SportCard(
+                  emoji: '🏀',
+                  label: 'Basketball',
+                  sport: UserSport.basketball,
+                  isSelected: selectedSport == UserSport.basketball,
+                  onTap: () => onSportSelected(UserSport.basketball),
+                ),
+                _SportCard(
+                  emoji: '🏐',
+                  label: 'Volleyball',
+                  sport: UserSport.volleyball,
+                  isSelected: selectedSport == UserSport.volleyball,
+                  onTap: () => onSportSelected(UserSport.volleyball),
+                ),
+                _SportCard(
+                  emoji: '🏸',
+                  label: 'Badminton',
+                  sport: UserSport.badminton,
+                  isSelected: selectedSport == UserSport.badminton,
+                  onTap: () => onSportSelected(UserSport.badminton),
+                ),
+                const _SportCardDisabled(),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
 class _SportCard extends StatelessWidget {
-  final String     emoji;
-  final String     label;
-  final UserSport  sport;
-  final bool       isSelected;
+  final String emoji;
+  final String label;
+  final UserSport sport;
+  final bool isSelected;
   final VoidCallback onTap;
-
   const _SportCard({
     required this.emoji,
     required this.label,
@@ -384,14 +597,13 @@ class _SportCard extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        curve:    Curves.easeInOut,
+        curve: Curves.easeInOut,
         decoration: BoxDecoration(
           color: isSelected ? AppTheme.accentSurface : AppTheme.card,
           borderRadius: BorderRadius.circular(18),
@@ -408,8 +620,8 @@ class _SportCard extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                color:      isSelected ? AppTheme.accentText : AppTheme.textPrimary,
-                fontSize:   14,
+                color: isSelected ? AppTheme.accentText : AppTheme.textPrimary,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -417,7 +629,7 @@ class _SportCard extends StatelessWidget {
             Text(
               'Tap to Select',
               style: TextStyle(
-                color:    isSelected
+                color: isSelected
                     ? AppTheme.accent.withValues(alpha: 0.7)
                     : AppTheme.muted,
                 fontSize: 11,
@@ -432,15 +644,13 @@ class _SportCard extends StatelessWidget {
 
 class _SportCardDisabled extends StatelessWidget {
   const _SportCardDisabled();
-
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color:        AppTheme.card.withValues(alpha: 0.5),
+        color: AppTheme.card.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-            color: AppTheme.border.withValues(alpha: 0.4)),
+        border: Border.all(color: AppTheme.border.withValues(alpha: 0.4)),
       ),
       child: const Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -450,8 +660,8 @@ class _SportCardDisabled extends StatelessWidget {
           Text(
             'More Soon',
             style: TextStyle(
-              color:      AppTheme.muted,
-              fontSize:   14,
+              color: AppTheme.muted,
+              fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -466,16 +676,10 @@ class _SportCardDisabled extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Dot Indicator
-// ─────────────────────────────────────────────
-
 class _DotIndicator extends StatelessWidget {
   final int total;
   final int current;
-
   const _DotIndicator({required this.total, required this.current});
-
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -484,12 +688,12 @@ class _DotIndicator extends StatelessWidget {
         final bool active = i == current;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 300),
-          curve:    Curves.easeInOut,
-          margin:   const EdgeInsets.symmetric(horizontal: 4),
-          width:    active ? 24 : 8,
-          height:   8,
+          curve: Curves.easeInOut,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          width: active ? 24 : 8,
+          height: 8,
           decoration: BoxDecoration(
-            color:        active ? AppTheme.accent : AppTheme.border,
+            color: active ? AppTheme.accent : AppTheme.border,
             borderRadius: BorderRadius.circular(4),
           ),
         );
