@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:iconsax/iconsax.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme/app_theme.dart';
 
@@ -369,22 +370,19 @@ class _FeaturesPage extends StatelessWidget {
   const _FeaturesPage();
   final List<_FeatureItem> _features = const [
     _FeatureItem(
-      emoji: '📊',
-      color: Color(0xFF2E1F00),
+      icon: Iconsax.chart_2,
       title: 'Performance Dashboard',
       description:
           'Track your game stats and see your growth with visual analytics.',
     ),
     _FeatureItem(
-      emoji: '🏆',
-      color: Color(0xFF1A1200),
+      icon: Iconsax.cup,
       title: 'Talent Discovery',
       description:
           'Get ranked by coaches through our Point-Based scoring system.',
     ),
     _FeatureItem(
-      emoji: '📍',
-      color: Color(0xFF0D1A2E),
+      icon: Iconsax.location,
       title: 'Game Directory',
       description: 'Find games and venues near you with our Venue Locator.',
     ),
@@ -438,13 +436,11 @@ class _FeaturesPage extends StatelessWidget {
 }
 
 class _FeatureItem {
-  final String emoji;
-  final Color color;
+  final IconData icon;
   final String title;
   final String description;
   const _FeatureItem({
-    required this.emoji,
-    required this.color,
+    required this.icon,
     required this.title,
     required this.description,
   });
@@ -470,11 +466,21 @@ class _FeatureCard extends StatelessWidget {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: item.color,
-              borderRadius: BorderRadius.circular(12),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.accent.withValues(alpha: 0.22),
+                  AppTheme.accent2.withValues(alpha: 0.10),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: AppTheme.accent.withValues(alpha: 0.25),
+              ),
             ),
             child: Center(
-              child: Text(item.emoji, style: const TextStyle(fontSize: 24)),
+              child: Icon(item.icon, size: 24, color: AppTheme.accent),
             ),
           ),
           const SizedBox(width: 14),

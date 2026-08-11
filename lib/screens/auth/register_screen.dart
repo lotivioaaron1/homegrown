@@ -1,12 +1,12 @@
 // lib/screens/auth/register_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:iconsax/iconsax.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/homegrown_logo.dart';
 
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -17,97 +17,60 @@ class RegisterScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 48),
-
-              // ── Logo ──────────────────────────
-              Container(
-                width:  64,
-                height: 64,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin:  Alignment.topLeft,
-                    end:    Alignment.bottomRight,
-                    colors: [AppTheme.accent, AppTheme.accent2],
-                  ),
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color:        AppTheme.accent.withValues(alpha: 0.3),
-                      blurRadius:   20,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: const Center(
-                  child: Text(
-                    'HG',
-                    style: TextStyle(
-                      color:      AppTheme.buttonFg,
-                      fontSize:   22,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
+              const SizedBox(height: 36),
+              const HomegrownLogo(size: 64),
+              const SizedBox(height: 22),
               Text(
-                'Join Homegrown',
+                'Where do you fit in?',
                 style: TextStyle(
-                  color:         AppTheme.textPrimary,
-                  fontSize:      26,
-                  fontWeight:    FontWeight.w900,
+                  color: AppTheme.textPrimary,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
                   letterSpacing: -0.4,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               Text(
-                'Choose how you want to participate',
-                style: TextStyle(color: AppTheme.sub, fontSize: 14),
+                'Athletes compete. Coaches scout.\nOrganizers run the show.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.sub, fontSize: 14, height: 1.5),
               ),
-
-              const SizedBox(height: 40),
-
-              // ── Role cards ────────────────────
+              const SizedBox(height: 36),
               _RoleCard(
-                emoji:       '🏃',
-                label:       'Athlete',
+                icon: Iconsax.flash_1,
+                iconColor: const Color(0xFFFF8A34),
+                label: 'Athlete',
                 description: 'Track stats, earn points,\nget discovered by coaches',
-                onTap:       () => Get.toNamed('/register/athlete'),
+                onTap: () => Get.toNamed('/register/athlete'),
               ),
               const SizedBox(height: 14),
               _RoleCard(
-                emoji:       '🧢',
-                label:       'Coach',
+                icon: Iconsax.judge,
+                iconColor: const Color(0xFF4AB3FF),
+                label: 'Coach',
                 description: 'Scout talent, manage your\nroster and team lineup',
-                onTap:       () => Get.toNamed('/register/coach'),
+                onTap: () => Get.toNamed('/register/coach'),
               ),
               const SizedBox(height: 14),
               _RoleCard(
-                emoji:       '📋',
-                label:       'Organizer',
+                icon: Iconsax.calendar_1,
+                iconColor: const Color(0xFF5FE0A0),
+                label: 'Organizer',
                 description: 'Create events, manage\ntournaments and venues',
-                onTap:       () => Get.toNamed('/register/organizer'),
+                onTap: () => Get.toNamed('/register/organizer'),
               ),
-
               const Spacer(),
-
-              // ── Sign In link ──────────────────
               GestureDetector(
                 onTap: () => Get.offNamed('/login'),
                 child: RichText(
                   text: TextSpan(
-                    text:  'Already have an account?  ',
-                    style: TextStyle(
-                        color: AppTheme.sub, fontSize: 14),
+                    text: 'Already have an account?  ',
+                    style: TextStyle(color: AppTheme.sub, fontSize: 14),
                     children: const [
                       TextSpan(
-                        text:  'Sign In',
+                        text: 'Sign In',
                         style: TextStyle(
-                          color:      AppTheme.accent,
+                          color: AppTheme.accent,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -115,8 +78,7 @@ class RegisterScreen extends StatelessWidget {
                   ),
                 ),
               ),
-
-              const SizedBox(height: 36),
+              const SizedBox(height: 28),
             ],
           ),
         ),
@@ -125,23 +87,19 @@ class RegisterScreen extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Role Card
-// ─────────────────────────────────────────────
-
 class _RoleCard extends StatelessWidget {
-  final String       emoji;
-  final String       label;
-  final String       description;
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String description;
   final VoidCallback onTap;
-
   const _RoleCard({
-    required this.emoji,
+    required this.icon,
+    required this.iconColor,
     required this.label,
     required this.description,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -149,28 +107,33 @@ class _RoleCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color:        AppTheme.card,
+          color: AppTheme.card,
           borderRadius: BorderRadius.circular(16),
-          border:       Border.all(color: AppTheme.border, width: 1.5),
+          border: Border.all(color: AppTheme.border, width: 1.5),
         ),
         child: Row(
           children: [
-            // Icon box
+            // Icon badge — outline glyph over a soft tinted surface,
+            // same treatment used across the Features and Sport
+            // Selection cards for a consistent icon system.
             Container(
-              width:  50,
+              width: 50,
               height: 50,
               decoration: BoxDecoration(
-                color:        AppTheme.accentSurface,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    iconColor.withValues(alpha: 0.22),
+                    iconColor.withValues(alpha: 0.08),
+                  ],
+                ),
                 borderRadius: BorderRadius.circular(14),
-                border:       Border.all(color: AppTheme.border),
+                border: Border.all(color: iconColor.withValues(alpha: 0.32)),
               ),
-              child: Center(
-                child: Text(emoji,
-                    style: const TextStyle(fontSize: 22)),
-              ),
+              child: Icon(icon, size: 24, color: iconColor),
             ),
             const SizedBox(width: 16),
-
             // Text
             Expanded(
               child: Column(
@@ -179,8 +142,8 @@ class _RoleCard extends StatelessWidget {
                   Text(
                     label,
                     style: TextStyle(
-                      color:      AppTheme.textPrimary,
-                      fontSize:   16,
+                      color: AppTheme.textPrimary,
+                      fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -188,19 +151,18 @@ class _RoleCard extends StatelessWidget {
                   Text(
                     description,
                     style: TextStyle(
-                      color:    AppTheme.sub,
+                      color: AppTheme.sub,
                       fontSize: 12,
-                      height:   1.5,
+                      height: 1.5,
                     ),
                   ),
                 ],
               ),
             ),
-
             const Icon(
               Icons.arrow_forward_ios_rounded,
               color: AppTheme.muted,
-              size:  16,
+              size: 16,
             ),
           ],
         ),
