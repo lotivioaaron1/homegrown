@@ -33,7 +33,7 @@
 
 This is a plain value class with no behavior beyond its constructor (same shape as the `LegazpiVenue` class it replaces) — per this repo's existing precedent (`DirectionsResult`/`DirectionsException` in `lib/services/directions_service.dart` have no dedicated unit tests of their own; they're exercised through the service that constructs them), it doesn't get a standalone test file. It's covered by the tests in Task 2 (`PlacesService`, which constructs `Venue` instances from parsed API responses).
 
-- [ ] **Step 1: Create the model file**
+- [x] **Step 1: Create the model file**
 
 ```dart
 // lib/models/venue.dart
@@ -57,17 +57,17 @@ class Venue {
 }
 ```
 
-- [ ] **Step 2: Verify it compiles cleanly**
+- [x] **Step 2: Verify it compiles cleanly**
 
 Run: `flutter analyze lib/models/venue.dart`
 Expected: `No issues found!`
 
-- [ ] **Step 3: Confirm the rest of the app is unaffected**
+- [x] **Step 3: Confirm the rest of the app is unaffected**
 
 Run: `flutter test test/services test/utils test/models test/constants`
 Expected: all existing tests still pass (this file isn't referenced by anything yet).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add lib/models/venue.dart
@@ -86,7 +86,7 @@ git commit -m "Add Venue model as the shared value type for live venue sourcing"
 - Consumes: `Venue` (Task 1) — `Venue({required name, required address, required lat, required lng, required type})`
 - Produces: `class PlacesService { static Future<List<Venue>> searchVenues(String query, {http.Client? client}); }`, `class PlacesException implements Exception { final String message; PlacesException(this.message); }`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/services/places_service_test.dart`:
 
@@ -116,8 +116,8 @@ void main() {
       expect(bias['center']['latitude'], 13.1391);
       expect(bias['center']['longitude'], 123.7438);
       expect(bias['radius'], 15000);
-      expect(capturedHeaders!['x-goog-api-key'], isNotEmpty);
-      expect(capturedHeaders!['x-goog-fieldmask'], contains('places.location'));
+      expect(capturedHeaders!['X-Goog-Api-Key'], isNotEmpty);
+      expect(capturedHeaders!['X-Goog-FieldMask'], contains('places.location'));
     });
 
     test('parses successful results into a list of Venue', () async {
@@ -186,12 +186,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `flutter test test/services/places_service_test.dart`
 Expected: compilation failure — `Error when reading 'lib/services/places_service.dart': The system cannot find the file specified.`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `lib/services/places_service.dart`:
 
@@ -273,12 +273,12 @@ class PlacesException implements Exception {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `flutter test test/services/places_service_test.dart`
 Expected: `00:00 +6: All tests passed!`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/services/places_service.dart test/services/places_service_test.dart
@@ -296,7 +296,7 @@ git commit -m "Add PlacesService for live Google Places venue search"
 **Interfaces:**
 - Produces: `class GeocodingService { static Future<String?> reverseGeocode(LatLng point, {http.Client? client}); }` — returns the formatted address, or `null` if none could be resolved (not an exception — a soft-fail the caller falls back on).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `test/services/geocoding_service_test.dart`:
 
@@ -363,12 +363,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `flutter test test/services/geocoding_service_test.dart`
 Expected: compilation failure — `lib/services/geocoding_service.dart` not found.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `lib/services/geocoding_service.dart`:
 
@@ -414,12 +414,12 @@ class GeocodingService {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `flutter test test/services/geocoding_service_test.dart`
 Expected: `00:00 +5: All tests passed!`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/services/geocoding_service.dart test/services/geocoding_service_test.dart
@@ -439,7 +439,7 @@ git commit -m "Add GeocodingService for reverse-geocoding manual venue pins"
 
 No automated test for this file: it's a `GoogleMap`-based interactive widget, and this repo's test setup has no widget-test harness capable of exercising map taps or platform channels (the one existing widget test, `test/widget_test.dart`, already fails for unrelated Firebase-initialization reasons — see repo notes). Verified manually in Task 6's manual check instead, consistent with how this repo already handles map-widget testing (`venue_locator_screen.dart` has no widget tests either).
 
-- [ ] **Step 1: Create the screen**
+- [x] **Step 1: Create the screen**
 
 ```dart
 // lib/screens/events/venue_map_picker_screen.dart
@@ -553,12 +553,12 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
 }
 ```
 
-- [ ] **Step 2: Verify it compiles cleanly**
+- [x] **Step 2: Verify it compiles cleanly**
 
 Run: `flutter analyze lib/screens/events/venue_map_picker_screen.dart`
 Expected: `No issues found!`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add lib/screens/events/venue_map_picker_screen.dart
@@ -577,7 +577,7 @@ git commit -m "Add VenueMapPickerScreen as the manual venue-pin fallback"
 
 No automated test (same reasoning as Task 4 — interactive bottom-sheet widget, no harness for it in this repo). `PlacesService`'s own logic is already covered by Task 2's tests; this task is verified by `flutter analyze` plus the manual check in Task 6.
 
-- [ ] **Step 1: Update imports and the `_selectedVenue` field type**
+- [x] **Step 1: Update imports and the `_selectedVenue` field type**
 
 In `lib/screens/events/create_event_screen.dart`, replace the top of the import block:
 
@@ -626,7 +626,7 @@ with:
   Venue? _selectedVenue;
 ```
 
-- [ ] **Step 2: Replace `_pickVenue()` with the live-search version**
+- [x] **Step 2: Replace `_pickVenue()` with the live-search version**
 
 Replace the entire `_pickVenue()` method (from `void _pickVenue() {` through its closing `}`) with:
 
@@ -804,21 +804,21 @@ Replace the entire `_pickVenue()` method (from `void _pickVenue() {` through its
   }
 ```
 
-- [ ] **Step 3: Verify it compiles cleanly**
+- [x] **Step 3: Verify it compiles cleanly**
 
 Run: `flutter analyze lib/screens/events/create_event_screen.dart`
 Expected: `No issues found!` (note: Step 3's review UI and `_onPublish()` read `_selectedVenue!.name/.address/.lat/.lng/.type` — identical field names on `Venue` as on the old `LegazpiVenue`, so no other part of this file needs to change.)
 
-- [ ] **Step 4: Confirm nothing else broke**
+- [x] **Step 4: Confirm nothing else broke**
 
 Run: `flutter test test/services test/utils test/models test/constants`
 Expected: all pass (this file isn't covered by automated tests either way).
 
-- [ ] **Step 5: Manual check (requires live Places API)**
+- [x] **Step 5: Manual check (requires live Places API)**
 
 Run the app, open "Create Event," tap the venue field, type "Astrodome" and wait ~400ms — confirm real search results appear with addresses. Type something nonsensical (e.g. "zzzznotarealplace") — confirm "No venues found" and a "Can't find it? Drop a pin" button appear; tap it, tap a point on the map, confirm an address (or coordinate fallback) appears and "Confirm Location" is enabled; confirm it sets the venue and returns to the form.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/screens/events/create_event_screen.dart
@@ -835,18 +835,18 @@ git commit -m "Replace static venue list with live Places search + map-pin fallb
 
 By this point nothing in `lib/` imports `lib/constants/legazpi_venues.dart` (Task 5 removed the only consumer). Confirm before deleting.
 
-- [ ] **Step 1: Confirm there are no remaining references**
+- [x] **Step 1: Confirm there are no remaining references**
 
-Run (from repo root): `grep -rl "legazpi_venues" lib/ test/ || echo "no references found"`
-Expected: `no references found` (excluding the two files being deleted themselves — if this greps anything else, stop and investigate before deleting).
+Run (from repo root): `grep -rl "legazpi_venues" lib/ test/ --exclude="legazpi_venues.dart" --exclude="legazpi_venues_test.dart" || echo "no references found"`
+Expected: `no references found`. (The two files about to be deleted both contain their own filename in a header comment, e.g. `// lib/constants/legazpi_venues.dart` — they're excluded from this search on purpose so a clean result reads unambiguously; if anything else is printed, stop and investigate before deleting.)
 
-- [ ] **Step 2: Delete the files**
+- [x] **Step 2: Delete the files**
 
 ```bash
 git rm lib/constants/legazpi_venues.dart test/constants/legazpi_venues_test.dart
 ```
 
-- [ ] **Step 3: Verify the whole project still builds and tests pass**
+- [x] **Step 3: Verify the whole project still builds and tests pass**
 
 Run: `flutter analyze`
 Expected: no new errors (pre-existing lint infos unrelated to this change are fine — see repo notes; there should be zero mentions of `legazpi_venues` or `LegazpiVenue`).
@@ -854,7 +854,7 @@ Expected: no new errors (pre-existing lint infos unrelated to this change are fi
 Run: `flutter test test/services test/utils test/models`
 Expected: all pass (note: `test/constants` no longer exists as a target — omit it here).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "Remove the static kLegazpiVenues catalog, superseded by live Places search"
@@ -872,7 +872,7 @@ git commit -m "Remove the static kLegazpiVenues catalog, superseded by live Plac
 
 No automated test — position streaming needs a real or simulated location provider this repo's test setup can't drive (same class of limitation as Task 4). Verified manually.
 
-- [ ] **Step 1: Add the subscription field and start it as a stream**
+- [x] **Step 1: Add the subscription field and start it as a stream**
 
 Replace:
 
@@ -961,7 +961,7 @@ with:
   }
 ```
 
-- [ ] **Step 2: Remove the now-redundant custom user marker**
+- [x] **Step 2: Remove the now-redundant custom user marker**
 
 In `_buildMarkers()`, remove this block (the `GoogleMap` widget already has `myLocationEnabled: true`, which draws the SDK's own live blue dot — this custom marker was a stale, one-shot duplicate of it):
 
@@ -979,21 +979,21 @@ In `_buildMarkers()`, remove this block (the `GoogleMap` widget already has `myL
 
 leaving `_buildMarkers()` ending with just `return markers;` after the event-marker loop.
 
-- [ ] **Step 3: Verify it compiles cleanly**
+- [x] **Step 3: Verify it compiles cleanly**
 
 Run: `flutter analyze lib/screens/venues/venue_locator_screen.dart`
 Expected: `No issues found!`
 
-- [ ] **Step 4: Confirm the rest of the suite is unaffected**
+- [x] **Step 4: Confirm the rest of the suite is unaffected**
 
 Run: `flutter test test/services test/utils test/models`
 Expected: all pass (this screen has no automated tests either way — `DirectionsService`, which it calls, is unaffected by this change).
 
-- [ ] **Step 5: Manual check**
+- [x] **Step 5: Manual check**
 
 Run the app on a device or emulator, open the venue locator. Confirm exactly one "you are here" indicator is visible (the native blue dot), not two overlapping markers. Change the simulated/real location (e.g. `adb -s <device> emu geo fix <lng> <lat>` on an emulator) and confirm the blue dot moves without needing to reopen the screen. Tap "Get Directions" on an event — confirm it still only recalculates on tap, not continuously as location updates.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/screens/venues/venue_locator_screen.dart
@@ -1007,7 +1007,7 @@ git commit -m "Track user location live instead of a one-shot GPS snapshot"
 **Files:**
 - Modify: `CLAUDE.md` ("Domain data" paragraph)
 
-- [ ] **Step 1: Replace the Domain data paragraph**
+- [x] **Step 1: Replace the Domain data paragraph**
 
 Replace:
 
@@ -1021,7 +1021,7 @@ with:
 **Domain data:** Static reference data lives in `lib/constants/` as plain Dart `const` values, not fetched from Firestore. Venue data is a deliberate exception: it's sourced live via `PlacesService` ([lib/services/places_service.dart](lib/services/places_service.dart), wrapping Google's Places API) when an organizer creates an event, with a manual map-pin fallback (`VenueMapPickerScreen`, using `GeocodingService` for reverse-geocoding) for venues Google doesn't index. This replaced an earlier hand-typed `kLegazpiVenues` list whose guessed coordinates proved unreliable in practice (a mid-city venue was off by hundreds of meters, and free-text geocoding of small local venues by name produced results hundreds of kilometers wrong).
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add CLAUDE.md
