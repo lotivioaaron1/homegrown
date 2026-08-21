@@ -93,11 +93,16 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           accuracy: LocationAccuracy.high,
           distanceFilter: 10,
         ),
-      ).listen((pos) {
-        if (mounted) {
-          setState(() => _userLoc = LatLng(pos.latitude, pos.longitude));
-        }
-      });
+      ).listen(
+        // No setState: _userLoc is only read on demand in
+        // _getDirections, never during build, so rebuilding the whole
+        // screen every ~10m of movement would be wasted work.
+        (pos) => _userLoc = LatLng(pos.latitude, pos.longitude),
+        // Permission revoked or location services turned off mid-session
+        // arrive as async stream errors — absorb them and keep the last
+        // known location (Legazpi center by default).
+        onError: (_) {},
+      );
     } catch (_) {
       // Falls back to Legazpi center if GPS unavailable
     }

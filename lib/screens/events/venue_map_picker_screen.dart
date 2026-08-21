@@ -23,6 +23,26 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
   bool _isResolving = false;
   int _requestToken = 0;
 
+  // The organizer-typed venue name. Informal barangay courts are
+  // exactly the venues Google doesn't index, so they need a real
+  // human-readable name rather than a street address or raw coords.
+  final _nameCtrl = TextEditingController();
+  String _prefilledName = '';
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Seeds the name field from the geocoded address as a starting
+  /// point — but never overwrites a name the organizer typed.
+  void _applyPrefill(String? address) {
+    if (_nameCtrl.text.isNotEmpty && _nameCtrl.text != _prefilledName) return;
+    _prefilledName = address ?? '';
+    _nameCtrl.text = _prefilledName;
+  }
+
   Future<void> _onTap(LatLng point) async {
     _requestToken++;
     final currentToken = _requestToken;
@@ -38,26 +58,30 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
       setState(() {
         _address = address;
         _isResolving = false;
+        _applyPrefill(address);
       });
     } catch (e) {
       if (!mounted || _requestToken != currentToken) return;
       setState(() {
         _address = null;
         _isResolving = false;
+        _applyPrefill(null);
       });
     }
   }
 
+  bool get _canConfirm => _tapped != null && _nameCtrl.text.trim().isNotEmpty;
+
   void _confirm() {
-    if (_tapped == null) return;
-    final label = _address ??
+    if (!_canConfirm) return;
+    final address = _address ??
         '${_tapped!.latitude.toStringAsFixed(5)}, '
             '${_tapped!.longitude.toStringAsFixed(5)}';
     Navigator.pop(
       context,
       Venue(
-        name: label,
-        address: label,
+        name: _nameCtrl.text.trim(),
+        address: address,
         lat: _tapped!.latitude,
         lng: _tapped!.longitude,
         type: 'Venue',
@@ -104,11 +128,38 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
                 style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
               ),
               const SizedBox(height: 12),
+              TextField(
+                controller: _nameCtrl,
+                textCapitalization: TextCapitalization.words,
+                style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: 'Venue name (e.g. Barangay 12 Court)',
+                  hintStyle: TextStyle(color: AppTheme.muted, fontSize: 13),
+                  prefixIcon: Icon(Icons.place_outlined,
+                      color: AppTheme.muted, size: 20),
+                  filled: true,
+                  fillColor: AppTheme.bg,
+                  contentPadding: const EdgeInsets.symmetric(
+                      vertical: 14, horizontal: 16),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppTheme.border)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                          BorderSide(color: AppTheme.accent, width: 1.5)),
+                ),
+              ),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _tapped == null ? null : _confirm,
+                  onPressed: _canConfirm ? _confirm : null,
                   child: const Text('Confirm Location'),
                 ),
               ),

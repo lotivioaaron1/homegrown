@@ -89,5 +89,51 @@ void main() {
 
       expect(results.first.type, 'Venue');
     });
+
+    test('drops a place with no location instead of pinning it at (0, 0)', () async {
+      final client = MockClient((request) async => http.Response(jsonEncode({
+        'places': [
+          {
+            'displayName': {'text': 'Nowhere Court', 'languageCode': 'en'},
+            'formattedAddress': 'Legazpi City, Albay, Philippines',
+            'primaryType': 'stadium',
+          },
+          {
+            'displayName': {'text': 'Real Court', 'languageCode': 'en'},
+            'formattedAddress': 'Legazpi City, Albay, Philippines',
+            'location': {'latitude': 13.14, 'longitude': 123.74},
+            'primaryType': 'stadium',
+          },
+        ],
+      }), 200));
+
+      final results = await PlacesService.searchVenues('court', client: client);
+
+      expect(results, hasLength(1));
+      expect(results.single.name, 'Real Court');
+    });
+
+    test('drops a place with no displayName instead of naming it "Unknown venue"', () async {
+      final client = MockClient((request) async => http.Response(jsonEncode({
+        'places': [
+          {
+            'formattedAddress': 'Legazpi City, Albay, Philippines',
+            'location': {'latitude': 13.14, 'longitude': 123.74},
+            'primaryType': 'stadium',
+          },
+          {
+            'displayName': {'text': 'Named Court', 'languageCode': 'en'},
+            'formattedAddress': 'Legazpi City, Albay, Philippines',
+            'location': {'latitude': 13.15, 'longitude': 123.75},
+            'primaryType': 'stadium',
+          },
+        ],
+      }), 200));
+
+      final results = await PlacesService.searchVenues('court', client: client);
+
+      expect(results, hasLength(1));
+      expect(results.single.name, 'Named Court');
+    });
   });
 }

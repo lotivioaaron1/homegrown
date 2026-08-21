@@ -51,18 +51,30 @@ class PlacesService {
     final places = data['places'] as List?;
     if (places == null) return [];
 
-    return places.map((p) {
-      final place = p as Map<String, dynamic>;
-      final displayName = place['displayName'] as Map<String, dynamic>?;
-      final location = place['location'] as Map<String, dynamic>?;
-      return Venue(
-        name: displayName?['text'] as String? ?? 'Unknown venue',
-        address: place['formattedAddress'] as String? ?? '',
-        lat: (location?['latitude'] as num?)?.toDouble() ?? 0.0,
-        lng: (location?['longitude'] as num?)?.toDouble() ?? 0.0,
-        type: place['primaryType'] as String? ?? 'Venue',
-      );
-    }).toList();
+    // A place with no usable name or coordinates can't be shown as a
+    // search result or used as a directions destination — drop it
+    // rather than inventing a placeholder name or a (0, 0) pin.
+    return places
+        .map((p) {
+          final place = p as Map<String, dynamic>;
+          final displayName = place['displayName'] as Map<String, dynamic>?;
+          final location = place['location'] as Map<String, dynamic>?;
+          final name = displayName?['text'] as String?;
+          final lat = (location?['latitude'] as num?)?.toDouble();
+          final lng = (location?['longitude'] as num?)?.toDouble();
+          if (name == null || name.isEmpty || lat == null || lng == null) {
+            return null;
+          }
+          return Venue(
+            name: name,
+            address: place['formattedAddress'] as String? ?? '',
+            lat: lat,
+            lng: lng,
+            type: place['primaryType'] as String? ?? 'Venue',
+          );
+        })
+        .whereType<Venue>()
+        .toList();
   }
 }
 

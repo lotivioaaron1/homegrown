@@ -56,8 +56,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     List<Venue> results = [];
     bool isSearching = false;
     bool hasSearched = false;
+    bool searchFailed = false;
     bool sheetOpen = true;
     Timer? debounce;
+    // Guards against a slow response for an older query overwriting
+    // the results of a newer one the user has since typed.
+    int searchToken = 0;
 
     showModalBottomSheet(
       context: context,
@@ -69,28 +73,41 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         builder: (ctx, setModal) {
           Future<void> runSearch(String q) async {
             if (!sheetOpen) return;
+            searchToken++;
+            final token = searchToken;
             if (q.trim().isEmpty) {
+              // Bumping the token above already discarded any in-flight
+              // response, so this has to clear the spinner itself.
               if (ctx.mounted) {
-                setModal(() { results = []; hasSearched = false; });
+                setModal(() {
+                  results = []; hasSearched = false;
+                  searchFailed = false; isSearching = false;
+                });
               }
               return;
             }
-            if (ctx.mounted) setModal(() => isSearching = true);
+            if (ctx.mounted) {
+              setModal(() { isSearching = true; searchFailed = false; });
+            }
             try {
               final found = await PlacesService.searchVenues(q);
-              if (ctx.mounted) {
-                setModal(() {
-                  results = found; isSearching = false; hasSearched = true;
-                });
-              }
-            } catch (_) {
-              if (ctx.mounted) {
-                setModal(() {
-                  results = []; isSearching = false; hasSearched = true;
-                });
-                _snack('Search Error',
-                    'Could not search venues. Check internet connection.');
-              }
+              if (!sheetOpen || !ctx.mounted || token != searchToken) return;
+              setModal(() {
+                results = found; isSearching = false;
+                hasSearched = true; searchFailed = false;
+              });
+            } catch (e) {
+              if (!sheetOpen || !ctx.mounted || token != searchToken) return;
+              setModal(() {
+                results = []; isSearching = false;
+                hasSearched = true; searchFailed = true;
+              });
+              _snack(
+                'Search Error',
+                e is PlacesException
+                    ? e.message
+                    : 'Could not search venues. Check internet connection.',
+                isError: true);
             }
           }
 
@@ -103,14 +120,56 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             }
           }
 
+          // Always reachable — Places often returns plausible-but-wrong
+          // matches, so the manual pin can't be gated on zero results.
+          Widget dropPinButton() => TextButton.icon(
+            onPressed: openMapPicker,
+            icon: Icon(Icons.add_location_alt_rounded,
+                color: AppTheme.accent),
+            label: Text("Can't find it? Drop a pin",
+                style: TextStyle(color: AppTheme.accent)),
+          );
+
           Widget buildResults(ScrollController ctrl) {
             if (isSearching) {
               return const Center(child: CircularProgressIndicator(
                   color: AppTheme.accent, strokeWidth: 2));
             }
             if (!hasSearched) {
-              return Center(child: Text('Type to search for a venue',
-                  style: TextStyle(color: AppTheme.muted, fontSize: 13)));
+              return Center(child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Type to search for a venue',
+                      style: TextStyle(
+                          color: AppTheme.muted, fontSize: 13)),
+                  const SizedBox(height: 12),
+                  dropPinButton(),
+                ],
+              ));
+            }
+            if (searchFailed) {
+              return Center(child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.wifi_off_rounded,
+                      color: AppTheme.muted, size: 32),
+                  const SizedBox(height: 10),
+                  Text('Something went wrong', style: TextStyle(
+                      color: AppTheme.textPrimary, fontSize: 14,
+                      fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text("We couldn't search venues just now.",
+                      style: TextStyle(
+                          color: AppTheme.muted, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => runSearch(search.text),
+                    child: Text('Retry',
+                        style: TextStyle(color: AppTheme.accent)),
+                  ),
+                  dropPinButton(),
+                ],
+              ));
             }
             if (results.isEmpty) {
               return Center(child: Column(
@@ -120,51 +179,17 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       color: AppTheme.textPrimary, fontSize: 14,
                       fontWeight: FontWeight.w700)),
                   const SizedBox(height: 12),
-                  TextButton.icon(
-                    onPressed: openMapPicker,
-                    icon: Icon(Icons.add_location_alt_rounded,
-                        color: AppTheme.accent),
-                    label: Text("Can't find it? Drop a pin",
-                        style: TextStyle(color: AppTheme.accent)),
-                  ),
+                  dropPinButton(),
                 ],
               ));
             }
-            return ListView.builder(
-              controller: ctrl,
-              itemCount: results.length,
-              itemBuilder: (_, i) {
-                final v = results[i];
-                final sel = v.name == _selectedVenue?.name;
-                return ListTile(
-                  dense: true,
-                  leading: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color: sel
-                          ? AppTheme.accentSurface : AppTheme.cardNested,
-                      borderRadius: BorderRadius.circular(8),
-                      border: sel
-                          ? Border.all(color: AppTheme.accent) : null),
-                    child: Icon(Icons.location_on_rounded,
-                        color: sel ? AppTheme.accent : AppTheme.muted,
-                        size: 18)),
-                  title: Text(v.name, style: TextStyle(
-                    color: sel ? AppTheme.accentText : AppTheme.textPrimary,
-                    fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 13)),
-                  subtitle: Text(v.address, style: TextStyle(
-                      color: AppTheme.muted, fontSize: 11)),
-                  trailing: sel
-                      ? Icon(Icons.check_circle_rounded,
-                          color: AppTheme.accent, size: 20) : null,
-                  onTap: () {
-                    setState(() => _selectedVenue = v);
-                    Navigator.pop(ctx);
-                  },
-                );
-              },
-            );
+            return Column(children: [
+              Expanded(child: _buildVenueList(ctrl, results, ctx)),
+              Divider(color: AppTheme.border, height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: dropPinButton()),
+            ]);
           }
 
           return DraggableScrollableSheet(
@@ -224,6 +249,45 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       sheetOpen = false;
       debounce?.cancel();
     });
+  }
+
+  Widget _buildVenueList(
+      ScrollController ctrl, List<Venue> results, BuildContext sheetCtx) {
+    return ListView.builder(
+      controller: ctrl,
+      itemCount: results.length,
+      itemBuilder: (_, i) {
+        final v = results[i];
+        final sel = v.name == _selectedVenue?.name;
+        return ListTile(
+          dense: true,
+          leading: Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: sel
+                  ? AppTheme.accentSurface : AppTheme.cardNested,
+              borderRadius: BorderRadius.circular(8),
+              border: sel
+                  ? Border.all(color: AppTheme.accent) : null),
+            child: Icon(Icons.location_on_rounded,
+                color: sel ? AppTheme.accent : AppTheme.muted,
+                size: 18)),
+          title: Text(v.name, style: TextStyle(
+            color: sel ? AppTheme.accentText : AppTheme.textPrimary,
+            fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 13)),
+          subtitle: Text(v.address, style: TextStyle(
+              color: AppTheme.muted, fontSize: 11)),
+          trailing: sel
+              ? Icon(Icons.check_circle_rounded,
+                  color: AppTheme.accent, size: 20) : null,
+          onTap: () {
+            setState(() => _selectedVenue = v);
+            Navigator.pop(sheetCtx);
+          },
+        );
+      },
+    );
   }
 
   // ── Navigation ────────────────────────────
