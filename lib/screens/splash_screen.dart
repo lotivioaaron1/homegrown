@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -97,7 +98,7 @@ class _SplashScreenState extends State<SplashScreen>
           ImageFiltered(
             imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
             child: Image.asset(
-              'assets/images/mayon_volcano.jpg',
+              'assets/images/ring.jpg',
               fit: BoxFit.cover,
               color: Colors.black.withValues(alpha: 0.12),
               colorBlendMode: BlendMode.darken,
@@ -171,6 +172,17 @@ class _SplashScreenState extends State<SplashScreen>
                             fontWeight: FontWeight.w900,
                             height: 1.14,
                             letterSpacing: -1.0,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '"I can do all things through Christ\nwho strengthens me." — Philippians 4:13',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.dancingScript(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            height: 1.3,
                           ),
                         ),
                       ],

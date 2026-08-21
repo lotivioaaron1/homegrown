@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
+import '../../services/team_service.dart';
+import '../../utils/stat_scoring.dart';
 
 // ─────────────────────────────────────────────
 // Constants
@@ -32,6 +34,20 @@ class _ScoutScreenState extends State<ScoutScreen> {
   String  _selectedSport = 'All Sports';
   bool    _openOnly      = false;
   String  _searchQuery   = '';
+  Map<String, dynamic>? _coachProfile;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetched once and cached — the coach's own name/team don't change
+    // mid-session, so there's no need to re-read on every profile-sheet open.
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      FirebaseFirestore.instance.collection('users').doc(uid).get().then((doc) {
+        if (mounted) setState(() => _coachProfile = doc.data());
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -328,6 +344,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
   // ── Profile bottom sheet ──────────────────
 
   void _showProfile(Map<String, dynamic> a) {
+    final athleteUid = a['uid'] as String? ?? '';
     final firstName = a['firstName'] as String? ?? '';
     final lastName  = a['lastName']  as String? ?? '';
     final position  = a['position']  as String? ?? '—';
@@ -340,6 +357,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
         ?.map((e) => e.toString()).join(', ') ?? '—';
     final isOpen    = a['openToRecruitment'] as bool? ?? false;
     final pts       = _toInt(a['points']);
+    final photoUrl  = a['photoUrl'] as String?;
     final initials  = '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'.toUpperCase();
 
     showModalBottomSheet(
@@ -378,11 +396,20 @@ class _ScoutScreenState extends State<ScoutScreen> {
                     shape: BoxShape.circle,
                     border: Border.all(
                         color: AppTheme.accent, width: 2.5)),
-                  child: Center(child: Text(initials,
-                    style: const TextStyle(
-                      color:      AppTheme.buttonFg,
-                      fontSize:   22,
-                      fontWeight: FontWeight.w900)))),
+                  child: ClipOval(
+                    child: photoUrl != null && photoUrl.isNotEmpty
+                        ? Image.network(photoUrl, fit: BoxFit.cover,
+                            width: 72, height: 72,
+                            errorBuilder: (_, __, ___) => Center(
+                                child: Text(initials, style: const TextStyle(
+                                    color: AppTheme.buttonFg, fontSize: 22,
+                                    fontWeight: FontWeight.w900))))
+                        : Center(child: Text(initials,
+                            style: const TextStyle(
+                                color: AppTheme.buttonFg,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900))),
+                  )),
                 const SizedBox(height: 10),
                 Text('$firstName $lastName', style: TextStyle(
                   color:      AppTheme.textPrimary,
@@ -441,6 +468,9 @@ class _ScoutScreenState extends State<ScoutScreen> {
               ]),
 
               const SizedBox(height: 16),
+              _buildStatAverages(athleteUid),
+
+              const SizedBox(height: 16),
               Divider(color: AppTheme.border),
               const SizedBox(height: 12),
 
@@ -475,6 +505,10 @@ class _ScoutScreenState extends State<ScoutScreen> {
 
               const SizedBox(height: 24),
 
+              // Invite to Team button
+              _buildInviteButton(athleteUid, '$firstName $lastName', photoUrl),
+              const SizedBox(height: 10),
+
               // Close button
               SizedBox(
                 width: double.infinity, height: 50,
@@ -490,6 +524,158 @@ class _ScoutScreenState extends State<ScoutScreen> {
       ),
     );
   }
+
+  // ── Per-stat-category averages ────────────
+  // Answers "what is this player good at" (rebounding, steals, etc.)
+  // rather than one comparative number, which is what Rating answers.
+
+  Widget _buildStatAverages(String athleteUid) {
+    if (athleteUid.isEmpty) return const SizedBox.shrink();
+    return FutureBuilder<QuerySnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('stats')
+          .where('athleteId', isEqualTo: athleteUid)
+          .get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox(
+            height: 32,
+            child: Center(child: SizedBox(
+              width: 18, height: 18,
+              child: CircularProgressIndicator(
+                  color: AppTheme.accent, strokeWidth: 2))));
+        }
+        final docs = snapshot.data!.docs;
+        if (docs.isEmpty) return const SizedBox.shrink();
+
+        final bySport = <String, List<Map<String, dynamic>>>{};
+        for (final d in docs) {
+          final data = d.data() as Map<String, dynamic>;
+          final sport = data['sport'] as String? ?? '';
+          final stats = (data['stats'] as Map?)?.cast<String, dynamic>() ?? {};
+          bySport.putIfAbsent(sport, () => []).add(stats);
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Averages', style: TextStyle(
+              color: AppTheme.textPrimary, fontSize: 12,
+              fontWeight: FontWeight.w700)),
+            const SizedBox(height: 10),
+            ...bySport.entries.map((e) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _SportAverages(sport: e.key, games: e.value),
+            )),
+          ],
+        );
+      },
+    );
+  }
+
+  // ── Invite to Team button ─────────────────
+
+  Widget _buildInviteButton(
+      String athleteUid, String athleteName, String? athletePhotoUrl) {
+    final coachUid = FirebaseAuth.instance.currentUser?.uid;
+    if (coachUid == null || athleteUid.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: TeamService.streamRoster(coachUid),
+      builder: (context, rosterSnapshot) {
+        final isFull =
+            (rosterSnapshot.data?.docs.length ?? 0) >= TeamService.maxPlayers;
+
+        return StreamBuilder<DocumentSnapshot>(
+          stream: TeamService.streamMembershipStatus(coachUid, athleteUid),
+          builder: (context, snapshot) {
+            final data = snapshot.data?.data() as Map<String, dynamic>?;
+            final status = data?['status'] as String?;
+
+            if (status == 'accepted') {
+              return _inviteButton(
+                label: 'Already on Your Team',
+                color: AppTheme.success,
+                onPressed: null,
+              );
+            }
+            if (status == 'pending') {
+              return _inviteButton(
+                label: 'Invite Pending',
+                color: AppTheme.muted,
+                onPressed: null,
+              );
+            }
+            if (isFull) {
+              return _inviteButton(
+                label: 'Team Full',
+                color: AppTheme.muted,
+                onPressed: null,
+              );
+            }
+            return _inviteButton(
+              label: 'Invite to Team',
+              color: AppTheme.accent,
+              onPressed: () async {
+                final coachName = _coachProfile?['fullName'] as String? ?? '';
+                final teamName =
+                    _coachProfile?['teamOrganization'] as String? ?? 'your team';
+                try {
+                  await TeamService.sendInvite(
+                    coachId: coachUid,
+                    coachName: coachName,
+                    teamName: teamName,
+                    athleteId: athleteUid,
+                    athleteName: athleteName,
+                    athletePhotoUrl: athletePhotoUrl,
+                  );
+                  Get.snackbar('Invite Sent', 'Invite sent to $athleteName',
+                      snackPosition: SnackPosition.BOTTOM,
+                      backgroundColor: AppTheme.card,
+                      colorText: AppTheme.textPrimary,
+                      margin: const EdgeInsets.all(16),
+                      borderRadius: 12,
+                      duration: const Duration(seconds: 2));
+                } on TeamFullException {
+                  Get.snackbar('Team Full',
+                      'Your roster is already at its max of '
+                          '${TeamService.maxPlayers} players.',
+                      snackPosition: SnackPosition.BOTTOM,
+                      backgroundColor: AppTheme.card,
+                      colorText: AppTheme.textPrimary,
+                      margin: const EdgeInsets.all(16),
+                      borderRadius: 12,
+                      duration: const Duration(seconds: 2));
+                }
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _inviteButton({
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) =>
+      SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: ElevatedButton(
+          onPressed: onPressed,
+          style: ElevatedButton.styleFrom(
+              backgroundColor: color,
+              foregroundColor: AppTheme.buttonFg,
+              disabledBackgroundColor: color.withValues(alpha: 0.25),
+              disabledForegroundColor: color),
+          child: Text(label, style: const TextStyle(
+              fontSize: 14, fontWeight: FontWeight.w700)),
+        ),
+      );
 
   // ── Empty state ───────────────────────────
 
@@ -575,6 +761,7 @@ class _AthleteCard extends StatelessWidget {
         ?.map((e) => e.toString()).toList() ?? [];
     final isOpen    = athlete['openToRecruitment'] as bool? ?? false;
     final pts       = _toInt(athlete['points']);
+    final photoUrl  = athlete['photoUrl'] as String?;
     final initials  =
         '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'
             .toUpperCase();
@@ -626,12 +813,24 @@ class _AthleteCard extends StatelessWidget {
                         : [AppTheme.cardNested,
                            AppTheme.cardNested]),
                   borderRadius: BorderRadius.circular(12)),
-                child: Center(child: Text(initials,
-                  style: TextStyle(
-                    color: rank <= 3
-                        ? AppTheme.buttonFg : AppTheme.muted,
-                    fontSize:   14,
-                    fontWeight: FontWeight.w800)))),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: photoUrl != null && photoUrl.isNotEmpty
+                      ? Image.network(photoUrl, fit: BoxFit.cover,
+                          width: 42, height: 42,
+                          errorBuilder: (_, __, ___) => Center(
+                              child: Text(initials, style: TextStyle(
+                                  color: rank <= 3
+                                      ? AppTheme.buttonFg : AppTheme.muted,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800))))
+                      : Center(child: Text(initials,
+                          style: TextStyle(
+                              color: rank <= 3
+                                  ? AppTheme.buttonFg : AppTheme.muted,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800))),
+                )),
               const SizedBox(width: 10),
 
               // Name + position
@@ -736,6 +935,53 @@ class _AthleteCard extends StatelessWidget {
 // ─────────────────────────────────────────────
 // Shared profile sheet widgets
 // ─────────────────────────────────────────────
+
+class _SportAverages extends StatelessWidget {
+  final String sport;
+  final List<Map<String, dynamic>> games;
+  const _SportAverages({required this.sport, required this.games});
+
+  String _format(String label, double value) {
+    final formatted = value == value.roundToDouble()
+        ? value.toInt().toString()
+        : value.toStringAsFixed(1);
+    return label == 'Win Rate %' ? '$formatted%' : formatted;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final avgs = averageStats(sport, games);
+    if (avgs.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$sport · ${games.length} game${games.length == 1 ? '' : 's'}',
+          style: TextStyle(color: AppTheme.sub, fontSize: 11,
+              fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: avgs.entries.map((e) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.cardNested,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.border)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(e.key, style: TextStyle(color: AppTheme.muted, fontSize: 9)),
+                Text(_format(e.key, e.value), style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 13,
+                    fontWeight: FontWeight.w800)),
+              ],
+            ),
+          )).toList(),
+        ),
+      ],
+    );
+  }
+}
 
 class _StatBox extends StatelessWidget {
   final String value, label;

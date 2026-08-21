@@ -6,26 +6,31 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
+import '../../services/rating_service.dart';
 
 class PerformanceDashboardScreen extends StatefulWidget {
   const PerformanceDashboardScreen({super.key});
 
   @override
-  State<PerformanceDashboardScreen> createState() => _PerformanceDashboardScreenState();
+  State<PerformanceDashboardScreen> createState() =>
+      _PerformanceDashboardScreenState();
 }
 
-class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen> {
+class _PerformanceDashboardScreenState
+    extends State<PerformanceDashboardScreen> {
   String get uid => FirebaseAuth.instance.currentUser?.uid ?? '';
+  String? _selectedRatingSport;
 
   int _toInt(dynamic v) {
-    if (v is int)    return v;
+    if (v is int) return v;
     if (v is double) return v.toInt();
     return 0;
   }
 
   double _toDouble(dynamic v) {
-    if (v is int)    return v.toDouble();
+    if (v is int) return v.toDouble();
     if (v is double) return v;
     return 0.0;
   }
@@ -48,7 +53,7 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
                     .collection('users').doc(uid).snapshots(),
                 builder: (context, userSnap) {
                   if (statsSnap.connectionState == ConnectionState.waiting ||
-                      userSnap.connectionState  == ConnectionState.waiting) {
+                      userSnap.connectionState == ConnectionState.waiting) {
                     return Center(child: CircularProgressIndicator(
                         color: AppTheme.accent, strokeWidth: 2.5));
                   }
@@ -84,8 +89,8 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
             decoration: BoxDecoration(color: AppTheme.card,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppTheme.border)),
-            child: Icon(Icons.arrow_back_ios_new_rounded,
-                color: AppTheme.textPrimary, size: 16)),
+            child: Icon(LucideIcons.chevronLeft,
+                color: AppTheme.textPrimary, size: 18)),
         ),
         const SizedBox(width: 12),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -104,53 +109,52 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
       List<Map<String, dynamic>> stats) {
     if (stats.isEmpty) return _buildEmpty();
 
-    final totalPts    = _toInt(userData['points']);
+    final totalPts = _toInt(userData['points']);
     final gamesPlayed = stats.length;
-    final avgPts      = gamesPlayed > 0
-        ? (totalPts / gamesPlayed).round() : 0;
+    final avgPts = gamesPlayed > 0 ? (totalPts / gamesPlayed).round() : 0;
 
-    final sportTotals = <String, int>{};
-    for (final s in stats) {
-      final sport = s['sport'] as String? ?? 'Unknown';
-      final pts   = _toDouble(s['pointsAwarded']).round();
-      sportTotals[sport] = (sportTotals[sport] ?? 0) + pts;
-    }
+    // CHANGED: Sport Breakdown section removed — with only one
+    // primary sport per athlete right now, it always showed a
+    // single 100% bar, which isn't real information. Bring it back
+    // once multi-sport athletes are supported.
 
     final chartStats = stats.reversed.take(6).toList().reversed.toList();
 
     return RefreshIndicator(
-      color:           AppTheme.accent,
+      color: AppTheme.accent,
       backgroundColor: AppTheme.card,
       onRefresh: () async {
         setState(() {});
         await Future.delayed(const Duration(milliseconds: 800));
       },
       child: ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        _buildHeroRow(totalPts, gamesPlayed, avgPts),
-        const SizedBox(height: 16),
-        if (chartStats.isNotEmpty) ...[
-          _buildSectionTitle('📈 Points Per Game'),
-          const SizedBox(height: 8),
-          _buildChart(context, chartStats),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          _buildHeroRow(totalPts, gamesPlayed, avgPts),
           const SizedBox(height: 16),
-        ],
-        if (sportTotals.isNotEmpty) ...[
-          _buildSectionTitle('🏅 Sport Breakdown'),
+          _buildRatingsSection(userData),
+          if (chartStats.isNotEmpty) ...[
+            _buildSectionTitle(LucideIcons.trendingUp, 'Points Per Game'),
+            const SizedBox(height: 8),
+            _buildChart(context, chartStats),
+            const SizedBox(height: 16),
+          ],
+          _buildSectionTitle(LucideIcons.history, 'Game History'),
           const SizedBox(height: 8),
-          _buildSportBreakdown(sportTotals, totalPts),
-          const SizedBox(height: 16),
+          _buildGameHistory(stats),
         ],
-        _buildSectionTitle('🗂 Game History'),
-        const SizedBox(height: 8),
-        _buildGameHistory(stats),
-      ]),
+      ),
     );
   }
 
   // ── Hero row ──────────────────────────────
+  // CHANGED: dropped the accent border/tinted-background treatment
+  // on "Total Pts" — that styling reads as a selected/toggled state
+  // (same pattern used for picked cards elsewhere), which is
+  // confusing on a row of 4 static read-only numbers. All 4 tiles
+  // now share one neutral card style; the primary metric is still
+  // set apart, just by text color instead of a border.
 
   Widget _buildHeroRow(int totalPts, int games, int avg) {
     return FutureBuilder<QuerySnapshot>(
@@ -171,7 +175,7 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
         }
         return Row(children: [
           Expanded(child: _HeroCard(
-              value: '$totalPts', label: 'Total Pts', isAccent: true)),
+              value: '$totalPts', label: 'Total Pts', isAccentText: true)),
           const SizedBox(width: 8),
           Expanded(child: _HeroCard(value: rank, label: 'City Rank')),
           const SizedBox(width: 8),
@@ -183,7 +187,81 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
     );
   }
 
+  // ── Ratings ───────────────────────────────
+
+  Widget _buildRatingsSection(Map<String, dynamic> userData) {
+    final ratings = (userData['ratings'] as Map?)?.cast<String, dynamic>() ?? {};
+    if (ratings.isEmpty) return const SizedBox.shrink();
+    _selectedRatingSport ??= ratings.keys.first;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _buildSectionTitle(LucideIcons.swords, 'Your Ratings'),
+        const SizedBox(height: 8),
+        Row(
+          children: ratings.entries.map((e) {
+            final sport = e.key;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: GestureDetector(
+                onTap: () => setState(() => _selectedRatingSport = sport),
+                child: _RatingChip(
+                  sport: sport,
+                  rating: _toInt(e.value),
+                  selected: _selectedRatingSport == sport,
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 12),
+        _buildRatingTrend(_selectedRatingSport!),
+      ]),
+    );
+  }
+
+  Widget _buildRatingTrend(String sport) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: RatingService.ratingHistoryStream(uid, sport),
+      builder: (context, snap) {
+        final docs = (snap.data?.docs ?? []).take(6).toList().reversed.toList();
+        if (docs.isEmpty) {
+          return Text('No rated matches yet for this sport',
+              style: TextStyle(color: AppTheme.sub, fontSize: 12));
+        }
+        return SizedBox(
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final entry = docs[i].data() as Map<String, dynamic>;
+              final delta = _toInt(entry['delta']);
+              final won = entry['result'] == 'win';
+              final color = won ? AppTheme.success : AppTheme.error;
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.card,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: color.withValues(alpha: 0.5))),
+                child: Text(
+                  '${_toInt(entry['newRating'])} (${delta >= 0 ? '+' : ''}$delta)',
+                  style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   // ── Chart ─────────────────────────────────
+  // CHANGED: bottom axis now shows both the date and a truncated
+  // event name (two lines) instead of generic "G1/G2/G3" labels
+  // that told you nothing about which game was which.
 
   Widget _buildChart(BuildContext context,
       List<Map<String, dynamic>> chartStats) {
@@ -192,14 +270,14 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
         .fold(0.0, (a, b) => a > b ? a : b);
 
     return Container(
-      height: 160,
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 8),
+      height: 190,
+      padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
       decoration: BoxDecoration(color: AppTheme.card,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.border)),
       child: BarChart(
         BarChartData(
-          maxY: (maxPts * 1.3).ceilToDouble(),
+          maxY: (maxPts * 1.35).ceilToDouble(),
           minY: 0,
           gridData: FlGridData(
             show: true,
@@ -208,34 +286,53 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
                 FlLine(color: AppTheme.border, strokeWidth: 1)),
           borderData: FlBorderData(show: false),
           titlesData: FlTitlesData(
-            topTitles:   AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
             rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            leftTitles:  AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(sideTitles: SideTitles(
-              showTitles:   true,
-              reservedSize: 22,
+              showTitles: true,
+              reservedSize: 34,
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
                 if (i < 0 || i >= chartStats.length) return const SizedBox();
+                final stat = chartStats[i];
+                final ts = stat['createdAt'] as Timestamp?;
+                final dateLabel =
+                    ts != null ? DateFormat('MMM d').format(ts.toDate()) : '';
+                final rawName = stat['eventName'] as String? ?? '';
+                final nameLabel = rawName.length > 7
+                    ? '${rawName.substring(0, 6)}…'
+                    : rawName;
                 return Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text('G${i + 1}', style: TextStyle(
-                    color: AppTheme.muted, fontSize: 9,
-                    fontWeight: FontWeight.w600)));
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Column(children: [
+                    Text(dateLabel, style: TextStyle(
+                        color: AppTheme.sub,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700)),
+                    Text(nameLabel, style: TextStyle(
+                        color: AppTheme.muted, fontSize: 8)),
+                  ]),
+                );
               },
             )),
           ),
           barGroups: chartStats.asMap().entries.map((e) {
             final pts = _toDouble(e.value['pointsAwarded']);
             final pct = maxPts > 0 ? pts / maxPts : 0.0;
-            final color = pct >= 0.8 ? AppTheme.accent
-                : pct >= 0.5 ? const Color(0xFFFFD04D)
-                : const Color(0xFFFFE9A0);
+            final color = pct >= 0.8
+                ? AppTheme.accent
+                : pct >= 0.5
+                    ? const Color(0xFFFFD04D)
+                    : const Color(0xFFFFE9A0);
             return BarChartGroupData(x: e.key, barRods: [
               BarChartRodData(
-                toY: pts, width: 16, color: color,
-                borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(5))),
+                toY: pts,
+                width: 18,
+                color: color,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(5)),
+              ),
             ]);
           }).toList(),
           barTouchData: BarTouchData(
@@ -244,57 +341,25 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
               tooltipRoundedRadius: 8,
               getTooltipItem: (group, _, rod, __) => BarTooltipItem(
                 '${rod.toY.toInt()} pts',
-                TextStyle(color: AppTheme.accentText,
-                    fontSize: 11, fontWeight: FontWeight.w700)),
+                TextStyle(
+                    color: AppTheme.accentText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700),
+              ),
             ),
           ),
         ),
         swapAnimationDuration: const Duration(milliseconds: 400),
-        swapAnimationCurve:    Curves.easeInOut,
+        swapAnimationCurve: Curves.easeInOut,
       ),
     );
   }
 
-  // ── Sport breakdown ───────────────────────
-
-  Widget _buildSportBreakdown(Map<String, int> totals, int totalPts) {
-    final sorted = totals.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final emoji = {'Basketball': '🏀', 'Volleyball': '🏐', 'Badminton': '🏸'};
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: AppTheme.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border)),
-      child: Column(children: sorted.map((e) {
-        final pct = totalPts > 0 ? e.value / totalPts : 0.0;
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(children: [
-            Text(emoji[e.key] ?? '🏅',
-                style: const TextStyle(fontSize: 16)),
-            const SizedBox(width: 10),
-            SizedBox(width: 80, child: Text(e.key, style: TextStyle(
-              color: AppTheme.textPrimary, fontSize: 12,
-              fontWeight: FontWeight.w600))),
-            Expanded(child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: pct, minHeight: 6,
-                backgroundColor: AppTheme.border,
-                valueColor: const AlwaysStoppedAnimation(AppTheme.accent)),
-            )),
-            const SizedBox(width: 10),
-            Text('${e.value}', style: TextStyle(
-              color: AppTheme.accentText, fontSize: 12,
-              fontWeight: FontWeight.w800)),
-          ]),
-        );
-      }).toList()),
-    );
-  }
-
   // ── Game history ──────────────────────────
+  // CHANGED: rows are now tap-to-expand (matching the home screen's
+  // Recent Activity pattern) instead of always showing the stat
+  // summary inline, and the per-row sport icon is gone since it was
+  // always the same icon (only one sport supported today).
 
   Widget _buildGameHistory(List<Map<String, dynamic>> stats) {
     return Container(
@@ -302,60 +367,8 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.border)),
       child: Column(children: stats.asMap().entries.map((e) {
-        final isLast  = e.key == stats.length - 1;
-        final stat    = e.value;
-        final sport   = stat['sport']          as String?    ?? '';
-        final pts     = _toDouble(stat['pointsAwarded']).round();
-        final name    = stat['eventName']      as String?    ?? 'Unknown';
-        final date    = stat['createdAt']      as Timestamp?;
-        final fmtDate = date != null
-            ? DateFormat('MMM dd, yyyy').format(date.toDate()) : '';
-        final statMap = stat['stats'] as Map<String, dynamic>? ?? {};
-        final emoji   = sport == 'Basketball' ? '🏀'
-            : sport == 'Volleyball' ? '🏐' : '🏸';
-        final summary = _statSummary(sport, statMap);
-
-        return Container(
-          decoration: BoxDecoration(border: Border(
-            bottom: isLast
-                ? BorderSide.none
-                : BorderSide(color: AppTheme.border))),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 14, vertical: 12),
-            child: Row(children: [
-              Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(color: AppTheme.accentSurface,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppTheme.accent)),
-                child: Center(child: Text(emoji,
-                    style: const TextStyle(fontSize: 16)))),
-              const SizedBox(width: 10),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(name, style: TextStyle(color: AppTheme.textPrimary,
-                    fontSize: 13, fontWeight: FontWeight.w600),
-                    overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 2),
-                Text(summary,
-                    style: TextStyle(color: AppTheme.sub, fontSize: 10)),
-                if (fmtDate.isNotEmpty)
-                  Text(fmtDate,
-                      style: TextStyle(color: AppTheme.muted, fontSize: 10)),
-              ])),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: AppTheme.accentSurface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppTheme.accent)),
-                child: Text('+$pts', style: TextStyle(
-                  color: AppTheme.accentText, fontSize: 13,
-                  fontWeight: FontWeight.w800))),
-            ]),
-          ),
-        );
+        final isLast = e.key == stats.length - 1;
+        return _GameHistoryTile(data: e.value, showDivider: !isLast);
       }).toList()),
     );
   }
@@ -370,8 +383,8 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
           decoration: BoxDecoration(color: AppTheme.accentSurface,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: AppTheme.accent)),
-          child: const Center(child: Text('📊',
-              style: TextStyle(fontSize: 36)))),
+          child: Center(child: Icon(LucideIcons.barChart2,
+              color: AppTheme.accent, size: 34))),
         const SizedBox(height: 20),
         Text('No stats yet', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 18,
@@ -384,46 +397,238 @@ class _PerformanceDashboardScreenState extends State<PerformanceDashboardScreen>
     ));
   }
 
-  Widget _buildSectionTitle(String title) => Text(title, style: TextStyle(
-    color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w800));
-
-  String _statSummary(String sport, Map<String, dynamic> s) {
-    switch (sport) {
-      case 'Basketball':
-        return '${s['points'] ?? 0}pts · ${s['assists'] ?? 0}ast · '
-            '${s['rebounds'] ?? 0}reb · ${s['steals'] ?? 0}stl';
-      case 'Volleyball':
-        return '${s['kills'] ?? 0}kills · ${s['aces'] ?? 0}aces · '
-            '${s['digs'] ?? 0}digs';
-      case 'Badminton':
-        final w = s['matchWon'] == true ? 'Win' : 'Loss';
-        return '$w · ${s['setsWon'] ?? 0} sets won';
-      default: return sport;
-    }
-  }
+  Widget _buildSectionTitle(IconData icon, String title) => Row(children: [
+        Icon(icon, color: AppTheme.sub, size: 15),
+        const SizedBox(width: 6),
+        Text(title, style: TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 13,
+            fontWeight: FontWeight.w800)),
+      ]);
 }
 
 class _HeroCard extends StatelessWidget {
-  final String value, label; final bool isAccent;
-  const _HeroCard({required this.value, required this.label,
-      this.isAccent = false});
+  final String value, label;
+  final bool isAccentText;
+  const _HeroCard(
+      {required this.value, required this.label, this.isAccentText = false});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-    decoration: BoxDecoration(
-      color: isAccent ? AppTheme.accentSurface : AppTheme.card,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: isAccent ? AppTheme.accent : AppTheme.border,
-        width: isAccent ? 1.5 : 1)),
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      Text(value, style: TextStyle(
-        color: isAccent ? AppTheme.accentText : AppTheme.textPrimary,
-        fontSize: 20, fontWeight: FontWeight.w900, height: 1)),
-      const SizedBox(height: 4),
-      Text(label, textAlign: TextAlign.center, style: TextStyle(
-        color: AppTheme.muted, fontSize: 9, fontWeight: FontWeight.w600),
-        overflow: TextOverflow.ellipsis),
-    ]),
-  );
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.border)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(value, style: TextStyle(
+              color: isAccentText ? AppTheme.accent : AppTheme.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              height: 1)),
+          const SizedBox(height: 4),
+          Text(label, textAlign: TextAlign.center, style: TextStyle(
+              color: AppTheme.muted, fontSize: 9, fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis),
+        ]),
+      );
+}
+
+class _RatingChip extends StatelessWidget {
+  final String sport;
+  final int rating;
+  final bool selected;
+  const _RatingChip(
+      {required this.sport, required this.rating, required this.selected});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+            color: selected ? AppTheme.accentSurface : AppTheme.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: selected ? AppTheme.accent : AppTheme.border)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(sport[0].toUpperCase() + sport.substring(1), style: TextStyle(
+              color: selected ? AppTheme.accentText : AppTheme.sub,
+              fontSize: 9, fontWeight: FontWeight.w600)),
+          Text('$rating', style: TextStyle(
+              color: selected ? AppTheme.accentText : AppTheme.textPrimary,
+              fontSize: 16, fontWeight: FontWeight.w800)),
+        ]),
+      );
+}
+
+/// One expandable game-history row. Collapsed shows just the event
+/// name, date, and points. Tapping reveals the full stat breakdown
+/// for that game — same interaction as the home screen's Recent
+/// Activity tiles, so the two screens feel like one system.
+class _GameHistoryTile extends StatefulWidget {
+  final Map<String, dynamic> data;
+  final bool showDivider;
+  const _GameHistoryTile({required this.data, required this.showDivider});
+
+  @override
+  State<_GameHistoryTile> createState() => _GameHistoryTileState();
+}
+
+class _GameHistoryTileState extends State<_GameHistoryTile> {
+  bool _expanded = false;
+
+  int _toInt(dynamic v) {
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    return 0;
+  }
+
+  List<MapEntry<String, String>> _fullStatRows(
+      String sport, Map<String, dynamic> stats) {
+    switch (sport) {
+      case 'Basketball':
+        return [
+          MapEntry('Points', '${_toInt(stats['points'])}'),
+          MapEntry('Assists', '${_toInt(stats['assists'])}'),
+          MapEntry('Rebounds', '${_toInt(stats['rebounds'])}'),
+          MapEntry('Steals', '${_toInt(stats['steals'])}'),
+          MapEntry('Blocks', '${_toInt(stats['blocks'])}'),
+          MapEntry('Turnovers', '${_toInt(stats['turnovers'])}'),
+        ];
+      case 'Volleyball':
+        return [
+          MapEntry('Kills', '${_toInt(stats['kills'])}'),
+          MapEntry('Aces', '${_toInt(stats['aces'])}'),
+          MapEntry('Assists', '${_toInt(stats['assists'])}'),
+          MapEntry('Digs', '${_toInt(stats['digs'])}'),
+          MapEntry('Blocks', '${_toInt(stats['blocks'])}'),
+        ];
+      case 'Badminton':
+        final won = stats['matchWon'] as bool? ?? false;
+        return [
+          MapEntry('Result', won ? 'Win' : 'Loss'),
+          MapEntry('Sets Won', '${_toInt(stats['setsWon'])}'),
+          MapEntry('Points Scored', '${_toInt(stats['pointsScored'])}'),
+        ];
+      default:
+        return const [];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.data;
+    final sport = s['sport'] as String? ?? '';
+    final pts = _toInt(s['pointsAwarded']);
+    final name = s['eventName'] as String? ?? 'Unknown';
+    final date = s['createdAt'] as Timestamp?;
+    final fmtDate =
+        date != null ? DateFormat('MMM dd, yyyy').format(date.toDate()) : '';
+    final statMap = (s['stats'] as Map?)?.cast<String, dynamic>() ?? {};
+    final notes = (s['notes'] as String? ?? '').trim();
+    final rows = _fullStatRows(sport, statMap);
+
+    return Container(
+      decoration: BoxDecoration(
+          border: Border(
+              bottom: widget.showDivider
+                  ? BorderSide(color: AppTheme.border)
+                  : BorderSide.none)),
+      child: Column(children: [
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis),
+                    if (fmtDate.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(fmtDate, style: TextStyle(
+                          color: AppTheme.muted, fontSize: 10)),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('+$pts', style: TextStyle(
+                  color: AppTheme.accent,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800)),
+              const SizedBox(width: 6),
+              AnimatedRotation(
+                turns: _expanded ? 0.5 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: Icon(LucideIcons.chevronDown,
+                    color: AppTheme.muted, size: 18),
+              ),
+            ]),
+          ),
+        ),
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 200),
+          crossFadeState: _expanded
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+          firstChild: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                  color: AppTheme.cardNested,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.border)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: rows
+                        .map((r) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                  color: AppTheme.card,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppTheme.border)),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(r.key, style: TextStyle(
+                                      color: AppTheme.sub, fontSize: 9)),
+                                  Text(r.value, style: TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800)),
+                                ],
+                              ),
+                            ))
+                        .toList(),
+                  ),
+                  if (notes.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text('Notes', style: TextStyle(
+                        color: AppTheme.sub,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(notes, style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 12,
+                        height: 1.4)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          secondChild: const SizedBox.shrink(),
+        ),
+      ]),
+    );
+  }
 }

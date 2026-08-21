@@ -1,5 +1,3 @@
-// lib/screens/stats/add_stats_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,67 +6,42 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../theme/app_theme.dart';
-
-// ─────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────
-
+import '../../services/notification_service.dart';
+import '../../services/rating_service.dart';
+import '../../utils/firestore_helpers.dart';
+import '../../utils/stat_scoring.dart';
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
-
-// Points formula per sport
-// Basketball: pts×1 + ast×1.5 + reb×1 + stl×2 + blk×2 - to×1
-// Volleyball:  kills×2 + aces×2 + ast×1 + digs×1 + blk×2
-// Badminton:   win×10 + sets×3 + pts×0.5
-
-// ─────────────────────────────────────────────
-// AddStatsScreen
-// ─────────────────────────────────────────────
-
 class AddStatsScreen extends StatefulWidget {
   const AddStatsScreen({super.key});
-
   @override
   State<AddStatsScreen> createState() => _AddStatsScreenState();
 }
-
 class _AddStatsScreenState extends State<AddStatsScreen> {
   final String _uid =
       FirebaseAuth.instance.currentUser?.uid ?? '';
-
   int  _step      = 0;
   bool _isLoading = false;
-
-  // Selected data across steps
   Map<String, dynamic>? _selectedEvent;
   Map<String, dynamic>? _selectedPlayer;
-
-  // Stats already submitted for selected event
   Set<String> _submittedUids = {};
-
-  // ── Basketball ────────────────────────────
+  List<QueryDocumentSnapshot> _pendingMatches = [];
+  String? _selectedMatchId;
   final _ptsCtrl = TextEditingController();
   final _astCtrl = TextEditingController();
   final _rebCtrl = TextEditingController();
   final _stlCtrl = TextEditingController();
   final _blkCtrl = TextEditingController();
   final _toCtrl  = TextEditingController();
-
-  // ── Volleyball ────────────────────────────
   final _killsCtrl  = TextEditingController();
   final _acesCtrl   = TextEditingController();
   final _vAstCtrl   = TextEditingController();
   final _digsCtrl   = TextEditingController();
   final _vBlkCtrl   = TextEditingController();
-
-  // ── Badminton ─────────────────────────────
   final _bPtsCtrl  = TextEditingController();
   final _setsCtrl  = TextEditingController();
   bool  _matchWon  = false;
-
-  // Notes
   final _notesCtrl = TextEditingController();
-
   @override
   void dispose() {
     for (final c in [
@@ -78,39 +51,39 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     ]) { c.dispose(); }
     super.dispose();
   }
-
-  // ── Points calculation ────────────────────
-
-  double _calcPoints() {
-    final sport = _selectedEvent?['sport'] as String? ?? '';
-    switch (sport) {
-      case 'Basketball':
-        return (_n(_ptsCtrl) * 1.0)
-             + (_n(_astCtrl) * 1.5)
-             + (_n(_rebCtrl) * 1.0)
-             + (_n(_stlCtrl) * 2.0)
-             + (_n(_blkCtrl) * 2.0)
-             - (_n(_toCtrl)  * 1.0);
-      case 'Volleyball':
-        return (_n(_killsCtrl) * 2.0)
-             + (_n(_acesCtrl)  * 2.0)
-             + (_n(_vAstCtrl)  * 1.0)
-             + (_n(_digsCtrl)  * 1.0)
-             + (_n(_vBlkCtrl)  * 2.0);
-      case 'Badminton':
-        return (_matchWon ? 10.0 : 0.0)
-             + (_n(_setsCtrl) * 3.0)
-             + (_n(_bPtsCtrl) * 0.5);
-      default:
-        return 0;
+  Map<String, dynamic> _buildStatsData(String sport) {
+    if (sport == 'Basketball') {
+      return {
+        'points':    _n(_ptsCtrl).toInt(),
+        'assists':   _n(_astCtrl).toInt(),
+        'rebounds':  _n(_rebCtrl).toInt(),
+        'steals':    _n(_stlCtrl).toInt(),
+        'blocks':    _n(_blkCtrl).toInt(),
+        'turnovers': _n(_toCtrl).toInt(),
+      };
+    } else if (sport == 'Volleyball') {
+      return {
+        'kills':   _n(_killsCtrl).toInt(),
+        'aces':    _n(_acesCtrl).toInt(),
+        'assists': _n(_vAstCtrl).toInt(),
+        'digs':    _n(_digsCtrl).toInt(),
+        'blocks':  _n(_vBlkCtrl).toInt(),
+      };
+    } else if (sport == 'Badminton') {
+      return {
+        'pointsScored': _n(_bPtsCtrl).toInt(),
+        'setsWon':      _n(_setsCtrl).toInt(),
+        'matchWon':     _matchWon,
+      };
     }
+    return {};
   }
-
+  int _calcPoints() {
+    final sport = _selectedEvent?['sport'] as String? ?? '';
+    return calcPointsAwarded(sport, _buildStatsData(sport));
+  }
   double _n(TextEditingController c) =>
       double.tryParse(c.text.trim()) ?? 0;
-
-  // ── Load already-submitted UIDs for event ─
-
   Future<void> _loadSubmitted(String eventId) async {
     try {
       final snap = await FirebaseFirestore.instance
@@ -126,9 +99,10 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       }
     } catch (_) {}
   }
-
-  // ── Clear stat fields ─────────────────────
-
+  Future<void> _loadPendingMatches(String eventId) async {
+    final snap = await RatingService.pendingMatchesForEvent(eventId).first;
+    if (mounted) setState(() => _pendingMatches = snap.docs);
+  }
   void _clearStats() {
     for (final c in [
       _ptsCtrl, _astCtrl, _rebCtrl, _stlCtrl, _blkCtrl, _toCtrl,
@@ -137,47 +111,16 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     ]) { c.clear(); }
     _matchWon = false;
   }
-
-  // ── Save stats ────────────────────────────
-
   Future<void> _saveStats() async {
     setState(() => _isLoading = true);
     try {
       final statId     = const Uuid().v4();
-      // Round to int so Firestore always stores as int, not double
-      final points     = _calcPoints().clamp(0, double.infinity).round();
       final sport      = _selectedEvent!['sport'] as String;
+      final statsData  = _buildStatsData(sport);
+      final points     = calcPointsAwarded(sport, statsData);
       final athleteId  = _selectedPlayer!['uid'] as String;
-
-      Map<String, dynamic> statsData = {};
-      if (sport == 'Basketball') {
-        statsData = {
-          'points':    _n(_ptsCtrl).toInt(),
-          'assists':   _n(_astCtrl).toInt(),
-          'rebounds':  _n(_rebCtrl).toInt(),
-          'steals':    _n(_stlCtrl).toInt(),
-          'blocks':    _n(_blkCtrl).toInt(),
-          'turnovers': _n(_toCtrl).toInt(),
-        };
-      } else if (sport == 'Volleyball') {
-        statsData = {
-          'kills':   _n(_killsCtrl).toInt(),
-          'aces':    _n(_acesCtrl).toInt(),
-          'assists': _n(_vAstCtrl).toInt(),
-          'digs':    _n(_digsCtrl).toInt(),
-          'blocks':  _n(_vBlkCtrl).toInt(),
-        };
-      } else {
-        statsData = {
-          'pointsScored': _n(_bPtsCtrl).toInt(),
-          'setsWon':      _n(_setsCtrl).toInt(),
-          'matchWon':     _matchWon,
-        };
-      }
-
+      final matchId    = _selectedMatchId;
       final batch = FirebaseFirestore.instance.batch();
-
-      // Write stats document
       batch.set(
         FirebaseFirestore.instance.collection('stats').doc(statId),
         {
@@ -193,28 +136,35 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           'stats':         statsData,
           'notes':         _notesCtrl.text.trim(),
           'pointsAwarded': points,
+          'matchId':       matchId,
           'createdAt':     FieldValue.serverTimestamp(),
         },
       );
-
-      // Increment athlete's total points
       batch.update(
         FirebaseFirestore.instance.collection('users').doc(athleteId),
         {'points': FieldValue.increment(points)},
       );
-
+      // NEW: notify the athlete that their stats were recorded.
+      // Included in the same batch so it can never be created
+      // without the stats/points write actually succeeding.
+      await NotificationService.create(
+        userId: athleteId,
+        type: 'stats_added',
+        title: 'Stats recorded',
+        body:
+            'You earned $points points in ${_selectedEvent!['name']}',
+        relatedId: statId,
+        writeBatch: batch,
+      );
       await batch.commit();
-
+      if (matchId != null) await _maybeFinalizeMatch(matchId);
       if (!mounted) return;
-
-      // Mark as submitted and go back to player list
       setState(() {
         _submittedUids.add(athleteId);
         _step = 1;
         _selectedPlayer = null;
         _clearStats();
       });
-
       Get.snackbar(
         'Stats Saved! ⭐',
         '${_selectedPlayer?['fullName'] ?? 'Player'} earned $points points',
@@ -231,7 +181,19 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
+  /// Once every participant of [matchId] has a stats entry, applies the
+  /// Elo/MMR update to their ratings.
+  Future<void> _maybeFinalizeMatch(String matchId) async {
+    final matchDoc = _pendingMatches.where((d) => d.id == matchId).firstOrNull;
+    if (matchDoc == null) return;
+    final matchData = matchDoc.data() as Map<String, dynamic>;
+    final participants = [
+      ...List<String>.from(matchData['sideA'] as List? ?? []),
+      ...List<String>.from(matchData['sideB'] as List? ?? []),
+    ];
+    final complete = await RatingService.allStatsSubmitted(matchId, participants);
+    if (complete) await RatingService.finalizeMatch(matchId);
+  }
   void _snack(String t, String m, {bool isError = false}) {
     Get.snackbar(t, m,
       snackPosition:   SnackPosition.BOTTOM,
@@ -241,11 +203,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       borderRadius:    12,
       duration:        const Duration(seconds: 3));
   }
-
-  // ─────────────────────────────────────────
-  // Build
-  // ─────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -273,7 +230,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ),
     );
   }
-
   Widget _buildTopBar() {
     final titles = ['Select Event', 'Select Player', 'Enter Stats'];
     return Padding(
@@ -284,7 +240,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
             if (_step == 0) { Get.back(); return; }
             setState(() {
               _step--;
-              if (_step == 0) { _selectedEvent = null; _submittedUids = {}; }
+              if (_step == 0) {
+                _selectedEvent = null;
+                _submittedUids = {};
+                _pendingMatches = [];
+                _selectedMatchId = null;
+              }
               if (_step == 1) _selectedPlayer = null;
             });
           },
@@ -316,7 +277,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ]),
     );
   }
-
   Widget _buildProgressBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -333,7 +293,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ),
     );
   }
-
   Widget _buildStep() {
     switch (_step) {
       case 0:  return _buildStep1();
@@ -341,11 +300,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       default: return _buildStep3();
     }
   }
-
-  // ─────────────────────────────────────────
-  // Step 1 — Select Event
-  // ─────────────────────────────────────────
-
   Widget _buildStep1() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -364,7 +318,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
             title: 'Something went wrong',
             subtitle: snapshot.error.toString());
         }
-
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
           return _EmptyState(
@@ -375,15 +328,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
             onAction: () => Get.toNamed('/events/create'),
           );
         }
-
-        // Sort client-side by eventDate
         final events = docs.toList()..sort((a, b) {
-          final aT = (a.data() as Map)['eventDate'] as Timestamp?;
-          final bT = (b.data() as Map)['eventDate'] as Timestamp?;
+          final aT = asTimestamp((a.data() as Map)['eventDate']);
+          final bT = asTimestamp((b.data() as Map)['eventDate']);
           if (aT == null || bT == null) return 0;
           return aT.compareTo(bT);
         });
-
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
           itemCount: events.length + 1,
@@ -398,7 +348,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
               );
             }
             final ev   = events[i - 1].data() as Map<String, dynamic>;
-            final date = ev['eventDate'] as Timestamp?;
+            final date = asTimestamp(ev['eventDate']);
             final formattedDate = date != null
                 ? DateFormat('MMM dd, yyyy').format(date.toDate())
                 : 'No date';
@@ -407,6 +357,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
               onTap: () async {
                 setState(() { _selectedEvent = ev; _step = 1; });
                 await _loadSubmitted(ev['eventId'] as String);
+                await _loadPendingMatches(ev['eventId'] as String);
               },
               child: Container(
                 padding: const EdgeInsets.all(14),
@@ -453,17 +404,10 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       },
     );
   }
-
-  // ─────────────────────────────────────────
-  // Step 2 — Select Player
-  // ─────────────────────────────────────────
-
   Widget _buildStep2() {
     final players = (_selectedEvent?['players'] as List? ?? [])
         .cast<Map<String, dynamic>>();
-
     return Column(children: [
-      // Event info header
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
         child: Container(
@@ -486,8 +430,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           ]),
         ),
       ),
-
-      // Legend
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
         child: Row(children: [
@@ -511,8 +453,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           ),
         ]),
       ),
-
-      // Player list
       Expanded(
         child: players.isEmpty
             ? _EmptyState(
@@ -528,7 +468,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   final uid     = p['uid'] as String;
                   final done    = _submittedUids.contains(uid);
                   final initials = _getInitials(p['fullName'] as String? ?? '');
-
                   return GestureDetector(
                     onTap: done ? null : () {
                       setState(() { _selectedPlayer = p; _step = 2; });
@@ -587,23 +526,14 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ),
     ]);
   }
-
-  // ─────────────────────────────────────────
-  // Step 3 — Enter Stats
-  // ─────────────────────────────────────────
-
   Widget _buildStep3() {
     final sport = _selectedEvent?['sport'] as String? ?? '';
-
     return StatefulBuilder(
       builder: (context, setInnerState) {
-        final pts = _calcPoints().clamp(0, double.infinity).round();
-
+        final pts = _calcPoints();
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-
-            // Player & event info
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -633,10 +563,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   ])),
               ]),
             ),
-
             const SizedBox(height: 16),
-
-            // Live points preview
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -659,17 +586,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   fontWeight: FontWeight.w700)),
               ]),
             ),
-
             const SizedBox(height: 20),
-
-            // Sport-specific stat fields
+            if (_pendingMatches.isNotEmpty) ..._matchSelector(setInnerState),
             if (sport == 'Basketball') ..._basketballFields(setInnerState),
             if (sport == 'Volleyball') ..._volleyballFields(setInnerState),
             if (sport == 'Badminton')  ..._badmintonFields(setInnerState),
-
             const SizedBox(height: 16),
-
-            // Notes
             _label('Notes (Optional)'),
             const SizedBox(height: 8),
             TextFormField(
@@ -677,10 +599,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
               style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
               decoration: _deco('e.g. MVP of the game, strong defense...', Icons.notes_outlined),
             ),
-
             const SizedBox(height: 28),
-
-            // Save button
             _isLoading
                 ? const Center(child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2.5))
@@ -696,9 +615,41 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       },
     );
   }
-
-  // ── Sport stat fields ─────────────────────
-
+  List<Widget> _matchSelector(StateSetter set) => [
+    _label('Link to Match (Optional)'),
+    const SizedBox(height: 8),
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.card, borderRadius: BorderRadius.circular(_kRadius),
+        border: Border.all(color: AppTheme.border)),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          isExpanded: true,
+          value: _selectedMatchId,
+          dropdownColor: AppTheme.card,
+          hint: Text('No match — just record stats',
+            style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+          items: [
+            DropdownMenuItem<String?>(
+              value: null,
+              child: Text('No match', style: TextStyle(color: AppTheme.textPrimary)),
+            ),
+            ..._pendingMatches.map((doc) {
+              final m = doc.data() as Map<String, dynamic>;
+              return DropdownMenuItem<String?>(
+                value: doc.id,
+                child: Text(
+                  'Side A (${m['sideA']?.length ?? 0}) vs Side B (${m['sideB']?.length ?? 0}) · ${m['scoreA']}-${m['scoreB']}',
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 13)),
+              );
+            }),
+          ],
+          onChanged: (value) => set(() => setState(() => _selectedMatchId = value)),
+        ),
+      ),
+    ),
+  ];
   List<Widget> _basketballFields(StateSetter set) => [
     _label('Statistics'),
     const SizedBox(height: 8),
@@ -717,7 +668,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ],
     ),
   ];
-
   List<Widget> _volleyballFields(StateSetter set) => [
     _label('Statistics'),
     const SizedBox(height: 8),
@@ -735,7 +685,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ],
     ),
   ];
-
   List<Widget> _badmintonFields(StateSetter set) => [
     _label('Match Result'),
     const SizedBox(height: 8),
@@ -759,7 +708,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       Expanded(child: _statField(_bPtsCtrl, 'Points Scored',  '0', set, multiplier: '×0.5')),
     ]),
   ];
-
   Widget _resultTile(String label, bool selected, bool isWin) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -780,7 +728,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         fontSize: 14, fontWeight: FontWeight.w700))),
     );
   }
-
   Widget _statField(TextEditingController ctrl, String label,
       String hint, StateSetter set, {String multiplier = ''}) {
     return Container(
@@ -811,15 +758,11 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ]),
     );
   }
-
-  // ── Helpers ───────────────────────────────
-
   Widget _label(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 0),
     child: Text(text, style: TextStyle(
       color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
   );
-
   InputDecoration _deco(String hint, IconData icon) => InputDecoration(
     hintText: hint, hintStyle: TextStyle(color: AppTheme.muted, fontSize: 13),
     prefixIcon: Icon(icon, color: AppTheme.muted, size: 18),
@@ -832,7 +775,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(_kRadius),
         borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
   );
-
   String _getInitials(String fullName) {
     final parts = fullName.trim().split(' ');
     if (parts.length >= 2) {
@@ -841,18 +783,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     return fullName.isNotEmpty ? fullName[0].toUpperCase() : '?';
   }
 }
-
-// ─────────────────────────────────────────────
-// Empty State Widget
-// ─────────────────────────────────────────────
-
 class _EmptyState extends StatelessWidget {
   final IconData icon;
   final String   title;
   final String   subtitle;
   final String?  actionLabel;
   final VoidCallback? onAction;
-
   const _EmptyState({
     required this.icon,
     required this.title,
@@ -860,7 +796,6 @@ class _EmptyState extends StatelessWidget {
     this.actionLabel,
     this.onAction,
   });
-
   @override
   Widget build(BuildContext context) {
     return Center(
