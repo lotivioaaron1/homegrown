@@ -27,9 +27,16 @@ const List<LegazpiVenue> kLegazpiVenues = [
   ),
   LegazpiVenue(
     name:    'Legazpi City Astrodome',
-    address: 'Astrodome, Legazpi City, Albay',
-    lat:     13.1355,
-    lng:     123.7406,
+    address: '12 Doña Aurora St, Old Albay District, Legazpi City, Albay',
+    lat:     13.1399186,
+    lng:     123.7349998,
+    type:    'Indoor Arena',
+  ),
+  LegazpiVenue(
+    name:    'Ibalong Centrum for Recreation',
+    address: 'Legazpi Port District, Legazpi City, Albay',
+    lat:     13.144195,
+    lng:     123.746363,
     type:    'Indoor Arena',
   ),
   LegazpiVenue(
