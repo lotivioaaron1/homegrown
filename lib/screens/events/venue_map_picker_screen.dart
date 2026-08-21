@@ -21,19 +21,31 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
   LatLng? _tapped;
   String? _address;
   bool _isResolving = false;
+  int _requestToken = 0;
 
   Future<void> _onTap(LatLng point) async {
+    _requestToken++;
+    final currentToken = _requestToken;
+
     setState(() {
       _tapped = point;
       _address = null;
       _isResolving = true;
     });
-    final address = await GeocodingService.reverseGeocode(point);
-    if (!mounted) return;
-    setState(() {
-      _address = address;
-      _isResolving = false;
-    });
+    try {
+      final address = await GeocodingService.reverseGeocode(point);
+      if (!mounted || _requestToken != currentToken) return;
+      setState(() {
+        _address = address;
+        _isResolving = false;
+      });
+    } catch (e) {
+      if (!mounted || _requestToken != currentToken) return;
+      setState(() {
+        _address = null;
+        _isResolving = false;
+      });
+    }
   }
 
   void _confirm() {
