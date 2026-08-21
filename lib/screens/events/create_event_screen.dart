@@ -56,6 +56,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     List<Venue> results = [];
     bool isSearching = false;
     bool hasSearched = false;
+    bool sheetOpen = true;
     Timer? debounce;
 
     showModalBottomSheet(
@@ -67,6 +68,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       builder: (_) => StatefulBuilder(
         builder: (ctx, setModal) {
           Future<void> runSearch(String q) async {
+            if (!sheetOpen) return;
             if (q.trim().isEmpty) {
               if (ctx.mounted) {
                 setModal(() { results = []; hasSearched = false; });
@@ -218,7 +220,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           );
         },
       ),
-    );
+    ).whenComplete(() {
+      sheetOpen = false;
+      debounce?.cancel();
+    });
   }
 
   // ── Navigation ────────────────────────────
