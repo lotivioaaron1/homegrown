@@ -19,10 +19,15 @@ import 'screens/auth/coach_register_screen.dart';
 import 'screens/auth/organizer_register_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/events/create_event_screen.dart';
+import 'screens/events/record_match_screen.dart';
+import 'screens/events/event_detail_screen.dart';
 import 'screens/stats/add_stats_screen.dart';
 import 'screens/leaderboard/leaderboard_screen.dart';
 import 'screens/dashboard/performance_dashboard_screen.dart';
 import 'screens/profile/profile_screen.dart';
+import 'screens/team/team_invites_screen.dart';
+import 'screens/team/my_team_screen.dart';
+import 'screens/team/athlete_team_screen.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/theme_controller.dart';
 import 'services/connectivity_service.dart';
@@ -70,10 +75,15 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/register/organizer', page: () => const OrganizerRegisterScreen()),
         GetPage(name: '/home',               page: () => HomeScreen()),
         GetPage(name: '/events/create',      page: () => const CreateEventScreen()),
+        GetPage(name: '/events/detail',      page: () => const EventDetailScreen()),
+        GetPage(name: '/matches/record',     page: () => const RecordMatchScreen()),
         GetPage(name: '/stats/add',          page: () => const AddStatsScreen()),
         GetPage(name: '/leaderboard',        page: () => const LeaderboardScreen()),
         GetPage(name: '/dashboard',          page: () => const PerformanceDashboardScreen()),
         GetPage(name: '/profile',            page: () => const ProfileScreen()),
+        GetPage(name: '/team/invites',        page: () => const TeamInvitesScreen()),
+        GetPage(name: '/team/roster',         page: () => const MyTeamScreen()),
+        GetPage(name: '/team/mine',           page: () => const AthleteTeamScreen()),
       ],
     );
   }

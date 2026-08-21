@@ -1,9 +1,8 @@
 // lib/screens/auth/register_screen.dart
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:iconsax/iconsax.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/homegrown_logo.dart';
 
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
@@ -17,9 +16,7 @@ class RegisterScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 36),
-              const HomegrownLogo(size: 64),
-              const SizedBox(height: 22),
+              const SizedBox(height: 56),
               Text(
                 'Where do you fit in?',
                 style: TextStyle(
@@ -37,7 +34,7 @@ class RegisterScreen extends StatelessWidget {
               ),
               const SizedBox(height: 36),
               _RoleCard(
-                icon: Iconsax.flash_1,
+                icon: LucideIcons.zap,
                 iconColor: const Color(0xFFFF8A34),
                 label: 'Athlete',
                 description: 'Track stats, earn points,\nget discovered by coaches',
@@ -45,7 +42,7 @@ class RegisterScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               _RoleCard(
-                icon: Iconsax.judge,
+                icon: LucideIcons.binoculars,
                 iconColor: const Color(0xFF4AB3FF),
                 label: 'Coach',
                 description: 'Scout talent, manage your\nroster and team lineup',
@@ -53,7 +50,7 @@ class RegisterScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               _RoleCard(
-                icon: Iconsax.calendar_1,
+                icon: LucideIcons.calendarDays,
                 iconColor: const Color(0xFF5FE0A0),
                 label: 'Organizer',
                 description: 'Create events, manage\ntournaments and venues',
@@ -131,7 +128,7 @@ class _RoleCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: iconColor.withValues(alpha: 0.32)),
               ),
-              child: Icon(icon, size: 24, color: iconColor),
+              child: Icon(icon, size: 22, color: iconColor),
             ),
             const SizedBox(width: 16),
             // Text
@@ -160,9 +157,9 @@ class _RoleCard extends StatelessWidget {
               ),
             ),
             const Icon(
-              Icons.arrow_forward_ios_rounded,
+              LucideIcons.chevronRight,
               color: AppTheme.muted,
-              size: 16,
+              size: 18,
             ),
           ],
         ),

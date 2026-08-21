@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../controllers/auth_controller.dart';
 import '../../theme/app_theme.dart';
 
@@ -21,8 +22,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
 
-  static const _kRadius   = 14.0;
-  static const _kErrorRed = Color(0xFFFF5C5C);
+  static const _kRadius     = 14.0;
+  static const _kErrorRed   = Color(0xFFFF5C5C);
+  static const _kMaxFormWidth = 440.0; // caps width on tablets/large screens
 
   @override
   void dispose() {
@@ -63,247 +65,261 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+
+    // Scale horizontal padding with screen width instead of a flat number,
+    // so the form breathes on small phones and doesn't hug the edges on
+    // wider ones. Clamped so it never gets too tight or too loose.
+    final horizontalPadding = (size.width * 0.07).clamp(20.0, 32.0);
+
+    // Shorter devices (e.g. SE-class phones) get tighter top spacing so
+    // the form isn't pushed into a scroll fight with the keyboard.
+    final isCompactHeight = size.height < 700;
+    final topSpacing = isCompactHeight ? 48.0 : 76.0;
+
     return Scaffold(
       backgroundColor: AppTheme.bg,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(height: 52),
+        child: LayoutBuilder(
+          builder: (context, viewport) {
+            return SingleChildScrollView(
+              padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+              child: ConstrainedBox(
+                // Guarantees the content column is at least one full
+                // viewport tall, so the Spacer below has real room to
+                // push the sign-up link toward the bottom. On short
+                // content this pins it low; on tall content (small
+                // phones, big text) it just scrolls normally.
+                constraints: BoxConstraints(minHeight: viewport.maxHeight),
+                child: IntrinsicHeight(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: _kMaxFormWidth),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            SizedBox(height: topSpacing),
 
-                // ── Logo ──────────────────────
-                Container(
-                  width:  68,
-                  height: 68,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin:  Alignment.topLeft,
-                      end:    Alignment.bottomRight,
-                      colors: [AppTheme.accent, AppTheme.accent2],
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color:        AppTheme.accent.withValues(alpha: 0.3),
-                        blurRadius:   24,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'HG',
+                            // ── Heading ───────────────────
+                            Text(
+                      'Welcome Back',
                       style: TextStyle(
-                        // Always dark — sitting on gold background
-                        color:      AppTheme.buttonFg,
-                        fontSize:   24,
-                        fontWeight: FontWeight.w900,
+                        // ✅ Adapts to light/dark
+                        color:         AppTheme.textPrimary,
+                        fontSize:      26,
+                        fontWeight:    FontWeight.w900,
+                        letterSpacing: -0.4,
                       ),
                     ),
-                  ),
-                ),
 
-                const SizedBox(height: 28),
+                    const SizedBox(height: 8),
 
-                // ── Heading ───────────────────
-                Text(
-                  'Welcome Back',
-                  style: TextStyle(
-                    // ✅ Adapts to light/dark
-                    color:         AppTheme.textPrimary,
-                    fontSize:      26,
-                    fontWeight:    FontWeight.w900,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                Text(
-                  'Sign in to your Homegrown account',
-                  style: TextStyle(
-                    color:    AppTheme.sub,
-                    fontSize: 14,
-                  ),
-                ),
-
-                const SizedBox(height: 40),
-
-                // ── Email ─────────────────────
-                TextFormField(
-                  controller:      _emailController,
-                  keyboardType:    TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  // ✅ Adapts to light/dark
-                  style: TextStyle(
-                      color: AppTheme.textPrimary, fontSize: 14),
-                  decoration: _inputDeco(
-                    hint:     'Email address',
-                    iconData: Icons.mail_outline_rounded,
-                  ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty)
-                      return 'Email is required';
-                    if (!GetUtils.isEmail(v.trim()))
-                      return 'Enter a valid email';
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 14),
-
-                // ── Password ──────────────────
-                TextFormField(
-                  controller:      _passwordController,
-                  obscureText:     _obscurePassword,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _onSignIn(),
-                  // ✅ Adapts to light/dark
-                  style: TextStyle(
-                      color: AppTheme.textPrimary, fontSize: 14),
-                  decoration: _inputDeco(
-                    hint:     'Password',
-                    iconData: Icons.lock_outline_rounded,
-                    suffix: GestureDetector(
-                      onTap: () => setState(
-                          () => _obscurePassword = !_obscurePassword),
-                      child: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        color: AppTheme.muted,
-                        size:  20,
-                      ),
-                    ),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty)
-                      return 'Password is required';
-                    if (v.length < 8)
-                      return 'At least 8 characters required';
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 12),
-
-                // ── Forgot Password ───────────
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: GestureDetector(
-                    onTap: _onForgotPassword,
-                    child: const Text(
-                      'Forgot Password?',
+                    Text(
+                      'Sign in to your Homegrown account',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color:      AppTheme.accent,
-                        fontSize:   13,
-                        fontWeight: FontWeight.w600,
+                        color:    AppTheme.sub,
+                        fontSize: 14,
                       ),
                     ),
-                  ),
-                ),
 
-                const SizedBox(height: 32),
+                    SizedBox(height: isCompactHeight ? 28 : 40),
 
-                // ── Sign In button ────────────
-                Obx(() => SizedBox(
-                  width:  double.infinity,
-                  height: 54,
-                  child: ElevatedButton(
-                    onPressed:
-                        _auth.isLoading.value ? null : _onSignIn,
-                    child: _auth.isLoading.value
-                        ? const SizedBox(
-                            width:  22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              // Always dark — on gold button
-                              color: AppTheme.buttonFg,
-                            ),
-                          )
-                        : const Text('Sign In'),
-                  ),
-                )),
-
-                const SizedBox(height: 24),
-
-                // ── OR divider ────────────────
-                Row(children: [
-                  Expanded(child: Divider(color: AppTheme.border)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('OR', style: TextStyle(
-                        color: AppTheme.muted, fontSize: 12,
-                        fontWeight: FontWeight.w600))),
-                  Expanded(child: Divider(color: AppTheme.border)),
-                ]),
-
-                const SizedBox(height: 24),
-
-                // ── Google Sign-In ────────────
-                Obx(() => SizedBox(
-                  width: double.infinity, height: 54,
-                  child: OutlinedButton(
-                    onPressed: _auth.isGoogleLoading.value
-                        ? null : _onGoogleSignIn,
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: AppTheme.border, width: 1.5),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(_kRadius)),
-                    ),
-                    child: _auth.isGoogleLoading.value
-                        ? SizedBox(
-                            width: 20, height: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2.2, color: AppTheme.accent))
-                        : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.g_mobiledata_rounded,
-                                  color: AppTheme.textPrimary, size: 26),
-                              const SizedBox(width: 6),
-                              Text('Continue with Google',
-                                  style: TextStyle(
-                                    color: AppTheme.textPrimary,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700)),
-                            ],
-                          ),
-                  ),
-                )),
-
-                const SizedBox(height: 40),
-
-                // ── Sign Up link ──────────────
-                GestureDetector(
-                  onTap: _onSignUp,
-                  child: RichText(
-                    text: TextSpan(
-                      text:  "Don't have an account?  ",
+                    // ── Email ─────────────────────
+                    TextFormField(
+                      controller:      _emailController,
+                      keyboardType:    TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      // ✅ Adapts to light/dark
                       style: TextStyle(
-                          color: AppTheme.sub, fontSize: 14),
-                      children: const [
-                        TextSpan(
-                          text: 'Sign Up',
-                          style: TextStyle(
-                            color:      AppTheme.accent,
-                            fontWeight: FontWeight.w700,
+                          color: AppTheme.textPrimary, fontSize: 14),
+                      decoration: _inputDeco(
+                        hint:     'Email address',
+                        iconData: LucideIcons.mail,
+                      ),
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty)
+                          return 'Email is required';
+                        if (!GetUtils.isEmail(v.trim()))
+                          return 'Enter a valid email';
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // ── Password ──────────────────
+                    TextFormField(
+                      controller:      _passwordController,
+                      obscureText:     _obscurePassword,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _onSignIn(),
+                      // ✅ Adapts to light/dark
+                      style: TextStyle(
+                          color: AppTheme.textPrimary, fontSize: 14),
+                      decoration: _inputDeco(
+                        hint:     'Password',
+                        iconData: LucideIcons.lock,
+                        suffix: GestureDetector(
+                          onTap: () => setState(
+                              () => _obscurePassword = !_obscurePassword),
+                          child: Icon(
+                            _obscurePassword
+                                ? LucideIcons.eyeOff
+                                : LucideIcons.eye,
+                            color: AppTheme.muted,
+                            size:  19,
                           ),
                         ),
-                      ],
+                      ),
+                      validator: (v) {
+                        if (v == null || v.isEmpty)
+                          return 'Password is required';
+                        if (v.length < 8)
+                          return 'At least 8 characters required';
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // ── Forgot Password ───────────
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: GestureDetector(
+                        onTap: _onForgotPassword,
+                        child: const Text(
+                          'Forgot Password?',
+                          style: TextStyle(
+                            color:      AppTheme.accent,
+                            fontSize:   13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: isCompactHeight ? 24 : 32),
+
+                    // ── Sign In button ────────────
+                    Obx(() => SizedBox(
+                      width:  double.infinity,
+                      height: 54,
+                      child: ElevatedButton(
+                        onPressed:
+                            _auth.isLoading.value ? null : _onSignIn,
+                        child: _auth.isLoading.value
+                            ? const SizedBox(
+                                width:  22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  // Always dark — on gold button
+                                  color: AppTheme.buttonFg,
+                                ),
+                              )
+                            : const Text('Sign In'),
+                      ),
+                    )),
+
+                    const SizedBox(height: 8),
+
+                    // ── OR divider ────────────────
+                    Row(children: [
+                      Expanded(child: Divider(color: AppTheme.border)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('OR', style: TextStyle(
+                            color: AppTheme.muted, fontSize: 12,
+                            fontWeight: FontWeight.w600))),
+                      Expanded(child: Divider(color: AppTheme.border)),
+                    ]),
+
+                    const SizedBox(height: 8),
+
+                    // ── Google Sign-In ────────────
+                    Obx(() => SizedBox(
+                      width: double.infinity, height: 54,
+                      child: OutlinedButton(
+                        onPressed: _auth.isGoogleLoading.value
+                            ? null : _onGoogleSignIn,
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: AppTheme.border, width: 1.5),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(_kRadius)),
+                        ),
+                        child: _auth.isGoogleLoading.value
+                            ? SizedBox(
+                                width: 20, height: 20,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2.2, color: AppTheme.accent))
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // Lucide has no Google brand mark (it's a
+                                  // generic icon set), so we keep a simple
+                                  // styled "G" glyph instead of a mismatched
+                                  // generic icon.
+                                  Image.asset(
+                                    'assets/images/google_logo.png',
+                                    width: 20,
+                                    height: 20,
+                                    errorBuilder: (_, __, ___) => Text('G',
+                                        style: TextStyle(
+                                            color: AppTheme.textPrimary,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w900)),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text('Continue with Google',
+                                      style: TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700)),
+                                ],
+                              ),
+                      ),
+                    )),
+
+                    // Flexible gap: pushes the sign-up link down toward
+                    // the bottom of the screen, with a sensible minimum
+                    // so it never crowds the button above on tall content.
+                    const Spacer(),
+                    SizedBox(height: isCompactHeight ? 32 : 40),
+
+                    // ── Sign Up link ──────────────
+                    GestureDetector(
+                      onTap: _onSignUp,
+                      child: RichText(
+                        text: TextSpan(
+                          text:  "Don't have an account?  ",
+                          style: TextStyle(
+                              color: AppTheme.sub, fontSize: 14),
+                          children: const [
+                            TextSpan(
+                              text: 'Sign Up',
+                              style: TextStyle(
+                                color:      AppTheme.accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: isCompactHeight ? 32 : 40),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 32),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -319,7 +335,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return InputDecoration(
       hintText:   hint,
       hintStyle:  TextStyle(color: AppTheme.muted, fontSize: 14),
-      prefixIcon: Icon(iconData, color: AppTheme.muted, size: 20),
+      prefixIcon: Icon(iconData, color: AppTheme.muted, size: 19),
       suffixIcon: suffix,
       filled:     true,
       fillColor:  AppTheme.card,
@@ -346,6 +362,25 @@ class _LoginScreenState extends State<LoginScreen> {
               color: _kErrorRed, width: 1.5)),
       errorStyle: const TextStyle(
           color: _kErrorRed, fontSize: 12),
+    );
+  }
+}
+
+/// Small styled "G" glyph used on the Google sign-in button.
+/// Lucide (and most generic icon packs) don't ship brand logos, so this
+/// keeps the button visually correct without pulling in a new asset/package.
+class _GoogleGlyph extends StatelessWidget {
+  const _GoogleGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'G',
+      style: TextStyle(
+        fontSize:   18,
+        fontWeight: FontWeight.w800,
+        color:      AppTheme.textPrimary,
+      ),
     );
   }
 }

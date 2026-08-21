@@ -4,17 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
-
-// ─────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────
+import '../../services/rating_service.dart';
+import '../../utils/elo_calculator.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
-
-// ─────────────────────────────────────────────
-// LeaderboardScreen
-// ─────────────────────────────────────────────
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -24,8 +19,8 @@ class LeaderboardScreen extends StatefulWidget {
 }
 
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
-  final String _uid  = FirebaseAuth.instance.currentUser?.uid ?? '';
-  String _filter     = 'All';
+  final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  String _filter = 'All';
 
   @override
   Widget build(BuildContext context) {
@@ -41,8 +36,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  // ── Top bar ───────────────────────────────
-
   Widget _buildTopBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -55,30 +48,17 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               color: AppTheme.card,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppTheme.border)),
-            child: Icon(Icons.arrow_back_ios_new_rounded,
-                color: AppTheme.textPrimary, size: 16),
+            child: Icon(LucideIcons.chevronLeft,
+                color: AppTheme.textPrimary, size: 18),
           ),
         ),
         const SizedBox(width: 12),
         Text('Leaderboard', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 18,
           fontWeight: FontWeight.w800)),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: AppTheme.accentSurface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.accent)),
-          child: Text('Legazpi City', style: TextStyle(
-            color: AppTheme.accentText, fontSize: 10,
-            fontWeight: FontWeight.w700)),
-        ),
       ]),
     );
   }
-
-  // ── Filter row ────────────────────────────
 
   Widget _buildFilterRow() {
     return SingleChildScrollView(
@@ -114,10 +94,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  // ── Main list ─────────────────────────────
-
   Widget _buildList() {
-    // Build query — filter by sport if not "All"
     Query query = FirebaseFirestore.instance
         .collection('users')
         .where('role', isEqualTo: 'athlete');
@@ -135,7 +112,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         }
         if (snapshot.hasError) {
           return _buildEmpty(
-            icon: Icons.error_outline,
+            icon: LucideIcons.alertCircle,
             title: 'Something went wrong',
             subtitle: snapshot.error.toString());
         }
@@ -143,25 +120,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
           return _buildEmpty(
-            icon: Icons.emoji_events_outlined,
+            icon: LucideIcons.trophy,
             title: 'No athletes yet',
             subtitle: _filter == 'All'
                 ? 'Register athletes to see rankings'
                 : 'No $_filter athletes found');
         }
 
-        // Sort by points descending — client side
         final athletes = docs.map((d) => d.data() as Map<String, dynamic>).toList()
-          ..sort((a, b) {
-            final aP = _toInt(a['points']);
-            final bP = _toInt(b['points']);
-            return bP.compareTo(aP);
-          });
+          ..sort((a, b) => _rankValue(b).compareTo(_rankValue(a)));
 
-
-
-        final top3  = athletes.take(3).toList();
-        final rest  = athletes.length > 3 ? athletes.sublist(3) : <Map<String, dynamic>>[];
+        final top3 = athletes.take(3).toList();
+        final rest = athletes.length > 3 ? athletes.sublist(3) : <Map<String, dynamic>>[];
         final myRank = athletes.indexWhere((a) => a['uid'] == _uid) + 1;
 
         return StreamBuilder<DocumentSnapshot>(
@@ -169,60 +139,56 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               .collection('users').doc(_uid).snapshots(),
           builder: (context, userSnap) {
             final userData = userSnap.data?.data() as Map<String, dynamic>? ?? {};
-            final role     = userData['role'] as String? ?? 'athlete';
+            final role = userData['role'] as String? ?? 'athlete';
 
             return RefreshIndicator(
-              color:           AppTheme.accent,
+              color: AppTheme.accent,
               backgroundColor: AppTheme.card,
               onRefresh: () async {
                 setState(() {});
                 await Future.delayed(const Duration(milliseconds: 800));
               },
               child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                // ── Podium ──────────────────
-                if (top3.isNotEmpty) _buildPodium(top3, role),
-                const SizedBox(height: 20),
-
-                // ── My rank banner (athlete only) ──
-                if (role == 'athlete' && myRank > 3 && myRank > 0) ...[
-                  _buildMyRankBanner(myRank, athletes[myRank - 1]),
-                  const SizedBox(height: 16),
-                ],
-
-                // ── Rest of list ────────────
-                if (rest.isNotEmpty) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Text(
-                      role == 'coach' ? 'TAP ATHLETE TO SCOUT' : 'FULL RANKINGS',
-                      style: TextStyle(color: AppTheme.muted, fontSize: 10,
-                          fontWeight: FontWeight.w700, letterSpacing: 1)),
-                  ),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.card,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppTheme.border)),
-                    child: Column(
-                      children: rest.asMap().entries.map((e) {
-                        final rank    = e.key + 4;
-                        final athlete = e.value;
-                        final isLast  = e.key == rest.length - 1;
-                        final isMe    = athlete['uid'] == _uid;
-                        return _buildRow(
-                          rank: rank,
-                          athlete: athlete,
-                          isLast: isLast,
-                          isMe: isMe,
-                          isCoach: role == 'coach');
-                      }).toList(),
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  if (top3.isNotEmpty) _buildPodium(top3, role),
+                  const SizedBox(height: 20),
+                  if (role == 'athlete' && myRank > 3 && myRank > 0) ...[
+                    _buildMyRankBanner(myRank, athletes[myRank - 1]),
+                    const SizedBox(height: 16),
+                  ],
+                  if (rest.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Text(
+                        role == 'coach' ? 'TAP ATHLETE TO SCOUT' : 'FULL RANKINGS',
+                        style: TextStyle(color: AppTheme.muted, fontSize: 10,
+                            fontWeight: FontWeight.w700, letterSpacing: 1)),
                     ),
-                  ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.border)),
+                      child: Column(
+                        children: rest.asMap().entries.map((e) {
+                          final rank = e.key + 4;
+                          final athlete = e.value;
+                          final isLast = e.key == rest.length - 1;
+                          final isMe = athlete['uid'] == _uid;
+                          return _buildRow(
+                            rank: rank,
+                            athlete: athlete,
+                            isLast: isLast,
+                            isMe: isMe,
+                            isCoach: role == 'coach');
+                        }).toList(),
+                      ),
+                    ),
+                  ],
                 ],
-              ]),
+              ),
             );
           },
         );
@@ -230,12 +196,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  // ── Podium ────────────────────────────────
-
   Widget _buildPodium(List<Map<String, dynamic>> top3, String role) {
-    final first  = top3.isNotEmpty ? top3[0] : null;
-    final second = top3.length > 1  ? top3[1] : null;
-    final third  = top3.length > 2  ? top3[2] : null;
+    final first = top3.isNotEmpty ? top3[0] : null;
+    final second = top3.length > 1 ? top3[1] : null;
+    final third = top3.length > 2 ? top3[2] : null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
@@ -244,24 +208,21 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.border)),
       child: Column(children: [
-        // Crown + label
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Text('👑', style: TextStyle(fontSize: 14)),
+          Icon(LucideIcons.crown, color: AppTheme.accent, size: 16),
           const SizedBox(width: 6),
           Text('Top Athletes', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w800)),
         ]),
         const SizedBox(height: 16),
-
-        // Podium columns: 2nd, 1st, 3rd
         Row(crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (second != null) _podiumItem(second, 2, 70),
             const SizedBox(width: 8),
-            if (first  != null) _podiumItem(first,  1, 95),
+            if (first != null) _podiumItem(first, 1, 95),
             const SizedBox(width: 8),
-            if (third  != null) _podiumItem(third,  3, 55),
+            if (third != null) _podiumItem(third, 3, 55),
           ],
         ),
       ]),
@@ -269,44 +230,52 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   Widget _podiumItem(Map<String, dynamic> athlete, int rank, double barH) {
-    final pts    = _toInt(athlete['points']);
-    final isMe   = athlete['uid'] == _uid;
+    final pts = _rankValue(athlete);
+    final isMe = athlete['uid'] == _uid;
+    final name = _displayName(athlete);
+    final photoUrl = athlete['photoUrl'] as String?;
     final colors = {
       1: [const Color(0xFFFFB800), const Color(0xFF2E1F00)],
-      2: [const Color(0xFF8888AA), const Color(0xFF1E1E35)],
-      3: [const Color(0xFFCC9500), const Color(0xFF1A1200)],
+      2: [const Color(0xFFB8BCC8), const Color(0xFF1E1E28)],
+      3: [const Color(0xFFCD7F32), const Color(0xFF2E1D0F)],
     };
     final accentColor = colors[rank]![0];
-    final bgColor     = colors[rank]![1];
+    final bgColor = colors[rank]![1];
+    final size = rank == 1 ? 52.0 : 40.0;
 
     return Column(children: [
-      // Avatar
       Container(
-        width: rank == 1 ? 52 : 40,
-        height: rank == 1 ? 52 : 40,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           color: accentColor,
           shape: BoxShape.circle,
           border: isMe ? Border.all(color: AppTheme.accent, width: 2.5) : null),
-        child: Center(child: Text(
-          _initials(athlete['fullName'] as String? ?? ''),
-          style: TextStyle(
-            color: AppTheme.buttonFg,
-            fontSize: rank == 1 ? 16 : 13,
-            fontWeight: FontWeight.w800))),
+        child: ClipOval(
+          child: photoUrl != null && photoUrl.isNotEmpty
+              ? Image.network(photoUrl, fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Center(child: Text(
+                      _initials(name),
+                      style: TextStyle(color: AppTheme.buttonFg,
+                          fontSize: rank == 1 ? 16 : 13,
+                          fontWeight: FontWeight.w800))))
+              : Center(child: Text(_initials(name),
+                  style: TextStyle(color: AppTheme.buttonFg,
+                      fontSize: rank == 1 ? 16 : 13,
+                      fontWeight: FontWeight.w800))),
+        ),
       ),
       const SizedBox(height: 4),
       SizedBox(width: 60, child: Text(
-        _firstName(athlete['fullName'] as String? ?? ''),
+        _firstName(name),
         textAlign: TextAlign.center,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: isMe ? AppTheme.accent : AppTheme.textPrimary,
           fontSize: 10, fontWeight: FontWeight.w600))),
-      Text('$pts pts', style: TextStyle(
+      Text('$pts $_unitLabel', style: TextStyle(
         color: accentColor, fontSize: 10, fontWeight: FontWeight.w800)),
       const SizedBox(height: 6),
-      // Bar
       Container(
         width: rank == 1 ? 60 : 50,
         height: barH,
@@ -320,10 +289,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     ]);
   }
 
-  // ── My rank banner ────────────────────────
-
   Widget _buildMyRankBanner(int rank, Map<String, dynamic> athlete) {
-    final pts = _toInt(athlete['points']);
+    final pts = _rankValue(athlete);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -344,15 +311,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           children: [
             Text('Your Rank', style: TextStyle(
               color: AppTheme.muted, fontSize: 10, fontWeight: FontWeight.w600)),
-            Text('$pts points earned so far', style: TextStyle(
+            Text(
+              _filter == 'All' ? '$pts points earned so far' : '$pts $_unitLabel rating',
+              style: TextStyle(
               color: AppTheme.accentText, fontSize: 12, fontWeight: FontWeight.w600)),
           ])),
-        const Text('⭐', style: TextStyle(fontSize: 22)),
+        Icon(LucideIcons.star, color: AppTheme.accent, size: 20),
       ]),
     );
   }
-
-  // ── List row ──────────────────────────────
 
   Widget _buildRow({
     required int rank,
@@ -361,10 +328,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     required bool isMe,
     required bool isCoach,
   }) {
-    final pts      = _toInt(athlete['points']);
-    final position = athlete['position']    as String? ?? '';
-    final barangay = athlete['barangay']    as String? ?? '';
-    final isOpen   = athlete['openToRecruitment'] as bool? ?? false;
+    final pts = _rankValue(athlete);
+    final position = athlete['position'] as String? ?? '';
+    final barangay = athlete['barangay'] as String? ?? '';
+    final isOpen = athlete['openToRecruitment'] as bool? ?? false;
+    final name = _displayName(athlete);
+    final photoUrl = athlete['photoUrl'] as String?;
 
     return GestureDetector(
       onTap: isCoach ? () => _showAthleteProfile(athlete) : null,
@@ -376,12 +345,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(children: [
-            // Rank
             SizedBox(width: 24, child: Text('$rank', style: TextStyle(
               color: isMe ? AppTheme.accent : AppTheme.muted,
               fontSize: 13, fontWeight: FontWeight.w800))),
             const SizedBox(width: 8),
-            // Avatar
             Container(
               width: 36, height: 36,
               decoration: BoxDecoration(
@@ -392,19 +359,27 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                       : [AppTheme.cardNested, AppTheme.cardNested]),
                 borderRadius: BorderRadius.circular(10),
                 border: isMe ? Border.all(color: AppTheme.accent, width: 1.5) : null),
-              child: Center(child: Text(
-                _initials(athlete['fullName'] as String? ?? ''),
-                style: TextStyle(
-                  color: isMe ? AppTheme.buttonFg : AppTheme.muted,
-                  fontSize: 12, fontWeight: FontWeight.w800))),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: photoUrl != null && photoUrl.isNotEmpty
+                    ? Image.network(photoUrl, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Center(child: Text(
+                            _initials(name),
+                            style: TextStyle(
+                                color: isMe ? AppTheme.buttonFg : AppTheme.muted,
+                                fontSize: 12, fontWeight: FontWeight.w800))))
+                    : Center(child: Text(_initials(name),
+                        style: TextStyle(
+                            color: isMe ? AppTheme.buttonFg : AppTheme.muted,
+                            fontSize: 12, fontWeight: FontWeight.w800))),
+              ),
             ),
             const SizedBox(width: 10),
-            // Name + sub
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
                   Text(
-                    isMe ? 'You' : (athlete['fullName'] as String? ?? ''),
+                    isMe ? 'You' : name,
                     style: TextStyle(
                       color: isMe ? AppTheme.accent : AppTheme.textPrimary,
                       fontSize: 13, fontWeight: FontWeight.w600)),
@@ -426,7 +401,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   style: TextStyle(color: AppTheme.sub, fontSize: 10),
                   overflow: TextOverflow.ellipsis),
               ])),
-            // Points + scout badge
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
               Text('$pts', style: TextStyle(
                 color: isMe ? AppTheme.accent : AppTheme.textPrimary,
@@ -437,12 +411,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     color: isOpen ? AppTheme.success : AppTheme.muted,
                     fontSize: 9, fontWeight: FontWeight.w700)),
               if (!isCoach && isMe)
-                Text('pts', style: TextStyle(
+                Text(_unitLabel, style: TextStyle(
                   color: AppTheme.muted, fontSize: 9)),
             ]),
             if (isCoach) ...[
               const SizedBox(width: 6),
-              Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 18),
+              Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 18),
             ],
           ]),
         ),
@@ -450,17 +424,17 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  // ── Athlete profile bottom sheet (Coach) ──
-
   void _showAthleteProfile(Map<String, dynamic> athlete) {
-    final pts      = _toInt(athlete['points']);
-    final position = athlete['position']          as String? ?? '—';
-    final barangay = athlete['barangay']          as String? ?? '—';
-    final sports   = (athlete['primarySports'] as List?)
+    final pts = _rankValue(athlete);
+    final position = athlete['position'] as String? ?? '—';
+    final barangay = athlete['barangay'] as String? ?? '—';
+    final sports = (athlete['primarySports'] as List?)
         ?.map((e) => e.toString()).join(', ') ?? '—';
-    final years    = athlete['yearsOfPlaying']    as String? ?? '—';
-    final isOpen   = athlete['openToRecruitment'] as bool? ?? false;
-    final bio      = athlete['bio']               as String? ?? '';
+    final years = athlete['yearsOfPlaying'] as String? ?? '—';
+    final isOpen = athlete['openToRecruitment'] as bool? ?? false;
+    final bio = athlete['bio'] as String? ?? '';
+    final name = _displayName(athlete);
+    final photoUrl = athlete['photoUrl'] as String?;
 
     showModalBottomSheet(
       context: context,
@@ -476,13 +450,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           controller: ctrl,
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 36),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Handle
             Center(child: Container(width: 40, height: 4,
               decoration: BoxDecoration(color: AppTheme.border,
                   borderRadius: BorderRadius.circular(2)))),
             const SizedBox(height: 20),
-
-            // Header
             Row(children: [
               Container(
                 width: 56, height: 56,
@@ -491,21 +462,28 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     begin: Alignment.topLeft, end: Alignment.bottomRight,
                     colors: [AppTheme.accent, AppTheme.accent2]),
                   borderRadius: BorderRadius.circular(16)),
-                child: Center(child: Text(
-                  _initials(athlete['fullName'] as String? ?? ''),
-                  style: const TextStyle(color: AppTheme.buttonFg,
-                      fontSize: 18, fontWeight: FontWeight.w800))),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: photoUrl != null && photoUrl.isNotEmpty
+                      ? Image.network(photoUrl, fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Center(child: Text(
+                              _initials(name),
+                              style: const TextStyle(color: AppTheme.buttonFg,
+                                  fontSize: 18, fontWeight: FontWeight.w800))))
+                      : Center(child: Text(_initials(name),
+                          style: const TextStyle(color: AppTheme.buttonFg,
+                              fontSize: 18, fontWeight: FontWeight.w800))),
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(athlete['fullName'] as String? ?? '',
+                  Text(name,
                     style: TextStyle(color: AppTheme.textPrimary,
                         fontSize: 16, fontWeight: FontWeight.w800)),
                   Text('$position · $barangay',
                     style: TextStyle(color: AppTheme.sub, fontSize: 12)),
                 ])),
-              // Points badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
@@ -516,17 +494,14 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   Text('$pts', style: TextStyle(
                     color: AppTheme.accentText, fontSize: 20,
                     fontWeight: FontWeight.w900)),
-                  Text('pts', style: TextStyle(
+                  Text(_unitLabel, style: TextStyle(
                     color: AppTheme.muted, fontSize: 9)),
                 ]),
               ),
             ]),
-
             const SizedBox(height: 20),
             Divider(color: AppTheme.border),
             const SizedBox(height: 12),
-
-            // Stats grid
             Row(children: [
               _profileStat('Sport', sports),
               const SizedBox(width: 12),
@@ -534,10 +509,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               const SizedBox(width: 12),
               _profileStat('Barangay', barangay),
             ]),
-
             const SizedBox(height: 16),
-
-            // Recruitment status
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
@@ -549,19 +521,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 border: Border.all(
                   color: isOpen ? AppTheme.success : AppTheme.border)),
               child: Row(children: [
-                Icon(isOpen ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                Icon(isOpen ? LucideIcons.checkCircle2 : LucideIcons.xCircle,
                   color: isOpen ? AppTheme.success : AppTheme.muted, size: 20),
                 const SizedBox(width: 10),
-                Text(
+                Expanded(child: Text(
                   isOpen
                       ? 'Open to recruitment — available to join a team'
                       : 'Not currently open to recruitment',
                   style: TextStyle(
                     color: isOpen ? AppTheme.success : AppTheme.muted,
-                    fontSize: 12, fontWeight: FontWeight.w600)),
+                    fontSize: 12, fontWeight: FontWeight.w600))),
               ]),
             ),
-
             if (bio.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text('Bio', style: TextStyle(
@@ -571,10 +542,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               Text(bio, style: TextStyle(
                 color: AppTheme.sub, fontSize: 13, height: 1.6)),
             ],
-
             const SizedBox(height: 24),
-
-            // Close
             SizedBox(
               width: double.infinity, height: 50,
               child: OutlinedButton(
@@ -609,8 +577,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     ));
   }
 
-  // ── Empty state ───────────────────────────
-
   Widget _buildEmpty({required IconData icon,
       required String title, required String subtitle}) {
     return Center(child: Padding(
@@ -631,12 +597,32 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     ));
   }
 
-  // ── Helpers ───────────────────────────────
-
   int _toInt(dynamic val) {
-    if (val is int)    return val;
+    if (val is int) return val;
     if (val is double) return val.toInt();
     return 0;
+  }
+
+  /// The number this leaderboard ranks and displays by: the sport's Elo
+  /// rating when filtered to a sport, raw cumulative points otherwise
+  /// (there's no single cross-sport rating to sort the "All" view by).
+  int _rankValue(Map<String, dynamic> athlete) {
+    if (_filter == 'All') return _toInt(athlete['points']);
+    final ratings = athlete['ratings'] as Map?;
+    return (ratings?[RatingService.sportKey(_filter)] as num?)?.toInt() ??
+        kStartingRating;
+  }
+
+  String get _unitLabel => _filter == 'All' ? 'pts' : 'Rating';
+
+  String _displayName(Map<String, dynamic> athlete) {
+    final fullName = (athlete['fullName'] as String? ?? '').trim();
+    if (fullName.isNotEmpty) return fullName;
+    final first = (athlete['firstName'] as String? ?? '').trim();
+    final last = (athlete['lastName'] as String? ?? '').trim();
+    final combined = '$first $last'.trim();
+    if (combined.isNotEmpty) return combined;
+    return 'Unnamed Athlete';
   }
 
   String _initials(String fullName) {
