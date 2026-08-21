@@ -1,14 +1,13 @@
 // lib/screens/venues/venue_locator_screen.dart
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../services/directions_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
 
@@ -16,8 +15,6 @@ import '../../utils/firestore_helpers.dart';
 // Config
 // ─────────────────────────────────────────────
 
-// Directions API key (unrestricted — for HTTP calls)
-const _kDirectionsApiKey = 'AIzaSyANxN_-pADVGhenw5VdLZe9_O-620BAFuo';
 const _kCenter       = LatLng(13.1391, 123.7438);
 const _kDefaultZoom  = 13.5;
 
@@ -170,108 +167,42 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
     return markers;
   }
 
-  // ── Directions via OSRM (free fallback) ──
-  // Using OSRM since Google Directions API
-  // requires billing to be fully activated
+  // ── Directions via Google Directions API ──
 
   Future<void> _getDirections(LatLng dest) async {
     setState(() { _isRouting = true; _polylines = {}; });
     try {
-      // OSRM — free, no billing needed, real roads
-      final url = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/'
-        '${_userLoc.longitude},${_userLoc.latitude};'
-        '${dest.longitude},${dest.latitude}'
-        '?overview=full&geometries=geojson',
+      final result = await DirectionsService.fetchDrivingRoute(
+          origin: _userLoc, destination: dest);
+
+      final polyline = Polyline(
+        polylineId: const PolylineId('route'),
+        points:     result.points,
+        color:      AppTheme.accent,
+        width:      5,
       );
 
-      final res = await http.get(url, headers: {
-        'Accept': 'application/json',
-      }).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      setState(() {
+        _polylines = {polyline};
+        _routeDist = result.distanceText;
+        _routeDur  = result.durationText;
+        _isRouting = false;
+      });
 
-      if (res.statusCode == 200) {
-        final data   = jsonDecode(res.body);
-        final routes = data['routes'] as List;
-        if (routes.isEmpty) throw Exception('No route found');
-
-        final route  = routes[0];
-        final coords = route['geometry']['coordinates'] as List;
-        final distM  = (route['distance'] as num).toDouble();
-        final durSec = (route['duration'] as num).toDouble();
-
-        final points = coords.map((c) =>
-            LatLng((c[1] as num).toDouble(),
-                   (c[0] as num).toDouble())).toList();
-
-        final distKm = distM >= 1000
-            ? '${(distM / 1000).toStringAsFixed(1)} km'
-            : '${distM.toInt()} m';
-        final durMin = (durSec / 60).ceil();
-        final durStr = durMin >= 60
-            ? '${durMin ~/ 60}h ${durMin % 60}min'
-            : '$durMin min';
-
-        final polyline = Polyline(
-          polylineId: const PolylineId('route'),
-          points:     points,
-          color:      AppTheme.accent,
-          width:      5,
-        );
-
-        if (!mounted) return;
-        setState(() {
-          _polylines = {polyline};
-          _routeDist = distKm;
-          _routeDur  = durStr;
-          _isRouting = false;
-        });
-
-        // Fit camera to show full route
-        final ctrl = await _mapCompleter.future;
-        final bounds = _boundsFromLatLngList(
-            [_userLoc, dest, ...points]);
-        ctrl.animateCamera(
-            CameraUpdate.newLatLngBounds(bounds, 60));
-
-      } else {
-        throw Exception('HTTP ${res.statusCode}');
-      }
+      // Fit camera to show full route
+      final ctrl = await _mapCompleter.future;
+      final bounds = _boundsFromLatLngList(
+          [_userLoc, dest, ...result.points]);
+      ctrl.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 60));
     } catch (e) {
       if (mounted) setState(() { _isRouting = false; });
-      _snack('Directions Error',
-          'Could not get route. Check internet connection.');
+      final msg = e is DirectionsException
+          ? e.message
+          : 'Could not get route. Check internet connection.';
+      _snack('Directions Error', msg);
     }
-  }
-
-  // ── Google Polyline Decoder ───────────────
-
-  List<LatLng> _decodePolyline(String encoded) {
-    final points = <LatLng>[];
-    int index = 0, len = encoded.length;
-    int lat = 0, lng = 0;
-
-    while (index < len) {
-      int b, shift = 0, result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      final dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      lat += dlat;
-
-      shift = 0; result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      final dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      lng += dlng;
-
-      points.add(LatLng(lat / 1e5, lng / 1e5));
-    }
-    return points;
   }
 
   // ── LatLngBounds helper ───────────────────
