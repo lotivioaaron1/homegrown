@@ -46,6 +46,7 @@ app.*.map.json
 
 # Claude / AI assistant files
 .claude/
+.worktrees/
 
 # Android generated reports
 android/build/reports/
