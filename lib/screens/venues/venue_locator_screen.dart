@@ -60,19 +60,26 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
   String _routeDur   = '';
 
   // User location — starts at Legazpi center,
-  // updated with real GPS if permission granted
+  // continuously updated with real GPS if permission granted
   LatLng _userLoc = _kCenter;
+  StreamSubscription<Position>? _positionSub;
 
   @override
   void initState() {
     super.initState();
     _loadEvents();
-    _getUserLocation();
+    _startLocationUpdates();
   }
 
-  // ── Get real GPS location ─────────────────
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    super.dispose();
+  }
 
-  Future<void> _getUserLocation() async {
+  // ── Live GPS location ──────────────────────
+
+  Future<void> _startLocationUpdates() async {
     try {
       final permission = await Geolocator.checkPermission();
       LocationPermission perm = permission;
@@ -81,14 +88,16 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
       }
       if (perm == LocationPermission.deniedForever) return;
 
-      final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-
-      if (mounted) {
-        setState(() {
-          _userLoc = LatLng(pos.latitude, pos.longitude);
-        });
-      }
+      _positionSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen((pos) {
+        if (mounted) {
+          setState(() => _userLoc = LatLng(pos.latitude, pos.longitude));
+        }
+      });
     } catch (_) {
       // Falls back to Legazpi center if GPS unavailable
     }
@@ -154,15 +163,6 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
         onTap: () => _onMarkerTap(ev),
       ));
     }
-
-    // User location marker
-    markers.add(Marker(
-      markerId: const MarkerId('user_location'),
-      position: _userLoc,
-      icon: BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueAzure),
-      infoWindow: const InfoWindow(title: '📍 Your Location'),
-    ));
 
     return markers;
   }
