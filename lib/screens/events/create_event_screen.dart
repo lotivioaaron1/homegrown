@@ -1,5 +1,6 @@
 // lib/screens/events/create_event_screen.dart
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,8 +8,10 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../theme/app_theme.dart';
-import '../../constants/legazpi_venues.dart';
+import '../../models/venue.dart';
 import '../../services/notification_service.dart';
+import '../../services/places_service.dart';
+import 'venue_map_picker_screen.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -28,8 +31,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   final _nameCtrl  = TextEditingController();
   final _descCtrl  = TextEditingController();
 
-  // ── Venue — now uses dropdown ─────────────
-  LegazpiVenue? _selectedVenue;
+  // ── Venue — live search + manual pin ──────
+  Venue? _selectedVenue;
 
   String _sport = ''; String _eventType = '';
   DateTime? _eventDate; TimeOfDay? _eventTime;
@@ -50,7 +53,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   void _pickVenue() {
     final search = TextEditingController();
-    List<LegazpiVenue> filtered = List.from(kLegazpiVenues);
+    List<Venue> results = [];
+    bool isSearching = false;
+    bool hasSearched = false;
+    Timer? debounce;
 
     showModalBottomSheet(
       context: context,
@@ -59,60 +65,74 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => StatefulBuilder(
-        builder: (ctx, setModal) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize:     0.92,
-          builder: (_, ctrl) => Column(children: [
-            const SizedBox(height: 12),
-            Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(2))),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Text('Select Venue', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 16,
-                  fontWeight: FontWeight.w800)),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: search,
-                autofocus: true,
-                style: TextStyle(color: AppTheme.textPrimary),
-                onChanged: (q) => setModal(() {
-                  filtered = kLegazpiVenues.where((v) =>
-                      v.name.toLowerCase().contains(q.toLowerCase()) ||
-                      v.type.toLowerCase().contains(q.toLowerCase()))
-                      .toList();
-                }),
-                decoration: InputDecoration(
-                  hintText: 'Search venue...',
-                  hintStyle: TextStyle(color: AppTheme.muted),
-                  prefixIcon: Icon(Icons.search_rounded,
-                      color: AppTheme.muted, size: 20),
-                  filled: true, fillColor: AppTheme.bg,
-                  contentPadding: const EdgeInsets.symmetric(
-                      vertical: 12, horizontal: 16),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.border)),
-                  focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: AppTheme.accent, width: 1.5)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: ListView.builder(
+        builder: (ctx, setModal) {
+          Future<void> runSearch(String q) async {
+            if (q.trim().isEmpty) {
+              if (ctx.mounted) {
+                setModal(() { results = []; hasSearched = false; });
+              }
+              return;
+            }
+            if (ctx.mounted) setModal(() => isSearching = true);
+            try {
+              final found = await PlacesService.searchVenues(q);
+              if (ctx.mounted) {
+                setModal(() {
+                  results = found; isSearching = false; hasSearched = true;
+                });
+              }
+            } catch (_) {
+              if (ctx.mounted) {
+                setModal(() {
+                  results = []; isSearching = false; hasSearched = true;
+                });
+                _snack('Search Error',
+                    'Could not search venues. Check internet connection.');
+              }
+            }
+          }
+
+          Future<void> openMapPicker() async {
+            final picked = await Navigator.push<Venue>(ctx,
+                MaterialPageRoute(builder: (_) => const VenueMapPickerScreen()));
+            if (picked != null) {
+              setState(() => _selectedVenue = picked);
+              if (ctx.mounted) Navigator.pop(ctx);
+            }
+          }
+
+          Widget buildResults(ScrollController ctrl) {
+            if (isSearching) {
+              return const Center(child: CircularProgressIndicator(
+                  color: AppTheme.accent, strokeWidth: 2));
+            }
+            if (!hasSearched) {
+              return Center(child: Text('Type to search for a venue',
+                  style: TextStyle(color: AppTheme.muted, fontSize: 13)));
+            }
+            if (results.isEmpty) {
+              return Center(child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('No venues found', style: TextStyle(
+                      color: AppTheme.textPrimary, fontSize: 14,
+                      fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: openMapPicker,
+                    icon: Icon(Icons.add_location_alt_rounded,
+                        color: AppTheme.accent),
+                    label: Text("Can't find it? Drop a pin",
+                        style: TextStyle(color: AppTheme.accent)),
+                  ),
+                ],
+              ));
+            }
+            return ListView.builder(
               controller: ctrl,
-              itemCount: filtered.length,
+              itemCount: results.length,
               itemBuilder: (_, i) {
-                final v   = filtered[i];
+                final v = results[i];
                 final sel = v.name == _selectedVenue?.name;
                 return ListTile(
                   dense: true,
@@ -131,20 +151,72 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                     color: sel ? AppTheme.accentText : AppTheme.textPrimary,
                     fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
                     fontSize: 13)),
-                  subtitle: Text(v.type, style: TextStyle(
+                  subtitle: Text(v.address, style: TextStyle(
                       color: AppTheme.muted, fontSize: 11)),
                   trailing: sel
                       ? Icon(Icons.check_circle_rounded,
                           color: AppTheme.accent, size: 20) : null,
                   onTap: () {
                     setState(() => _selectedVenue = v);
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 );
               },
-            )),
-          ]),
-        ),
+            );
+          }
+
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.75,
+            maxChildSize:     0.92,
+            builder: (_, ctrl) => Column(children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4,
+                  decoration: BoxDecoration(color: AppTheme.border,
+                      borderRadius: BorderRadius.circular(2))),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: Text('Select Venue', style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 16,
+                    fontWeight: FontWeight.w800)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: TextField(
+                  controller: search,
+                  autofocus: true,
+                  style: TextStyle(color: AppTheme.textPrimary),
+                  onChanged: (q) {
+                    debounce?.cancel();
+                    debounce = Timer(
+                        const Duration(milliseconds: 400), () => runSearch(q));
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Search venue...',
+                    hintStyle: TextStyle(color: AppTheme.muted),
+                    prefixIcon: Icon(Icons.search_rounded,
+                        color: AppTheme.muted, size: 20),
+                    filled: true, fillColor: AppTheme.bg,
+                    contentPadding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 16),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: AppTheme.border)),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                            color: AppTheme.accent, width: 1.5)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(child: buildResults(ctrl)),
+            ]),
+          );
+        },
       ),
     );
   }
