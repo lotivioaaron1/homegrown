@@ -12,8 +12,12 @@ Timestamp? asTimestamp(dynamic value) => value is Timestamp ? value : null;
 /// upcoming rather than disappearing from every list by default. This is
 /// the single source of truth for "is this game done" — the `status` field
 /// on an event doc is only ever written once at creation ('draft' or
-/// 'upcoming') and never updated afterward, so it can't be used for this.
+/// 'upcoming') and never updated afterward for a completed game, so it can't
+/// be used for that. A cancelled event is the one exception: it's excluded
+/// here regardless of date so a cancelled-but-not-yet-happened game doesn't
+/// keep showing as upcoming.
 bool isEventUpcoming(Map<String, dynamic> event, {DateTime? now}) {
+  if (event['status'] == 'cancelled') return false;
   final date = asTimestamp(event['eventDate'])?.toDate();
   if (date == null) return true;
   return !date.isBefore(now ?? DateTime.now());

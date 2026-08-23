@@ -296,12 +296,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ? FirebaseFirestore.instance
                 .collection('events')
                 .where('playerUids', arrayContains: _uid)
-                .where('status', isEqualTo: 'upcoming')
                 .snapshots()
             : FirebaseFirestore.instance
                 .collection('events')
                 .where('isPublic', isEqualTo: true)
-                .where('status', isEqualTo: 'upcoming')
                 .snapshots();
 
     showModalBottomSheet(
@@ -352,6 +350,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                       var docs = (snapshot.data?.docs ?? []).where((doc) {
                         final ev = doc.data() as Map<String, dynamic>;
+                        // Drafts are organizer-only regardless of role; for
+                        // non-organizers the server-side query no longer
+                        // filters status (see isEventUpcoming's cancelled
+                        // handling), so exclude drafts here instead.
+                        if (role != 'organizer' && ev['status'] == 'draft') {
+                          return false;
+                        }
                         return isEventUpcoming(ev) != showHistory;
                       }).toList();
                       docs.sort((a, b) {
@@ -1712,11 +1717,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final stream = role == 'athlete'
         ? FirebaseFirestore.instance.collection('events')
             .where('playerUids', arrayContains: _uid)
-            .where('status', isEqualTo: 'upcoming')
             .limit(10).snapshots()
         : FirebaseFirestore.instance.collection('events')
             .where('isPublic', isEqualTo: true)
-            .where('status', isEqualTo: 'upcoming')
             .limit(10).snapshots();
 
     return Padding(
@@ -1740,8 +1743,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   : 'Check back soon');
           }
           final events = snapshot.data!.docs
-              .where((doc) =>
-                  isEventUpcoming(doc.data() as Map<String, dynamic>))
+              .where((doc) {
+                final ev = doc.data() as Map<String, dynamic>;
+                return ev['status'] != 'draft' && isEventUpcoming(ev);
+              })
               .toList()
             ..sort((a, b) {
             final aT = asTimestamp((a.data() as Map)['eventDate']);
@@ -1865,10 +1870,12 @@ class _EventList extends StatelessWidget {
         // never updates itself once a game happens, so the displayed
         // label is derived from the real eventDate instead of trusted
         // as-is — see isEventUpcoming() in firestore_helpers.dart.
+        final isCancelled = ev['status'] == 'cancelled';
         final isDraft     = ev['status'] == 'draft';
-        final isCompleted = !isDraft && !isEventUpcoming(ev);
-        final badgeLabel  = isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
-        final isNeutral   = isDraft || isCompleted;
+        final isCompleted = !isCancelled && !isDraft && !isEventUpcoming(ev);
+        final badgeLabel  = isCancelled ? 'CANCELLED'
+            : isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
+        final isNeutral   = isCancelled || isDraft || isCompleted;
         final date   = asTimestamp(ev['eventDate']);
         final fmtDate = date != null
             ? DateFormat('MMM dd').format(date.toDate()) : '—';

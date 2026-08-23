@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../../models/match_result.dart';
+import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
 
@@ -34,7 +35,7 @@ class EventDetailScreen extends StatelessWidget {
                     style: TextStyle(color: AppTheme.sub)))),
               ]);
             }
-            return _buildContent(
+            return _buildContent(context,
                 snapshot.data!.data() as Map<String, dynamic>);
           },
         ),
@@ -94,16 +95,18 @@ class EventDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildContent(Map<String, dynamic> ev) {
+  Widget _buildContent(BuildContext context, Map<String, dynamic> ev) {
     final name = ev['name'] as String? ?? 'Untitled Event';
     // The raw `status` field is only ever 'draft' or 'upcoming' and never
     // updates itself once a game happens, so the displayed label is derived
     // from the real eventDate instead — see isEventUpcoming() in
     // firestore_helpers.dart.
+    final isCancelled = ev['status'] == 'cancelled';
     final isDraft = ev['status'] == 'draft';
-    final isCompleted = !isDraft && !isEventUpcoming(ev);
-    final statusLabel = isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
-    final isNeutralStatus = isDraft || isCompleted;
+    final isCompleted = !isCancelled && !isDraft && !isEventUpcoming(ev);
+    final statusLabel = isCancelled ? 'CANCELLED'
+        : isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
+    final isNeutralStatus = isCancelled || isDraft || isCompleted;
     final sport = ev['sport'] as String? ?? '—';
     final venue = ev['venue'] as String? ?? '—';
     final venueAddress = ev['venueAddress'] as String? ?? '';
@@ -186,6 +189,20 @@ class EventDetailScreen extends StatelessWidget {
                   color: AppTheme.muted, fontSize: 12,
                   fontWeight: FontWeight.w800, letterSpacing: 1)),
               const Spacer(),
+              if (isOrganizer && isEventUpcoming(ev)) ...[
+                GestureDetector(
+                  onTap: () => Get.toNamed('/events/edit',
+                      arguments: {'eventId': _eventId}),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.tune_rounded, color: AppTheme.accent, size: 13),
+                    const SizedBox(width: 4),
+                    Text('Edit Event', style: TextStyle(
+                        color: AppTheme.accent, fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+                  ]),
+                ),
+                const SizedBox(width: 14),
+              ],
               if (isOrganizer)
                 GestureDetector(
                   onTap: () => Get.toNamed('/events/edit-teams',
@@ -284,11 +301,145 @@ class EventDetailScreen extends StatelessWidget {
                       fontWeight: FontWeight.w700)),
                 ),
               ),
+              if (!isCancelled) _buildDangerZone(context, ev),
             ],
           ]),
         ),
       ),
     ]);
+  }
+
+  /// Offers exactly one action based on how much history the event has:
+  /// nothing recorded yet → hard delete is safe; a match exists but isn't
+  /// finalized → soft cancel instead, so nothing gets orphaned; a finalized
+  /// match already awarded points/ratings → neither is offered, since that
+  /// history shouldn't be erasable.
+  Widget _buildDangerZone(BuildContext context, Map<String, dynamic> ev) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('matches')
+          .where('eventId', isEqualTo: _eventId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+        final matches = snapshot.data!.docs;
+        final hasFinalized = matches.any((d) =>
+            (d.data() as Map<String, dynamic>)['status'] == 'finalized');
+        if (hasFinalized) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+                "This game has recorded results and can't be cancelled or "
+                'deleted.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+          );
+        }
+        final hasMatches = matches.isNotEmpty;
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton(
+              onPressed: () => hasMatches
+                  ? _confirmCancel(context, ev)
+                  : _confirmDelete(context),
+              style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: AppTheme.error),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12))),
+              child: Text(hasMatches ? 'Cancel Event' : 'Delete Event',
+                  style: TextStyle(
+                      color: AppTheme.error,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Delete this event?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text(
+            "This can't be undone. Nobody has recorded a match for it yet, "
+            'so nothing else is affected.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Back', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await FirebaseFirestore.instance
+                  .collection('events').doc(_eventId).delete();
+              Get.back();
+            },
+            child: Text('Delete', style: TextStyle(
+                color: AppTheme.error, fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmCancel(BuildContext context, Map<String, dynamic> ev) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Cancel this event?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text(
+            'Everyone on the roster will be notified. The event stays '
+            'visible in History, marked as cancelled.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Back', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await _cancelEvent(ev);
+            },
+            child: Text('Cancel Event', style: TextStyle(
+                color: AppTheme.error, fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancelEvent(Map<String, dynamic> ev) async {
+    final batch = FirebaseFirestore.instance.batch();
+    final eventRef = FirebaseFirestore.instance.collection('events').doc(_eventId);
+    batch.update(eventRef, {'status': 'cancelled'});
+    final name = ev['name'] as String? ?? 'The event';
+    final playerUids = List<String>.from(ev['playerUids'] as List? ?? []);
+    for (final uid in playerUids) {
+      await NotificationService.create(
+        userId: uid,
+        type: 'event_cancelled',
+        title: 'Game cancelled',
+        body: '$name has been cancelled by the organizer.',
+        relatedId: _eventId,
+        writeBatch: batch,
+      );
+    }
+    await batch.commit();
+    Get.back();
   }
 }
 
