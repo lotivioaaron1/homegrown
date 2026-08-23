@@ -178,7 +178,21 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           itemBuilder: (context, i) {
             final ev = docs[i].data() as Map<String, dynamic>;
             return GestureDetector(
-              onTap: () => setState(() => _selectedEvent = ev),
+              onTap: () => setState(() {
+                _selectedEvent = ev;
+                // Prefill from each player's team, assigned at event
+                // creation, so the organizer isn't re-splitting the same
+                // roster from scratch every time a match is recorded.
+                // Any individual player can still be flipped below.
+                _sides.clear();
+                for (final p in (ev['players'] as List? ?? [])
+                    .cast<Map<String, dynamic>>()) {
+                  final team = p['team'] as String?;
+                  if (team == _kSideA || team == _kSideB) {
+                    _sides[p['uid'] as String] = team!;
+                  }
+                }
+              }),
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import '../../models/match_result.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
 
@@ -63,9 +64,46 @@ class EventDetailScreen extends StatelessWidget {
     ]),
   );
 
+  Widget _buildMatchResults(String? teamAName, String? teamBName) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('matches')
+          .where('eventId', isEqualTo: _eventId)
+          .where('status', isEqualTo: 'finalized')
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) return const SizedBox.shrink();
+        final matches = docs
+            .map((d) => MatchResult.fromMap(d.id, d.data() as Map<String, dynamic>))
+            .toList();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('RESULT', style: TextStyle(
+                color: AppTheme.muted, fontSize: 12,
+                fontWeight: FontWeight.w800, letterSpacing: 1)),
+            const SizedBox(height: 10),
+            ...matches.map((m) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _MatchResultCard(
+                    match: m, teamAName: teamAName, teamBName: teamBName))),
+          ]),
+        );
+      },
+    );
+  }
+
   Widget _buildContent(Map<String, dynamic> ev) {
     final name = ev['name'] as String? ?? 'Untitled Event';
-    final status = ev['status'] as String? ?? 'upcoming';
+    // The raw `status` field is only ever 'draft' or 'upcoming' and never
+    // updates itself once a game happens, so the displayed label is derived
+    // from the real eventDate instead — see isEventUpcoming() in
+    // firestore_helpers.dart.
+    final isDraft = ev['status'] == 'draft';
+    final isCompleted = !isDraft && !isEventUpcoming(ev);
+    final statusLabel = isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
+    final isNeutralStatus = isDraft || isCompleted;
     final sport = ev['sport'] as String? ?? '—';
     final venue = ev['venue'] as String? ?? '—';
     final venueAddress = ev['venueAddress'] as String? ?? '';
@@ -80,6 +118,8 @@ class EventDetailScreen extends StatelessWidget {
         maxPlayers != null ? '$playerCount/$maxPlayers' : '$playerCount';
     final players = (ev['players'] as List?)
         ?.map((p) => p as Map<String, dynamic>).toList() ?? [];
+    final teamAName = ev['teamAName'] as String?;
+    final teamBName = ev['teamBName'] as String?;
     final organizerId = ev['organizerId'] as String?;
     final isOrganizer = organizerId != null &&
         organizerId == FirebaseAuth.instance.currentUser?.uid;
@@ -102,16 +142,16 @@ class EventDetailScreen extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                        color: status == 'draft'
+                        color: isNeutralStatus
                             ? AppTheme.cardNested
                             : AppTheme.accentSurface,
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                            color: status == 'draft'
+                            color: isNeutralStatus
                                 ? AppTheme.border
                                 : AppTheme.accent)),
-                    child: Text(status.toUpperCase(), style: TextStyle(
-                        color: status == 'draft'
+                    child: Text(statusLabel, style: TextStyle(
+                        color: isNeutralStatus
                             ? AppTheme.muted
                             : AppTheme.accentText,
                         fontSize: 10, fontWeight: FontWeight.w700)),
@@ -140,9 +180,25 @@ class EventDetailScreen extends StatelessWidget {
               ]),
             ),
             const SizedBox(height: 20),
-            Text('ROSTER', style: TextStyle(
-                color: AppTheme.muted, fontSize: 12,
-                fontWeight: FontWeight.w800, letterSpacing: 1)),
+            _buildMatchResults(teamAName, teamBName),
+            Row(children: [
+              Text('ROSTER', style: TextStyle(
+                  color: AppTheme.muted, fontSize: 12,
+                  fontWeight: FontWeight.w800, letterSpacing: 1)),
+              const Spacer(),
+              if (isOrganizer)
+                GestureDetector(
+                  onTap: () => Get.toNamed('/events/edit-teams',
+                      arguments: {'eventId': _eventId}),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.edit_outlined, color: AppTheme.accent, size: 13),
+                    const SizedBox(width: 4),
+                    Text('Edit Teams', style: TextStyle(
+                        color: AppTheme.accent, fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+                  ]),
+                ),
+            ]),
             const SizedBox(height: 10),
             if (players.isEmpty)
               Container(
@@ -170,6 +226,14 @@ class EventDetailScreen extends StatelessWidget {
                   final p = e.value;
                   final fullName = p['fullName'] as String? ?? '';
                   final position = p['position'] as String? ?? '';
+                  final team = p['team'] as String?;
+                  String? teamLabel;
+                  if (team == 'A') teamLabel = teamAName;
+                  if (team == 'B') teamLabel = teamBName;
+                  final subtitleText = [
+                    if (position.isNotEmpty) position,
+                    if (teamLabel != null && teamLabel.isNotEmpty) teamLabel,
+                  ].join(' · ');
                   final initials = fullName.trim().split(' ')
                       .where((s) => s.isNotEmpty).take(2)
                       .map((s) => s[0]).join().toUpperCase();
@@ -197,8 +261,8 @@ class EventDetailScreen extends StatelessWidget {
                       title: Text(fullName, style: TextStyle(
                           color: AppTheme.textPrimary, fontSize: 13,
                           fontWeight: FontWeight.w600)),
-                      subtitle: position.isNotEmpty
-                          ? Text(position,
+                      subtitle: subtitleText.isNotEmpty
+                          ? Text(subtitleText,
                               style: TextStyle(color: AppTheme.sub, fontSize: 11))
                           : null,
                     ),
@@ -239,4 +303,77 @@ class _InfoRow extends StatelessWidget {
     Expanded(child: Text(label, style: TextStyle(
         color: AppTheme.sub, fontSize: 13), overflow: TextOverflow.ellipsis)),
   ]);
+}
+
+/// One finalized match's score, with the winning side highlighted. An event
+/// can technically have more than one recorded match, so the caller renders
+/// one of these per finalized match rather than assuming a single result.
+class _MatchResultCard extends StatelessWidget {
+  final MatchResult match;
+  final String? teamAName;
+  final String? teamBName;
+  const _MatchResultCard({
+    required this.match,
+    required this.teamAName,
+    required this.teamBName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: AppTheme.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border)),
+      child: Row(children: [
+        Expanded(
+          child: _TeamScore(
+              name: teamAName ?? 'Team A',
+              score: match.scoreA,
+              isWinner: match.winner == 'A'),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text('vs', style: TextStyle(color: AppTheme.muted,
+              fontSize: 12, fontWeight: FontWeight.w700)),
+        ),
+        Expanded(
+          child: _TeamScore(
+              name: teamBName ?? 'Team B',
+              score: match.scoreB,
+              isWinner: match.winner == 'B'),
+        ),
+      ]),
+    );
+  }
+}
+
+class _TeamScore extends StatelessWidget {
+  final String name;
+  final int score;
+  final bool isWinner;
+  const _TeamScore({
+    required this.name,
+    required this.score,
+    required this.isWinner,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      Text(name, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              color: isWinner ? AppTheme.textPrimary : AppTheme.sub,
+              fontSize: 13, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 6),
+      Text('$score', style: TextStyle(
+          color: isWinner ? AppTheme.accent : AppTheme.muted,
+          fontSize: 24, fontWeight: FontWeight.w900)),
+      if (isWinner) ...[
+        const SizedBox(height: 4),
+        Icon(Icons.emoji_events_rounded, color: AppTheme.accent, size: 14),
+      ],
+    ]);
+  }
 }

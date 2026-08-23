@@ -119,7 +119,10 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           .where('isPublic', isEqualTo: true)
           .get();
       if (mounted) setState(() {
-        _events    = snap.docs.map((d) => d.data()).toList();
+        _events    = snap.docs
+            .map((d) => d.data())
+            .where(isEventUpcoming)
+            .toList();
         _isLoading = false;
       });
     } catch (e) {

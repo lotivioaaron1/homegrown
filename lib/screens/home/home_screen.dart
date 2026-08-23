@@ -315,61 +315,76 @@ class _HomeScreenState extends State<HomeScreen> {
         minChildSize: 0.4,
         maxChildSize: 0.92,
         expand: false,
-        builder: (context, scrollController) => Column(children: [
-          const SizedBox(height: 12),
-          Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: AppTheme.border,
-                  borderRadius: BorderRadius.circular(2))),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Row(children: [
-              Text(role == 'organizer' ? 'Your Events' : 'Upcoming Games',
-                  style: TextStyle(color: AppTheme.textPrimary,
-                      fontSize: 17, fontWeight: FontWeight.w800)),
-            ]),
-          ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: stream,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(
-                      color: AppTheme.accent, strokeWidth: 2));
-                }
-                var docs = snapshot.data?.docs.toList() ?? [];
-                if (role != 'organizer') {
-                  final now = Timestamp.now();
-                  docs = docs.where((doc) {
-                    final t = asTimestamp((doc.data() as Map)['eventDate']);
-                    return t == null || t.compareTo(now) >= 0;
-                  }).toList();
-                }
-                docs.sort((a, b) {
-                  final field = role == 'organizer' ? 'createdAt' : 'eventDate';
-                  final aT = asTimestamp((a.data() as Map)[field]);
-                  final bT = asTimestamp((b.data() as Map)[field]);
-                  if (aT == null || bT == null) return 0;
-                  return role == 'organizer'
-                      ? bT.compareTo(aT)
-                      : aT.compareTo(bT);
-                });
-                if (docs.isEmpty) {
-                  return Center(
-                    child: Text('Nothing here yet', style: TextStyle(
-                        color: AppTheme.sub, fontSize: 13)),
-                  );
-                }
-                return SingleChildScrollView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                  child: _EventList(events: docs),
-                );
-              },
-            ),
-          ),
-        ]),
-      ),
-    );
+        builder: (context, scrollController) {
+          var showHistory = false;
+          return StatefulBuilder(
+            builder: (context, setState) => Column(children: [
+                const SizedBox(height: 12),
+                Container(width: 40, height: 4,
+                    decoration: BoxDecoration(color: AppTheme.border,
+                        borderRadius: BorderRadius.circular(2))),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Row(children: [
+                    Expanded(
+                      child: Text(
+                          showHistory
+                              ? 'Game History'
+                              : (role == 'organizer'
+                                  ? 'Your Events'
+                                  : 'Upcoming Games'),
+                          style: TextStyle(color: AppTheme.textPrimary,
+                              fontSize: 17, fontWeight: FontWeight.w800)),
+                    ),
+                    _EventTabToggle(
+                      showHistory: showHistory,
+                      onChanged: (value) => setState(() => showHistory = value),
+                    ),
+                  ]),
+                ),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: stream,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator(
+                            color: AppTheme.accent, strokeWidth: 2));
+                      }
+                      var docs = (snapshot.data?.docs ?? []).where((doc) {
+                        final ev = doc.data() as Map<String, dynamic>;
+                        return isEventUpcoming(ev) != showHistory;
+                      }).toList();
+                      docs.sort((a, b) {
+                        final aT = asTimestamp((a.data() as Map)['eventDate']);
+                        final bT = asTimestamp((b.data() as Map)['eventDate']);
+                        if (aT == null || bT == null) return 0;
+                        return showHistory
+                            ? bT.compareTo(aT)
+                            : aT.compareTo(bT);
+                      });
+                      if (docs.isEmpty) {
+                        return Center(
+                          child: Text(
+                              showHistory
+                                  ? 'No past games yet'
+                                  : 'Nothing here yet',
+                              style: TextStyle(
+                                  color: AppTheme.sub, fontSize: 13)),
+                        );
+                      }
+                      return SingleChildScrollView(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                        child: _EventList(events: docs),
+                      );
+                    },
+                  ),
+                ),
+              ]),
+            );
+          },
+        ),
+      );
   }
 
   void _showAllActivitySheet(BuildContext context) {
@@ -557,13 +572,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Scaffold(
           backgroundColor: AppTheme.bg,
-          floatingActionButton: role == 'organizer'
-              ? FloatingActionButton(
-                  onPressed: () => Get.toNamed('/events/create'),
-                  backgroundColor: AppTheme.accent,
-                  foregroundColor: AppTheme.buttonFg,
-                  child: const Icon(LucideIcons.plus))
-              : null,
           body: SafeArea(child: Column(children: [
             // ── Verification banner ───────────
             _buildVerificationBanner(),
@@ -1505,7 +1513,9 @@ class _HomeScreenState extends State<HomeScreen> {
           .limit(10)
           .snapshots(),
       builder: (context, snapshot) {
-        final docs = (snapshot.data?.docs ?? []).toList()
+        final docs = (snapshot.data?.docs ?? [])
+            .where((doc) => isEventUpcoming(doc.data() as Map<String, dynamic>))
+            .toList()
           ..sort((a, b) {
             final aT = asTimestamp((a.data() as Map)['eventDate']);
             final bT = asTimestamp((b.data() as Map)['eventDate']);
@@ -1677,12 +1687,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: 'No events yet',
                   subtitle: 'Tap + to create your first event');
             }
-            final events = snapshot.data!.docs.toList()..sort((a, b) {
-              final aT = asTimestamp((a.data() as Map)['createdAt']);
-              final bT = asTimestamp((b.data() as Map)['createdAt']);
-              if (aT == null || bT == null) return 0;
-              return bT.compareTo(aT);
-            });
+            final events = snapshot.data!.docs
+                .where((doc) =>
+                    isEventUpcoming(doc.data() as Map<String, dynamic>))
+                .toList()
+              ..sort((a, b) {
+                final aT = asTimestamp((a.data() as Map)['createdAt']);
+                final bT = asTimestamp((b.data() as Map)['createdAt']);
+                if (aT == null || bT == null) return 0;
+                return bT.compareTo(aT);
+              });
+            if (events.isEmpty) {
+              return _EmptyCard(
+                  icon: LucideIcons.calendar,
+                  title: 'No upcoming events',
+                  subtitle: 'Past events have moved to History');
+            }
             return _EventList(events: events.take(3).toList());
           },
         ),
@@ -1719,16 +1739,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? 'An organizer will add you to events'
                   : 'Check back soon');
           }
-          // CHANGED: 'status' is a field the organizer sets manually
-          // and doesn't update itself once the event date passes, so
-          // a game stayed "upcoming" indefinitely after it happened.
-          // Filtering by the real eventDate here removes anything
-          // that's already occurred, regardless of that field.
-          final now = Timestamp.now();
-          final events = snapshot.data!.docs.where((doc) {
-            final t = asTimestamp((doc.data() as Map)['eventDate']);
-            return t == null || t.compareTo(now) >= 0;
-          }).toList()..sort((a, b) {
+          final events = snapshot.data!.docs
+              .where((doc) =>
+                  isEventUpcoming(doc.data() as Map<String, dynamic>))
+              .toList()
+            ..sort((a, b) {
             final aT = asTimestamp((a.data() as Map)['eventDate']);
             final bT = asTimestamp((b.data() as Map)['eventDate']);
             if (aT == null || bT == null) return 0;
@@ -1846,7 +1861,14 @@ class _EventList extends StatelessWidget {
       child: Column(children: events.asMap().entries.map((e) {
         final isLast = e.key == events.length - 1;
         final ev     = e.value.data() as Map<String, dynamic>;
-        final status = ev['status'] as String? ?? 'upcoming';
+        // The raw `status` field is only ever 'draft' or 'upcoming' and
+        // never updates itself once a game happens, so the displayed
+        // label is derived from the real eventDate instead of trusted
+        // as-is — see isEventUpcoming() in firestore_helpers.dart.
+        final isDraft     = ev['status'] == 'draft';
+        final isCompleted = !isDraft && !isEventUpcoming(ev);
+        final badgeLabel  = isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
+        final isNeutral   = isDraft || isCompleted;
         final date   = asTimestamp(ev['eventDate']);
         final fmtDate = date != null
             ? DateFormat('MMM dd').format(date.toDate()) : '—';
@@ -1871,20 +1893,60 @@ class _EventList extends StatelessWidget {
               padding: const EdgeInsets.symmetric(
                   horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: status == 'draft'
+                color: isNeutral
                     ? AppTheme.cardNested : AppTheme.accentSurface,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: status == 'draft'
+                  color: isNeutral
                       ? AppTheme.border : AppTheme.accent)),
-              child: Text(status.toUpperCase(), style: TextStyle(
-                color: status == 'draft'
+              child: Text(badgeLabel, style: TextStyle(
+                color: isNeutral
                     ? AppTheme.muted : AppTheme.accentText,
                 fontSize: 9, fontWeight: FontWeight.w700)),
             ),
           ),
         );
       }).toList()),
+    );
+  }
+}
+
+/// Segmented Upcoming/History toggle for the "View All Events" sheet.
+class _EventTabToggle extends StatelessWidget {
+  final bool showHistory;
+  final ValueChanged<bool> onChanged;
+  const _EventTabToggle({required this.showHistory, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+          color: AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.border)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _buildOption('Upcoming', selected: !showHistory,
+            onTap: () => onChanged(false)),
+        _buildOption('History', selected: showHistory,
+            onTap: () => onChanged(true)),
+      ]),
+    );
+  }
+
+  Widget _buildOption(String label,
+      {required bool selected, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+            color: selected ? AppTheme.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(17)),
+        child: Text(label, style: TextStyle(
+            color: selected ? AppTheme.buttonFg : AppTheme.sub,
+            fontSize: 11, fontWeight: FontWeight.w700)),
+      ),
     );
   }
 }

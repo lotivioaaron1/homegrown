@@ -30,6 +30,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   final _step1Key = GlobalKey<FormState>();
   final _nameCtrl  = TextEditingController();
   final _descCtrl  = TextEditingController();
+  final _teamACtrl = TextEditingController();
+  final _teamBCtrl = TextEditingController();
 
   // ── Venue — live search + manual pin ──────
   Venue? _selectedVenue;
@@ -45,9 +47,15 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   @override
   void dispose() {
     _nameCtrl.dispose(); _descCtrl.dispose();
+    _teamACtrl.dispose(); _teamBCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
+
+  String get _teamAName =>
+      _teamACtrl.text.trim().isEmpty ? 'Team A' : _teamACtrl.text.trim();
+  String get _teamBName =>
+      _teamBCtrl.text.trim().isEmpty ? 'Team B' : _teamBCtrl.text.trim();
 
   // ── Venue picker bottom sheet ─────────────
 
@@ -358,6 +366,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }
 
   void _addPlayer(Map<String, dynamic> player) => setState(() {
+    player['team'] ??= 'A';
     _addedPlayers.add(player);
     _searchResults.removeWhere((p) => p['uid'] == player['uid']);
     _searchCtrl.clear(); _searchResults = [];
@@ -365,6 +374,29 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   void _removePlayer(String uid) =>
       setState(() => _addedPlayers.removeWhere((p) => p['uid'] == uid));
+
+  Widget _teamToggle(Map<String, dynamic> p) {
+    final team = p['team'] as String? ?? 'A';
+    Widget seg(String value) => GestureDetector(
+      onTap: () => setState(() => p['team'] = value),
+      child: Container(
+        width: 24, height: 24,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: team == value ? AppTheme.accentSurface : Colors.transparent,
+          borderRadius: BorderRadius.circular(6)),
+        child: Text(value, style: TextStyle(
+          color: team == value ? AppTheme.accentText : AppTheme.muted,
+          fontSize: 11, fontWeight: FontWeight.w700))));
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: AppTheme.cardNested,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.border)),
+      child: Row(mainAxisSize: MainAxisSize.min,
+          children: [seg('A'), seg('B')]));
+  }
 
   Future<void> _onPublish({bool draft = false}) async {
     setState(() { _isLoading = true; _isDraft = draft; });
@@ -394,9 +426,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         'venueType':   _selectedVenue!.type,
         // ─────────────────────────────────────
         'eventDate':   dateTime != null ? Timestamp.fromDate(dateTime) : null,
+        'teamAName':   _teamAName,
+        'teamBName':   _teamBName,
         'players': _addedPlayers.map((p) => {
           'uid': p['uid'], 'fullName': p['fullName'] ?? '',
           'position': p['position'] ?? '',
+          'team': p['team'] ?? 'A',
         }).toList(),
         'playerUids':  _addedPlayers.map((p) => p['uid'] as String).toList(),
         'playerCount': _addedPlayers.length,
@@ -714,6 +749,16 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             title: 'Add Players',
             subtitle: '${_nameCtrl.text.trim()} · $_sport'),
           const SizedBox(height: 16),
+          const _SectionLabel(label: 'Teams (optional)'),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: _field(ctrl: _teamACtrl, hint: 'Team A name',
+                icon: Icons.groups_outlined)),
+            const SizedBox(width: 10),
+            Expanded(child: _field(ctrl: _teamBCtrl, hint: 'Team B name',
+                icon: Icons.groups_outlined)),
+          ]),
+          const SizedBox(height: 16),
           TextField(controller: _searchCtrl, onChanged: _searchAthletes,
             style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
             decoration: _deco(hint: 'Search athletes by name...',
@@ -795,10 +840,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       fontWeight: FontWeight.w600)),
                     subtitle: Text(p['position'] ?? '',
                       style: TextStyle(color: AppTheme.sub, fontSize: 11)),
-                    trailing: GestureDetector(
-                      onTap: () => _removePlayer(p['uid'] as String),
-                      child: const Icon(Icons.remove_circle_outline,
-                          color: _kErrorRed, size: 20))));
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      _teamToggle(p),
+                      const SizedBox(width: 10),
+                      GestureDetector(
+                        onTap: () => _removePlayer(p['uid'] as String),
+                        child: const Icon(Icons.remove_circle_outline,
+                            color: _kErrorRed, size: 20)),
+                    ])));
               }).toList())),
           const SizedBox(height: 20),
           const _SectionLabel(label: 'Max Players (optional)'),
@@ -870,7 +919,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 title: Text(p['fullName'] ?? '', style: TextStyle(
                   color: AppTheme.textPrimary, fontSize: 13,
                   fontWeight: FontWeight.w600)),
-                subtitle: Text(p['position'] ?? '',
+                subtitle: Text(
+                  '${p['position'] ?? ''} · '
+                  '${(p['team'] as String? ?? 'A') == 'A' ? _teamAName : _teamBName}',
                   style: TextStyle(color: AppTheme.sub, fontSize: 11))));
           }).toList())),
         const SizedBox(height: 20),

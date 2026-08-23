@@ -21,6 +21,7 @@ import 'screens/home/home_screen.dart';
 import 'screens/events/create_event_screen.dart';
 import 'screens/events/record_match_screen.dart';
 import 'screens/events/event_detail_screen.dart';
+import 'screens/events/edit_teams_screen.dart';
 import 'screens/stats/add_stats_screen.dart';
 import 'screens/leaderboard/leaderboard_screen.dart';
 import 'screens/dashboard/performance_dashboard_screen.dart';
@@ -76,6 +77,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/home',               page: () => HomeScreen()),
         GetPage(name: '/events/create',      page: () => const CreateEventScreen()),
         GetPage(name: '/events/detail',      page: () => const EventDetailScreen()),
+        GetPage(name: '/events/edit-teams',  page: () => const EditTeamsScreen()),
         GetPage(name: '/matches/record',     page: () => const RecordMatchScreen()),
         GetPage(name: '/stats/add',          page: () => const AddStatsScreen()),
         GetPage(name: '/leaderboard',        page: () => const LeaderboardScreen()),
