@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
@@ -14,7 +15,6 @@ import 'venue_map_picker_screen.dart';
 
 const _kRadius = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
-const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
 const List<String> _kEventTypes = ['Tournament', 'Friendly', 'League'];
 const List<int> _kMaxPlayers = [10, 15, 20];
 
@@ -48,6 +48,11 @@ class _EditEventScreenState extends State<EditEventScreen> {
 
   bool _isLoading = true;
   bool _isSaving = false;
+
+  // Restricted to what this organizer declared (see create_event_screen.dart);
+  // the event's already-saved sport is kept as an option even if it's since
+  // fallen out of that list, so editing never silently reassigns it.
+  List<String> _allowedSports = [];
 
   @override
   void initState() {
@@ -88,6 +93,14 @@ class _EditEventScreenState extends State<EditEventScreen> {
     _maxPlayers = data['maxPlayers'] as int?;
     _isPublic = data['isPublic'] as bool? ?? true;
     _playerUids = List<String>.from(data['playerUids'] as List? ?? []);
+
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final declared =
+        (userDoc.data()?['sportsOrganized'] as List?)?.cast<String>().toList() ?? [];
+    if (_sport.isNotEmpty && !declared.contains(_sport)) declared.add(_sport);
+    _allowedSports = declared;
+
     if (mounted) setState(() => _isLoading = false);
   }
 
@@ -529,7 +542,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
           Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: _kSports
+              children: _allowedSports
                   .map((s) => _chip(
                       label: s,
                       sel: _sport == s,

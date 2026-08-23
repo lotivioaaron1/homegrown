@@ -12,11 +12,11 @@ import '../../models/venue.dart';
 import '../../services/notification_service.dart';
 import '../../services/places_service.dart';
 import '../../services/team_service.dart';
+import '../profile/edit_profile_screen.dart';
 import 'venue_map_picker_screen.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
-const List<String> _kSports     = ['Basketball', 'Volleyball', 'Badminton'];
 const List<String> _kEventTypes = ['Tournament', 'Friendly', 'League'];
 const List<int>    _kMaxPlayers = [10, 15, 20];
 
@@ -51,6 +51,29 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   // players and the other side are untouched.
   String? _teamACoachId;
   String? _teamBCoachId;
+
+  // ── Sport restricted to what this organizer declared ──
+  List<String> _allowedSports = [];
+  bool _loadingAllowedSports = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAllowedSports();
+  }
+
+  Future<void> _loadAllowedSports() async {
+    setState(() => _loadingAllowedSports = true);
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final sports = (doc.data()?['sportsOrganized'] as List?)?.cast<String>() ?? [];
+    if (mounted) {
+      setState(() {
+        _allowedSports = sports;
+        _loadingAllowedSports = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -731,6 +754,49 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadingAllowedSports) {
+      return Scaffold(
+        backgroundColor: AppTheme.bg,
+        body: const Center(child: CircularProgressIndicator(
+            color: AppTheme.accent, strokeWidth: 2)),
+      );
+    }
+    if (_allowedSports.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppTheme.bg,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.sports_outlined, color: AppTheme.muted, size: 40),
+              const SizedBox(height: 16),
+              Text("You haven't set which sports you organize yet",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 15,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text('Add at least one sport in your profile before creating an event.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity, height: 50,
+                child: ElevatedButton(
+                  onPressed: () => Get.to(() => const EditProfileScreen())
+                      ?.then((_) => _loadAllowedSports()),
+                  child: const Text('Update My Sports'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () => Get.back(),
+                child: Text('Back', style: TextStyle(color: AppTheme.sub)),
+              ),
+            ]),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: AppTheme.bg,
       body: SafeArea(child: Column(children: [
@@ -821,7 +887,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           const _SectionLabel(label: 'Sport'),
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8,
-            children: _kSports.map((s) => _Chip(
+            children: _allowedSports.map((s) => _Chip(
               label: s, sel: _sport == s,
               onTap: () => setState(() => _sport = s))).toList()),
           const SizedBox(height: 16),

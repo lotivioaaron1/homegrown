@@ -37,6 +37,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String _sport = '';
   String _experience = '';
   bool _openToRecruitment = false;
+  String _role = '';
+  List<String> _sportsOrganized = [];
 
   @override
   void initState() {
@@ -63,6 +65,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           .doc(_uid)
           .get();
       final data = doc.data() ?? {};
+      _role = data['role'] as String? ?? '';
+      _sportsOrganized =
+          (data['sportsOrganized'] as List?)?.cast<String>().toList() ?? [];
       _firstNameCtrl.text = data['firstName'] as String? ?? '';
       _lastNameCtrl.text = data['lastName'] as String? ?? '';
       _positionCtrl.text = data['position'] as String? ?? '';
@@ -119,6 +124,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'yearsOfPlaying': _experience,
         'openToRecruitment': _openToRecruitment,
         if (_sport.isNotEmpty) 'primarySports': [_sport],
+        if (_role == 'organizer') 'sportsOrganized': _sportsOrganized,
         if (photoUrl != null) 'photoUrl': photoUrl,
       });
 
@@ -294,6 +300,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           () => setState(() => _experience = e)))
                       .toList(),
                 ),
+                if (_role == 'organizer') ...[
+                  const SizedBox(height: 20),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: _label('Sports You Organize')),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                        'Event creation only offers sports selected here.',
+                        style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _kSports
+                        .map((s) => _chip(
+                            s,
+                            _sportsOrganized.contains(s),
+                            () => setState(() => _sportsOrganized.contains(s)
+                                ? _sportsOrganized.remove(s)
+                                : _sportsOrganized.add(s))))
+                        .toList(),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 Container(
                   padding: const EdgeInsets.all(14),
