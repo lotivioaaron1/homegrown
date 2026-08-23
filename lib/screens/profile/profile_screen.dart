@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../models/media_item.dart';
 import '../../services/media_service.dart';
+import '../../services/team_service.dart';
 import '../settings/settings_screen.dart';
 
 /// Portfolio-style profile. Header + avatar + bio, then Video/Photo
@@ -51,7 +52,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final role = data['role'] as String? ?? 'athlete';
             final firstName = data['firstName'] as String? ?? '';
             final lastName = data['lastName'] as String? ?? '';
-            final teamName = data['teamName'] as String? ?? '';
+            // Coaches write their team name to `teamOrganization` at
+            // registration, not the generic `teamName` field, so fall back
+            // to it here — otherwise this subtitle silently shows nothing
+            // useful for a coach.
+            final teamName = (role == 'coach'
+                    ? data['teamOrganization'] as String?
+                    : data['teamName'] as String?) ??
+                '';
             final bio = data['bio'] as String? ?? '';
             final photoUrl = data['photoUrl'] as String?;
             final sport = (data['primarySports'] as List?)?.isNotEmpty == true
@@ -161,6 +169,115 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     uid: _uid,
                     onTapItem: (item) => _openPhotoViewer(context, item),
                   ),
+                ],
+
+                // Team identity hub (coach only) — My Team and Scout stay
+                // the real roster/scouting tools; this is a summary plus
+                // quick entry points into them, not a second copy.
+                if (role == 'coach') ...[
+                  GestureDetector(
+                    onTap: () => Get.toNamed('/team/roster'),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                          color: AppTheme.card,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.border)),
+                      child: Row(children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                              color: AppTheme.cardNested,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppTheme.border)),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(11),
+                            child: (data['teamLogoUrl'] as String?)
+                                        ?.isNotEmpty ==
+                                    true
+                                ? CachedNetworkImage(
+                                    imageUrl: data['teamLogoUrl'] as String,
+                                    fit: BoxFit.cover,
+                                    memCacheWidth: 150,
+                                    errorWidget: (_, __, ___) => Icon(
+                                        Icons.shield_outlined,
+                                        color: AppTheme.muted,
+                                        size: 22))
+                                : Icon(Icons.shield_outlined,
+                                    color: AppTheme.muted, size: 22),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    teamName.isNotEmpty
+                                        ? teamName
+                                        : 'Your Team',
+                                    style: TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 2),
+                                StreamBuilder<QuerySnapshot>(
+                                  stream: TeamService.streamRoster(_uid),
+                                  builder: (context, rosterSnap) {
+                                    final count =
+                                        rosterSnap.data?.docs.length ?? 0;
+                                    return Text(
+                                        '$count / ${TeamService.maxPlayers} players',
+                                        style: TextStyle(
+                                            color: AppTheme.sub,
+                                            fontSize: 12));
+                                  },
+                                ),
+                              ]),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            color: AppTheme.muted, size: 20),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(children: [
+                    Expanded(
+                        child: _credentialBox(
+                            'Experience',
+                            (data['yearsOfExperience'] as String?)
+                                        ?.isNotEmpty ==
+                                    true
+                                ? data['yearsOfExperience'] as String
+                                : '—')),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: _credentialBox(
+                            'Level',
+                            (data['coachingLevel'] as String?)?.isNotEmpty ==
+                                    true
+                                ? data['coachingLevel'] as String
+                                : '—')),
+                  ]),
+                  if ((data['coachingBio'] as String? ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(data['coachingBio'] as String,
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 13,
+                            height: 1.5)),
+                  ],
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    Expanded(
+                        child: _addButton(Icons.groups_outlined,
+                            'Manage Roster', () => Get.toNamed('/team/roster'))),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: _addButton(Icons.search_rounded,
+                            'Scout Players', () => Get.toNamed('/scout'))),
+                  ]),
                 ],
               ],
             );
@@ -555,6 +672,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   fontWeight: FontWeight.w700)),
         ]),
       ),
+    );
+  }
+
+  Widget _credentialBox(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+          color: AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.border)),
+      child: Column(children: [
+        Text(value,
+            style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w800),
+            overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 2),
+        Text(label,
+            style: TextStyle(color: AppTheme.muted, fontSize: 10),
+            overflow: TextOverflow.ellipsis),
+      ]),
     );
   }
 
