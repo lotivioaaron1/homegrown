@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
 import '../../utils/elo_calculator.dart';
+import '../../widgets/athlete_profile_sheet.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
 
@@ -425,156 +426,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   void _showAthleteProfile(Map<String, dynamic> athlete) {
-    final pts = _rankValue(athlete);
-    final position = athlete['position'] as String? ?? '—';
-    final barangay = athlete['barangay'] as String? ?? '—';
-    final sports = (athlete['primarySports'] as List?)
-        ?.map((e) => e.toString()).join(', ') ?? '—';
-    final years = athlete['yearsOfPlaying'] as String? ?? '—';
-    final isOpen = athlete['openToRecruitment'] as bool? ?? false;
-    final bio = athlete['bio'] as String? ?? '';
-    final name = _displayName(athlete);
-    final photoUrl = athlete['photoUrl'] as String?;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.card,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.55,
-        maxChildSize: 0.85,
-        builder: (_, ctrl) => SingleChildScrollView(
-          controller: ctrl,
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 36),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Center(child: Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: AppTheme.border,
-                  borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 20),
-            Row(children: [
-              Container(
-                width: 56, height: 56,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft, end: Alignment.bottomRight,
-                    colors: [AppTheme.accent, AppTheme.accent2]),
-                  borderRadius: BorderRadius.circular(16)),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: photoUrl != null && photoUrl.isNotEmpty
-                      ? Image.network(photoUrl, fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Center(child: Text(
-                              _initials(name),
-                              style: const TextStyle(color: AppTheme.buttonFg,
-                                  fontSize: 18, fontWeight: FontWeight.w800))))
-                      : Center(child: Text(_initials(name),
-                          style: const TextStyle(color: AppTheme.buttonFg,
-                              fontSize: 18, fontWeight: FontWeight.w800))),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                    style: TextStyle(color: AppTheme.textPrimary,
-                        fontSize: 16, fontWeight: FontWeight.w800)),
-                  Text('$position · $barangay',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-                ])),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.accentSurface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.accent)),
-                child: Column(children: [
-                  Text('$pts', style: TextStyle(
-                    color: AppTheme.accentText, fontSize: 20,
-                    fontWeight: FontWeight.w900)),
-                  Text(_unitLabel, style: TextStyle(
-                    color: AppTheme.muted, fontSize: 9)),
-                ]),
-              ),
-            ]),
-            const SizedBox(height: 20),
-            Divider(color: AppTheme.border),
-            const SizedBox(height: 12),
-            Row(children: [
-              _profileStat('Sport', sports),
-              const SizedBox(width: 12),
-              _profileStat('Experience', years),
-              const SizedBox(width: 12),
-              _profileStat('Barangay', barangay),
-            ]),
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: isOpen
-                    ? const Color(0xFF0D2E20)
-                    : AppTheme.cardNested,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isOpen ? AppTheme.success : AppTheme.border)),
-              child: Row(children: [
-                Icon(isOpen ? LucideIcons.checkCircle2 : LucideIcons.xCircle,
-                  color: isOpen ? AppTheme.success : AppTheme.muted, size: 20),
-                const SizedBox(width: 10),
-                Expanded(child: Text(
-                  isOpen
-                      ? 'Open to recruitment — available to join a team'
-                      : 'Not currently open to recruitment',
-                  style: TextStyle(
-                    color: isOpen ? AppTheme.success : AppTheme.muted,
-                    fontSize: 12, fontWeight: FontWeight.w600))),
-              ]),
-            ),
-            if (bio.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Bio', style: TextStyle(
-                color: AppTheme.textPrimary, fontSize: 13,
-                fontWeight: FontWeight.w700)),
-              const SizedBox(height: 6),
-              Text(bio, style: TextStyle(
-                color: AppTheme.sub, fontSize: 13, height: 1.6)),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity, height: 50,
-              child: OutlinedButton(
-                onPressed: () => Get.back(),
-                child: Text('Close', style: TextStyle(
-                  color: AppTheme.sub, fontSize: 15,
-                  fontWeight: FontWeight.w600))),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _profileStat(String label, String value) {
-    return Expanded(child: Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppTheme.cardNested,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.border)),
-      child: Column(children: [
-        Text(label, style: TextStyle(
-          color: AppTheme.muted, fontSize: 9,
-          fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-        const SizedBox(height: 4),
-        Text(value, textAlign: TextAlign.center, style: TextStyle(
-          color: AppTheme.textPrimary, fontSize: 11,
-          fontWeight: FontWeight.w700),
-          overflow: TextOverflow.ellipsis),
-      ]),
-    ));
+    final athleteId = athlete['uid'] as String? ?? '';
+    showAthleteProfileSheet(context, athleteId: athleteId);
   }
 
   Widget _buildEmpty({required IconData icon,

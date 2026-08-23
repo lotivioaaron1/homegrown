@@ -11,6 +11,15 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*');
     }
 
+    // Single team logo per coach (see lib/services/team_service.dart).
+    match /team_logos/{coachId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == coachId
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
     // Portfolio photos/videos (see lib/services/media_service.dart).
     match /profile_media/{uid}/{fileName} {
       allow read: if request.auth != null;

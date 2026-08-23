@@ -9,6 +9,7 @@ import '../../models/match_result.dart';
 import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../widgets/athlete_profile_sheet.dart';
 
 class EventDetailScreen extends StatelessWidget {
   const EventDetailScreen({super.key});
@@ -184,6 +185,15 @@ class EventDetailScreen extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             _buildMatchResults(teamAName, teamBName),
+            _TeamVsTeamHeader(
+              teamACoachId: ev['teamACoachId'] as String?,
+              teamBCoachId: ev['teamBCoachId'] as String?,
+              teamAName: teamAName ?? 'Team A',
+              teamBName: teamBName ?? 'Team B',
+              countA: players.where((p) => (p['team'] as String? ?? 'A') == 'A').length,
+              countB: players.where((p) => (p['team'] as String? ?? 'A') == 'B').length,
+            ),
+            const SizedBox(height: 16),
             Row(children: [
               Text('ROSTER', style: TextStyle(
                   color: AppTheme.muted, fontSize: 12,
@@ -232,60 +242,12 @@ class EventDetailScreen extends StatelessWidget {
                       style: TextStyle(color: AppTheme.sub, fontSize: 13)),
                 ]),
               )
-            else
-              Container(
-                decoration: BoxDecoration(
-                    color: AppTheme.card,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.border)),
-                child: Column(children: players.asMap().entries.map((e) {
-                  final isLast = e.key == players.length - 1;
-                  final p = e.value;
-                  final fullName = p['fullName'] as String? ?? '';
-                  final position = p['position'] as String? ?? '';
-                  final team = p['team'] as String?;
-                  String? teamLabel;
-                  if (team == 'A') teamLabel = teamAName;
-                  if (team == 'B') teamLabel = teamBName;
-                  final subtitleText = [
-                    if (position.isNotEmpty) position,
-                    if (teamLabel != null && teamLabel.isNotEmpty) teamLabel,
-                  ].join(' · ');
-                  final initials = fullName.trim().split(' ')
-                      .where((s) => s.isNotEmpty).take(2)
-                      .map((s) => s[0]).join().toUpperCase();
-                  return Container(
-                    decoration: BoxDecoration(border: Border(
-                        bottom: isLast
-                            ? BorderSide.none
-                            : BorderSide(color: AppTheme.border))),
-                    child: ListTile(
-                      dense: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                      leading: Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [AppTheme.accent, AppTheme.accent2]),
-                          shape: BoxShape.circle),
-                        child: Center(child: Text(initials, style: const TextStyle(
-                            color: AppTheme.buttonFg, fontSize: 12,
-                            fontWeight: FontWeight.w800))),
-                      ),
-                      title: Text(fullName, style: TextStyle(
-                          color: AppTheme.textPrimary, fontSize: 13,
-                          fontWeight: FontWeight.w600)),
-                      subtitle: subtitleText.isNotEmpty
-                          ? Text(subtitleText,
-                              style: TextStyle(color: AppTheme.sub, fontSize: 11))
-                          : null,
-                    ),
-                  );
-                }).toList()),
-              ),
+            else ...[
+              _buildPlayerGroup(context, teamAName ?? 'Team A',
+                  players.where((p) => (p['team'] as String? ?? 'A') == 'A').toList()),
+              _buildPlayerGroup(context, teamBName ?? 'Team B',
+                  players.where((p) => (p['team'] as String? ?? 'A') == 'B').toList()),
+            ],
             if (isOrganizer) ...[
               const SizedBox(height: 20),
               SizedBox(
@@ -307,6 +269,69 @@ class EventDetailScreen extends StatelessWidget {
         ),
       ),
     ]);
+  }
+
+  Widget _buildPlayerGroup(
+      BuildContext context, String teamLabel, List<Map<String, dynamic>> players) {
+    if (players.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(teamLabel.toUpperCase(), style: TextStyle(
+            color: AppTheme.muted, fontSize: 11,
+            fontWeight: FontWeight.w800, letterSpacing: 1)),
+        const SizedBox(height: 6),
+        Container(
+          decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.border)),
+          child: Column(children: players.asMap().entries.map((e) {
+            final isLast = e.key == players.length - 1;
+            final p = e.value;
+            final uid = p['uid'] as String? ?? '';
+            final fullName = p['fullName'] as String? ?? '';
+            final position = p['position'] as String? ?? '';
+            final initials = fullName.trim().split(' ')
+                .where((s) => s.isNotEmpty).take(2)
+                .map((s) => s[0]).join().toUpperCase();
+            return Container(
+              decoration: BoxDecoration(border: Border(
+                  bottom: isLast
+                      ? BorderSide.none
+                      : BorderSide(color: AppTheme.border))),
+              child: ListTile(
+                dense: true,
+                onTap: uid.isEmpty
+                    ? null
+                    : () => showAthleteProfileSheet(context, athleteId: uid),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                leading: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [AppTheme.accent, AppTheme.accent2]),
+                    shape: BoxShape.circle),
+                  child: Center(child: Text(initials, style: const TextStyle(
+                      color: AppTheme.buttonFg, fontSize: 12,
+                      fontWeight: FontWeight.w800))),
+                ),
+                title: Text(fullName, style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+                subtitle: position.isNotEmpty
+                    ? Text(position,
+                        style: TextStyle(color: AppTheme.sub, fontSize: 11))
+                    : null,
+              ),
+            );
+          }).toList()),
+        ),
+      ]),
+    );
   }
 
   /// Offers exactly one action based on how much history the event has:
@@ -526,5 +551,107 @@ class _TeamScore extends StatelessWidget {
         Icon(Icons.emoji_events_rounded, color: AppTheme.accent, size: 14),
       ],
     ]);
+  }
+}
+
+/// The two teams facing off, each with its coach-set logo (or a generic
+/// placeholder if this side wasn't built from a picked coach team) and
+/// player count.
+class _TeamVsTeamHeader extends StatelessWidget {
+  final String? teamACoachId;
+  final String? teamBCoachId;
+  final String teamAName;
+  final String teamBName;
+  final int countA;
+  final int countB;
+
+  const _TeamVsTeamHeader({
+    required this.teamACoachId,
+    required this.teamBCoachId,
+    required this.teamAName,
+    required this.teamBName,
+    required this.countA,
+    required this.countB,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: AppTheme.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+            child: _TeamBlock(coachId: teamACoachId, name: teamAName, count: countA)),
+        Padding(
+          padding: const EdgeInsets.only(top: 18),
+          child: Text('VS', style: TextStyle(
+              color: AppTheme.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+        ),
+        Expanded(
+            child: _TeamBlock(coachId: teamBCoachId, name: teamBName, count: countB)),
+      ]),
+    );
+  }
+}
+
+class _TeamBlock extends StatelessWidget {
+  final String? coachId;
+  final String name;
+  final int count;
+
+  const _TeamBlock({required this.coachId, required this.name, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      _buildLogo(),
+      const SizedBox(height: 8),
+      Text(name, textAlign: TextAlign.center, maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 2),
+      Text('$count player${count == 1 ? '' : 's'}',
+          style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+    ]);
+  }
+
+  Widget _buildLogo() {
+    final id = coachId;
+    if (id == null || id.isEmpty) {
+      return Container(
+        width: 56, height: 56,
+        decoration: BoxDecoration(
+            color: AppTheme.cardNested,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.border)),
+        child: Icon(Icons.shield_outlined, color: AppTheme.muted, size: 26),
+      );
+    }
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').doc(id).snapshots(),
+      builder: (context, snapshot) {
+        final logoUrl =
+            (snapshot.data?.data() as Map<String, dynamic>?)?['teamLogoUrl'] as String?;
+        return Container(
+          width: 56, height: 56,
+          decoration: BoxDecoration(
+              color: AppTheme.cardNested,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.border)),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: logoUrl != null && logoUrl.isNotEmpty
+                ? Image.network(logoUrl, fit: BoxFit.cover, width: 56, height: 56,
+                    errorBuilder: (_, __, ___) =>
+                        Icon(Icons.shield_outlined, color: AppTheme.muted, size: 26))
+                : Icon(Icons.shield_outlined, color: AppTheme.muted, size: 26),
+          ),
+        );
+      },
+    );
   }
 }

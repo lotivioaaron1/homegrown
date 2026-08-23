@@ -1,5 +1,7 @@
 // lib/services/team_service.dart
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'notification_service.dart';
 
 /// Writes/reads coach-athlete team relationships. Kept as static helpers
@@ -141,6 +143,24 @@ class TeamService {
       .where('coachId', isEqualTo: coachId)
       .where('status', isEqualTo: 'accepted')
       .snapshots();
+
+  /// One-time roster fetch for event creation, where a live stream isn't
+  /// needed — same query as [streamRoster], just a single `.get()`.
+  static Future<QuerySnapshot> fetchRoster(String coachId) => _col
+      .where('coachId', isEqualTo: coachId)
+      .where('status', isEqualTo: 'accepted')
+      .get();
+
+  /// Uploads a team logo for [coachId], overwriting any previous one at the
+  /// same path so Storage doesn't accumulate old logos every time a coach
+  /// changes it. Kept here rather than in StorageService since this is a
+  /// team concern, not the personal-avatar one that class owns.
+  static Future<String> uploadTeamLogo(String coachId, File file) async {
+    final ref =
+        FirebaseStorage.instance.ref().child('team_logos/$coachId/logo.jpg');
+    await ref.putFile(file);
+    return ref.getDownloadURL();
+  }
 
   static Stream<QuerySnapshot> streamSentPending(String coachId) => _col
       .where('coachId', isEqualTo: coachId)
