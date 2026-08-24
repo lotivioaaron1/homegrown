@@ -18,7 +18,6 @@ import 'venue_map_picker_screen.dart';
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 const List<String> _kEventTypes = ['Tournament', 'Friendly', 'League'];
-const List<int>    _kMaxPlayers = [10, 15, 20];
 
 class CreateEventScreen extends StatefulWidget {
   const CreateEventScreen({super.key});
@@ -31,26 +30,26 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   final _step1Key = GlobalKey<FormState>();
   final _nameCtrl  = TextEditingController();
   final _descCtrl  = TextEditingController();
-  final _teamACtrl = TextEditingController();
-  final _teamBCtrl = TextEditingController();
 
   // ── Venue — live search + manual pin ──────
   Venue? _selectedVenue;
 
   String _sport = ''; String _eventType = '';
   DateTime? _eventDate; TimeOfDay? _eventTime;
-  final _searchCtrl = TextEditingController();
   final List<Map<String, dynamic>> _addedPlayers = [];
-  List<Map<String, dynamic>> _searchResults = [];
-  bool _isSearching = false; int? _maxPlayers;
   bool _isPublic = true; bool _isDraft = false;
 
-  // ── Team pick (Part 3) ────────────────────
+  // ── Team pick ──────────────────────────────
   // Which coach's roster (if any) auto-filled each side, so re-picking a
-  // team only replaces that side's auto-added players — manually added
-  // players and the other side are untouched.
+  // team only replaces that side's auto-added players. Team identity
+  // (name/coach/logo) is derived entirely from the picked coach, not typed
+  // by the organizer — see _selectTeam.
   String? _teamACoachId;
   String? _teamBCoachId;
+  String _teamAName = 'Team A'; String _teamBName = 'Team B';
+  String? _teamACoachName; String? _teamBCoachName;
+  String? _teamALogoUrl; String? _teamBLogoUrl;
+  bool _expandedA = false; bool _expandedB = false;
 
   // ── Sport restricted to what this organizer declared, and gated on
   // admin approval (see firestore.rules / admin_review_screen.dart) ──
@@ -126,15 +125,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   @override
   void dispose() {
     _nameCtrl.dispose(); _descCtrl.dispose();
-    _teamACtrl.dispose(); _teamBCtrl.dispose();
-    _searchCtrl.dispose();
     super.dispose();
   }
-
-  String get _teamAName =>
-      _teamACtrl.text.trim().isEmpty ? 'Team A' : _teamACtrl.text.trim();
-  String get _teamBName =>
-      _teamBCtrl.text.trim().isEmpty ? 'Team B' : _teamBCtrl.text.trim();
 
   // ── Venue picker bottom sheet ─────────────
 
@@ -388,7 +380,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       if (_selectedVenue == null) { _snack('Select Venue', 'Please select a venue.'); return; }
     }
     if (_step == 1 && _addedPlayers.isEmpty) {
-      _snack('No Players', 'Please add at least one player.'); return;
+      _snack('No Players', 'Pick at least one team with players.'); return;
     }
     setState(() => _step++);
   }
@@ -421,36 +413,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
     if (picked != null) setState(() => _eventTime = picked);
   }
-
-  Future<void> _searchAthletes(String query) async {
-    if (query.trim().isEmpty) { setState(() => _searchResults = []); return; }
-    setState(() => _isSearching = true);
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'athlete')
-          .where('primarySports', arrayContains: _sport)
-          .get();
-      final results = snapshot.docs.map((d) => d.data()).where((d) {
-        final name = '${d['firstName']} ${d['lastName']}'.toLowerCase();
-        return name.contains(query.toLowerCase()) &&
-            !_addedPlayers.any((p) => p['uid'] == d['uid']);
-      }).toList();
-      if (mounted) setState(() => _searchResults = results);
-    } catch (_) {
-      if (mounted) setState(() => _searchResults = []);
-    } finally {
-      if (mounted) setState(() => _isSearching = false);
-    }
-  }
-
-  void _addPlayer(Map<String, dynamic> player) => setState(() {
-    player['team'] ??= 'A';
-    player['source'] ??= 'manual';
-    _addedPlayers.add(player);
-    _searchResults.removeWhere((p) => p['uid'] == player['uid']);
-    _searchCtrl.clear(); _searchResults = [];
-  });
 
   void _removePlayer(String uid) =>
       setState(() => _addedPlayers.removeWhere((p) => p['uid'] == uid));
@@ -571,7 +533,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                                     style: TextStyle(color: AppTheme.sub, fontSize: 11)),
                                 onTap: () {
                                   Navigator.pop(context);
-                                  _selectTeam(side, c['uid'] as String, teamName);
+                                  _selectTeam(side, c['uid'] as String, teamName,
+                                      c['fullName'] as String? ?? '', logoUrl);
                                 },
                               );
                             },
@@ -586,14 +549,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  Future<void> _selectTeam(String side, String coachId, String teamName) async {
+  Future<void> _selectTeam(String side, String coachId, String teamName,
+      String coachName, String? logoUrl) async {
     setState(() {
       if (side == 'A') {
         _teamACoachId = coachId;
-        _teamACtrl.text = teamName;
+        _teamAName = teamName;
+        _teamACoachName = coachName;
+        _teamALogoUrl = logoUrl;
       } else {
         _teamBCoachId = coachId;
-        _teamBCtrl.text = teamName;
+        _teamBName = teamName;
+        _teamBCoachName = coachName;
+        _teamBLogoUrl = logoUrl;
       }
       _addedPlayers.removeWhere((p) => p['source'] == 'team$side');
     });
@@ -631,59 +599,134 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     }
   }
 
-  Widget _teamPickerCard(String side) {
+  /// One side's team: an unpicked placeholder that opens the picker, or —
+  /// once picked — a card showing the team's logo, name, head coach, and
+  /// player count, that expands in place to show the actual roster so the
+  /// organizer can review (and lightly trim) who's really playing, instead
+  /// of just trusting a bare count.
+  Widget _teamCard(String side) {
     final coachId = side == 'A' ? _teamACoachId : _teamBCoachId;
-    final count = _addedPlayers.where((p) => p['source'] == 'team$side').length;
-    return GestureDetector(
-      onTap: () => _pickTeamSheet(side),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        decoration: BoxDecoration(
-            color: AppTheme.card,
-            borderRadius: BorderRadius.circular(_kRadius),
-            border: Border.all(
-                color: coachId != null ? AppTheme.accent : AppTheme.border,
-                width: 1.5)),
-        child: Row(children: [
-          Icon(Icons.shield_outlined,
-              color: coachId != null ? AppTheme.accent : AppTheme.muted, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-                coachId != null
-                    ? '$count player${count == 1 ? '' : 's'}'
-                    : 'Pick Team $side',
-                style: TextStyle(
-                    color: coachId != null ? AppTheme.accentText : AppTheme.muted,
-                    fontSize: 12, fontWeight: FontWeight.w700),
-                overflow: TextOverflow.ellipsis),
-          ),
-        ]),
-      ),
-    );
-  }
+    if (coachId == null) {
+      return GestureDetector(
+        onTap: () => _pickTeamSheet(side),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(_kRadius),
+              border: Border.all(color: AppTheme.border, width: 1.5)),
+          child: Row(children: [
+            Icon(Icons.shield_outlined, color: AppTheme.muted, size: 20),
+            const SizedBox(width: 10),
+            Text('Pick Team $side', style: TextStyle(
+                color: AppTheme.muted, fontSize: 13, fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      );
+    }
 
-  Widget _teamToggle(Map<String, dynamic> p) {
-    final team = p['team'] as String? ?? 'A';
-    Widget seg(String value) => GestureDetector(
-      onTap: () => setState(() => p['team'] = value),
-      child: Container(
-        width: 24, height: 24,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: team == value ? AppTheme.accentSurface : Colors.transparent,
-          borderRadius: BorderRadius.circular(6)),
-        child: Text(value, style: TextStyle(
-          color: team == value ? AppTheme.accentText : AppTheme.muted,
-          fontSize: 11, fontWeight: FontWeight.w700))));
+    final teamName  = side == 'A' ? _teamAName : _teamBName;
+    final coachName = side == 'A' ? _teamACoachName : _teamBCoachName;
+    final logoUrl   = side == 'A' ? _teamALogoUrl : _teamBLogoUrl;
+    final expanded  = side == 'A' ? _expandedA : _expandedB;
+    final players   = _addedPlayers.where((p) => p['source'] == 'team$side').toList();
+
     return Container(
-      padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        color: AppTheme.cardNested,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.border)),
-      child: Row(mainAxisSize: MainAxisSize.min,
-          children: [seg('A'), seg('B')]));
+          color: AppTheme.card,
+          borderRadius: BorderRadius.circular(_kRadius),
+          border: Border.all(color: AppTheme.accent, width: 1.5)),
+      child: Column(children: [
+        GestureDetector(
+          onTap: () => setState(() {
+            if (side == 'A') { _expandedA = !_expandedA; }
+            else { _expandedB = !_expandedB; }
+          }),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                    color: AppTheme.cardNested,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.border)),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: logoUrl != null && logoUrl.isNotEmpty
+                      ? Image.network(logoUrl, fit: BoxFit.cover,
+                          width: 44, height: 44,
+                          errorBuilder: (_, __, ___) => Icon(
+                              Icons.shield_outlined, color: AppTheme.muted, size: 22))
+                      : Icon(Icons.shield_outlined, color: AppTheme.muted, size: 22),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(teamName, overflow: TextOverflow.ellipsis, style: TextStyle(
+                      color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w800)),
+                  if (coachName != null && coachName.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text('Head Coach: $coachName', overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                  ],
+                  const SizedBox(height: 2),
+                  Text('${players.length} player${players.length == 1 ? '' : 's'}',
+                      style: TextStyle(color: AppTheme.accent, fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                ]),
+              ),
+              GestureDetector(
+                onTap: () => _pickTeamSheet(side),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  child: Text('Change', style: TextStyle(
+                      color: AppTheme.accent, fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              Icon(expanded
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+                  color: AppTheme.muted, size: 20),
+            ]),
+          ),
+        ),
+        if (expanded) ...[
+          Divider(color: AppTheme.border, height: 1),
+          if (players.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('No accepted players on this roster yet',
+                  style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+            )
+          else
+            Column(children: players.asMap().entries.map((e) {
+              final isLast = e.key == players.length - 1;
+              final p = e.value;
+              final position = p['position'] as String? ?? '';
+              return Container(
+                decoration: BoxDecoration(border: Border(
+                    bottom: isLast ? BorderSide.none : BorderSide(color: AppTheme.border))),
+                child: ListTile(
+                  dense: true,
+                  leading: _Av(initials: _initials(p)),
+                  title: Text(p['fullName'] as String? ?? '', style: TextStyle(
+                      color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600)),
+                  subtitle: position.isNotEmpty
+                      ? Text(position, style: TextStyle(color: AppTheme.sub, fontSize: 11))
+                      : null,
+                  trailing: GestureDetector(
+                    onTap: () => _removePlayer(p['uid'] as String),
+                    child: const Icon(Icons.remove_circle_outline,
+                        color: _kErrorRed, size: 20),
+                  ),
+                ),
+              );
+            }).toList()),
+        ],
+      ]),
+    );
   }
 
   Future<void> _onPublish({bool draft = false}) async {
@@ -723,7 +766,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         }).toList(),
         'playerUids':  _addedPlayers.map((p) => p['uid'] as String).toList(),
         'playerCount': _addedPlayers.length,
-        'maxPlayers':  _maxPlayers,
+        'maxPlayers':  null,
         'isPublic':    _isPublic,
         'teamACoachId': _teamACoachId,
         'teamBCoachId': _teamBCoachId,
@@ -790,12 +833,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     return '$h:$m ${_eventTime!.period == DayPeriod.am ? 'AM' : 'PM'}';
   }
 
+  // Added-player entries only ever carry `fullName` (team-sourced players
+  // come from a whereIn batch fetch keyed on that field), not separate
+  // first/last names, so initials are derived by splitting it.
   String _initials(Map<String, dynamic> p) {
-    final f = (p['firstName'] as String? ?? '').isNotEmpty
-        ? (p['firstName'] as String)[0].toUpperCase() : '';
-    final l = (p['lastName'] as String? ?? '').isNotEmpty
-        ? (p['lastName'] as String)[0].toUpperCase() : '';
-    return '$f$l';
+    final fullName = (p['fullName'] as String? ?? '').trim();
+    return fullName.split(' ')
+        .where((s) => s.isNotEmpty).take(2)
+        .map((s) => s[0].toUpperCase()).join();
   }
 
   // ── Build ─────────────────────────────────
@@ -1063,124 +1108,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             subtitle: '${_nameCtrl.text.trim()} · $_sport'),
           const SizedBox(height: 16),
           const _SectionLabel(label: 'Pick a team for each side'),
+          const SizedBox(height: 4),
+          Text('Tap a picked team to review its roster.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
           const SizedBox(height: 8),
-          Row(children: [
-            Expanded(child: _teamPickerCard('A')),
-            const SizedBox(width: 10),
-            Expanded(child: _teamPickerCard('B')),
-          ]),
+          _teamCard('A'),
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: _field(ctrl: _teamACtrl, hint: 'Team A name',
-                icon: Icons.groups_outlined)),
-            const SizedBox(width: 10),
-            Expanded(child: _field(ctrl: _teamBCtrl, hint: 'Team B name',
-                icon: Icons.groups_outlined)),
-          ]),
-          const SizedBox(height: 16),
-          const _SectionLabel(label: 'Add players individually (optional)'),
-          const SizedBox(height: 8),
-          TextField(controller: _searchCtrl, onChanged: _searchAthletes,
-            style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-            decoration: _deco(hint: 'Search athletes by name...',
-                icon: Icons.search_rounded)),
-          const SizedBox(height: 10),
-          if (_isSearching)
-            const Center(child: Padding(padding: EdgeInsets.all(16),
-              child: CircularProgressIndicator(
-                  color: AppTheme.accent, strokeWidth: 2)))
-          else if (_searchResults.isNotEmpty)
-            Container(
-              decoration: BoxDecoration(color: AppTheme.card,
-                borderRadius: BorderRadius.circular(_kRadius),
-                border: Border.all(color: AppTheme.border)),
-              child: Column(children: _searchResults.map((p) => ListTile(
-                dense: true,
-                leading: _Av(initials: _initials(p)),
-                title: Text(p['fullName'] ?? '', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 13,
-                  fontWeight: FontWeight.w600)),
-                subtitle: Text(p['position'] ?? '',
-                  style: TextStyle(color: AppTheme.sub, fontSize: 11)),
-                trailing: GestureDetector(
-                  onTap: () => _addPlayer(p),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 5),
-                    decoration: BoxDecoration(color: AppTheme.accentSurface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.accent)),
-                    child: Text('Add', style: TextStyle(
-                      color: AppTheme.accentText, fontSize: 11,
-                      fontWeight: FontWeight.w700)))),
-              )).toList()),
-            ),
-          const SizedBox(height: 16),
-          Row(children: [
-            const _SectionLabel(label: 'Added Players'),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(color: AppTheme.accentSurface,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppTheme.accent)),
-              child: Text('${_addedPlayers.length}', style: TextStyle(
-                color: AppTheme.accentText, fontSize: 11,
-                fontWeight: FontWeight.w700))),
-          ]),
-          const SizedBox(height: 8),
-          if (_addedPlayers.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: AppTheme.card,
-                borderRadius: BorderRadius.circular(_kRadius),
-                border: Border.all(color: AppTheme.border)),
-              child: Center(child: Column(children: [
-                Icon(Icons.group_outlined, color: AppTheme.muted, size: 32),
-                const SizedBox(height: 8),
-                Text('No players added yet',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 13)),
-                Text('Search for athletes above',
-                    style: TextStyle(color: AppTheme.muted, fontSize: 11)),
-              ])))
-          else
-            Container(
-              decoration: BoxDecoration(color: AppTheme.card,
-                borderRadius: BorderRadius.circular(_kRadius),
-                border: Border.all(color: AppTheme.border)),
-              child: Column(children: _addedPlayers.map((p) {
-                final isLast = _addedPlayers.last['uid'] == p['uid'];
-                return Container(
-                  decoration: BoxDecoration(border: Border(
-                    bottom: isLast ? BorderSide.none
-                        : BorderSide(color: AppTheme.border))),
-                  child: ListTile(dense: true,
-                    leading: _Av(initials: _initials(p)),
-                    title: Text(p['fullName'] ?? '', style: TextStyle(
-                      color: AppTheme.textPrimary, fontSize: 13,
-                      fontWeight: FontWeight.w600)),
-                    subtitle: Text(p['position'] ?? '',
-                      style: TextStyle(color: AppTheme.sub, fontSize: 11)),
-                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      _teamToggle(p),
-                      const SizedBox(width: 10),
-                      GestureDetector(
-                        onTap: () => _removePlayer(p['uid'] as String),
-                        child: const Icon(Icons.remove_circle_outline,
-                            color: _kErrorRed, size: 20)),
-                    ])));
-              }).toList())),
-          const SizedBox(height: 20),
-          const _SectionLabel(label: 'Max Players (optional)'),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, children: [
-            ..._kMaxPlayers.map((n) => _Chip(
-              label: '$n', sel: _maxPlayers == n,
-              onTap: () => setState(() =>
-                  _maxPlayers = _maxPlayers == n ? null : n))),
-            _Chip(label: 'No limit', sel: _maxPlayers == null,
-              onTap: () => setState(() => _maxPlayers = null)),
-          ]),
+          _teamCard('B'),
           const SizedBox(height: 24),
         ]),
       )),
