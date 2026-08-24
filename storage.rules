@@ -2,6 +2,23 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    // Hand-provisioned super-admin account(s) — there is no in-app way to
+    // become admin (see splash_screen.dart's routing branch), so this list
+    // only ever grows by someone manually adding a UID here and
+    // redeploying. Kept as a list, not a single value, so a second admin
+    // can be added later without restructuring anything.
+    //
+    // This exists instead of checking `role == 'admin'` via a live
+    // Firestore lookup (the cross-service `firestore.get()` rules feature)
+    // because that path returned `unauthorized` in this project even with
+    // a correctly-set role field and the right database path — likely a
+    // missing IAM grant between Storage and Firestore that isn't
+    // provisionable from the Firebase CLI. A hardcoded UID sidesteps that
+    // entirely and is simple to reason about for a single-admin setup.
+    function isAdminUid(uid) {
+      return uid == 'HjtB738VdObEoei73u2e2Oy7uy62';
+    }
+
     // Single profile avatar per user (see lib/services/storage_service.dart).
     match /profile_photos/{uid}/{fileName} {
       allow read: if request.auth != null;
@@ -16,6 +33,22 @@ service firebase.storage {
       allow read: if request.auth != null;
       allow write: if request.auth != null
                    && request.auth.uid == coachId
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Optional organizer proof-of-legitimacy photo, reviewed by a
+    // super-admin before approving them (see storage_service.dart's
+    // uploadOrganizerVerificationDoc/fetchOrganizerVerificationDoc and
+    // admin_review_screen.dart). Can contain a government ID, so unlike
+    // every other path here this is NOT world-readable to any signed-in
+    // user — only the uploader or an admin account (checked against their
+    // own Firestore role) can read it.
+    match /organizer_verification/{uid}/{fileName} {
+      allow read: if request.auth != null
+                   && (request.auth.uid == uid || isAdminUid(request.auth.uid));
+      allow write: if request.auth != null
+                   && request.auth.uid == uid
                    && request.resource.size < 10 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
     }

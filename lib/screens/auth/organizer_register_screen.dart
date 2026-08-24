@@ -1,12 +1,15 @@
 // lib/screens/auth/organizer_register_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../constants/legazpi_barangays.dart';
 import '../../services/notification_service.dart';
+import '../../services/storage_service.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -31,6 +34,7 @@ class _OrganizerRegisterScreenState
   final _firstNameCtrl = TextEditingController();
   final _lastNameCtrl  = TextEditingController();
   final _emailCtrl     = TextEditingController();
+  final _phoneCtrl     = TextEditingController();
   final _passwordCtrl  = TextEditingController();
   final _confirmCtrl   = TextEditingController();
   String _selectedBarangay = '';
@@ -44,13 +48,24 @@ class _OrganizerRegisterScreenState
   // Step 3
   final _bioCtrl           = TextEditingController();
   final _certificationsCtrl = TextEditingController();
+  // Optional — a photo an admin can weigh when reviewing this signup (a
+  // barangay certificate, business permit, or a team photo). Never made
+  // required: that risks abandoning legitimate signups who don't have
+  // something ready, so the admin screen just flags its absence instead.
+  File? _verificationDoc;
 
   @override
   void dispose() {
-    for (final c in [_firstNameCtrl, _lastNameCtrl, _emailCtrl,
+    for (final c in [_firstNameCtrl, _lastNameCtrl, _emailCtrl, _phoneCtrl,
       _passwordCtrl, _confirmCtrl, _organizationCtrl,
       _bioCtrl, _certificationsCtrl]) { c.dispose(); }
     super.dispose();
+  }
+
+  Future<void> _pickVerificationDoc() async {
+    final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery, maxWidth: 1600, imageQuality: 85);
+    if (picked != null) setState(() => _verificationDoc = File(picked.path));
   }
 
   // ── Barangay picker ───────────────────────
@@ -185,6 +200,7 @@ class _OrganizerRegisterScreenState
         'lastName':        _lastNameCtrl.text.trim(),
         'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
         'email':           _emailCtrl.text.trim(),
+        'phoneNumber':     _phoneCtrl.text.trim(),
         'role':            'organizer',
         // An organizer can't create/publish events until a super-admin
         // approves this — see firestore.rules and admin_review_screen.dart.
@@ -199,6 +215,11 @@ class _OrganizerRegisterScreenState
         'createdAt':       FieldValue.serverTimestamp(),
       });
       await cred.user?.sendEmailVerification();
+
+      if (_verificationDoc != null) {
+        await StorageService.uploadOrganizerVerificationDoc(
+            cred.user!.uid, _verificationDoc!);
+      }
 
       // Let the super-admin know someone's waiting, instead of relying on
       // them to remember to check /admin — see admin_review_screen.dart.
@@ -348,6 +369,15 @@ class _OrganizerRegisterScreenState
               return null;
             }),
           const SizedBox(height: 12),
+          _Field(ctrl: _phoneCtrl, hint: 'Phone Number',
+            icon: Icons.phone_outlined,
+            keyboard: TextInputType.phone,
+            validator: (v) =>
+                v!.trim().isEmpty ? 'Phone number is required' : null),
+          const SizedBox(height: 4),
+          Text('So an admin can reach you directly to verify your account.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+          const SizedBox(height: 12),
 
           // ── Barangay picker ────────────────
           GestureDetector(
@@ -493,6 +523,51 @@ class _OrganizerRegisterScreenState
           hint: 'e.g. PhilSports Accredited, LGU Recognized',
           icon: Icons.workspace_premium_outlined,
           cap: TextCapitalization.sentences),
+        const SizedBox(height: 20),
+        const _SectionLabel(label: 'Verification Photo (Optional)'),
+        const SizedBox(height: 4),
+        Text(
+            'A barangay certificate, business permit, or a photo with '
+            'your team — helps the admin verify you faster.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: _pickVerificationDoc,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(_kRadius),
+                border: Border.all(
+                    color: _verificationDoc != null
+                        ? AppTheme.accent : AppTheme.border,
+                    width: 1.5)),
+            child: _verificationDoc != null
+                ? Row(children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.file(_verificationDoc!,
+                          width: 48, height: 48, fit: BoxFit.cover),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Photo attached',
+                        style: TextStyle(
+                            color: AppTheme.textPrimary, fontSize: 13,
+                            fontWeight: FontWeight.w600))),
+                    Text('Change', style: TextStyle(
+                        color: AppTheme.accent, fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+                  ])
+                : Row(children: [
+                    Icon(Icons.add_a_photo_outlined,
+                        color: AppTheme.muted, size: 20),
+                    const SizedBox(width: 12),
+                    Text('Attach a photo',
+                        style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+                  ]),
+          ),
+        ),
         const SizedBox(height: 32),
         _isLoading
             ? const Center(child: CircularProgressIndicator(

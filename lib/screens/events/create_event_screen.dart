@@ -812,9 +812,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     if (!_isApprovedOrganizer) {
       return _blockingScreen(
         icon: Icons.hourglass_top_rounded,
-        title: 'Your organizer account is awaiting admin approval',
-        subtitle: "You'll be able to create events once approved. This "
-            'usually only needs to happen once.',
+        title: "Your organizer account isn't currently approved",
+        subtitle: 'Contact the app admin for details. You may just need to '
+            'wait for review, or your account may need another look.',
       );
     }
     if (_allowedSports.isEmpty) {

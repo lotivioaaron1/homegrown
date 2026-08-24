@@ -1,9 +1,11 @@
 // lib/screens/admin/admin_review_screen.dart
 
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../controllers/auth_controller.dart';
 import '../../services/notification_service.dart';
+import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 
 /// The one screen a super-admin account sees, reached only when
@@ -11,11 +13,20 @@ import '../../theme/app_theme.dart';
 /// There is deliberately no way to reach this role through the public app;
 /// an admin account only ever exists because someone hand-set it directly
 /// in Firestore. Its only job is approving/rejecting pending organizer
-/// signups (see organizer_register_screen.dart, which writes
-/// `organizerStatus: 'pending'`, and firestore.rules, which blocks an
-/// unapproved organizer from creating events regardless of this screen).
-class AdminReviewScreen extends StatelessWidget {
+/// signups, and revisiting an already-approved one if it turns out to be
+/// wrong (see organizer_register_screen.dart, which writes
+/// `organizerStatus: 'pending'`, and firestore.rules, which blocks any
+/// organizer whose status isn't exactly 'approved' from creating events
+/// regardless of this screen).
+class AdminReviewScreen extends StatefulWidget {
   const AdminReviewScreen({super.key});
+
+  @override
+  State<AdminReviewScreen> createState() => _AdminReviewScreenState();
+}
+
+class _AdminReviewScreenState extends State<AdminReviewScreen> {
+  bool _showApproved = false;
 
   @override
   Widget build(BuildContext context) {
@@ -24,12 +35,16 @@ class AdminReviewScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(children: [
           _buildTopBar(),
+          const SizedBox(height: 12),
+          _buildToggle(),
+          const SizedBox(height: 12),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('users')
                   .where('role', isEqualTo: 'organizer')
-                  .where('organizerStatus', isEqualTo: 'pending')
+                  .where('organizerStatus',
+                      isEqualTo: _showApproved ? 'approved' : 'pending')
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -43,7 +58,10 @@ class AdminReviewScreen extends StatelessWidget {
                       Icon(Icons.verified_user_outlined,
                           color: AppTheme.muted, size: 40),
                       const SizedBox(height: 12),
-                      Text('No pending organizer approvals',
+                      Text(
+                          _showApproved
+                              ? 'No approved organizers yet'
+                              : 'No pending organizer approvals',
                           style: TextStyle(
                               color: AppTheme.sub, fontSize: 13)),
                     ]),
@@ -56,13 +74,15 @@ class AdminReviewScreen extends StatelessWidget {
                   itemBuilder: (context, i) {
                     final doc = docs[i];
                     final u = doc.data() as Map<String, dynamic>;
-                    return _PendingOrganizerCard(
+                    return _OrganizerCard(
                       uid: doc.id,
                       name: u['fullName'] as String? ?? '',
                       email: u['email'] as String? ?? '',
+                      phoneNumber: u['phoneNumber'] as String? ?? '',
                       organization: u['organization'] as String? ?? '',
                       sportsOrganized:
                           (u['sportsOrganized'] as List?)?.cast<String>() ?? [],
+                      isApproved: _showApproved,
                     );
                   },
                 );
@@ -97,21 +117,59 @@ class AdminReviewScreen extends StatelessWidget {
           ),
         ]),
       );
+
+  Widget _buildToggle() {
+    Widget seg(String label, bool selected, VoidCallback onTap) => Expanded(
+          child: GestureDetector(
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                  color: selected ? AppTheme.accent : Colors.transparent,
+                  borderRadius: BorderRadius.circular(17)),
+              child: Text(label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: selected ? AppTheme.buttonFg : AppTheme.sub,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+            color: AppTheme.cardNested,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppTheme.border)),
+        child: Row(children: [
+          seg('Pending', !_showApproved, () => setState(() => _showApproved = false)),
+          seg('Approved', _showApproved, () => setState(() => _showApproved = true)),
+        ]),
+      ),
+    );
+  }
 }
 
-class _PendingOrganizerCard extends StatelessWidget {
+class _OrganizerCard extends StatelessWidget {
   final String uid;
   final String name;
   final String email;
+  final String phoneNumber;
   final String organization;
   final List<String> sportsOrganized;
+  final bool isApproved;
 
-  const _PendingOrganizerCard({
+  const _OrganizerCard({
     required this.uid,
     required this.name,
     required this.email,
+    required this.phoneNumber,
     required this.organization,
     required this.sportsOrganized,
+    required this.isApproved,
   });
 
   Future<void> _decide(String status) async {
@@ -122,11 +180,45 @@ class _PendingOrganizerCard extends StatelessWidget {
       type: 'organizer_status',
       title: status == 'approved'
           ? "You're approved!"
-          : 'Organizer request declined',
+          : status == 'revoked'
+              ? 'Organizer access revoked'
+              : 'Organizer request declined',
       body: status == 'approved'
           ? 'Your organizer account has been approved — you can now create events.'
-          : 'Your organizer account was not approved this time.',
+          : status == 'revoked'
+              ? 'Your organizer access has been revoked. Contact the app admin for details.'
+              : 'Your organizer account was not approved this time.',
       relatedId: uid,
+    );
+  }
+
+  void _confirmRevoke(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Revoke this organizer?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text(
+            "They won't be able to create new events. Events they've "
+            "already created are unaffected.",
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Back', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _decide('revoked');
+            },
+            child: Text('Revoke', style: TextStyle(
+                color: AppTheme.error, fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -146,6 +238,14 @@ class _PendingOrganizerCard extends StatelessWidget {
                 fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
         Text(email, style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+        if (phoneNumber.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Row(children: [
+            Icon(Icons.phone_outlined, color: AppTheme.sub, size: 12),
+            const SizedBox(width: 4),
+            Text(phoneNumber, style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+          ]),
+        ],
         if (organization.isNotEmpty) ...[
           const SizedBox(height: 6),
           Text(organization,
@@ -171,28 +271,105 @@ class _PendingOrganizerCard extends StatelessWidget {
                 .toList(),
           ),
         ],
+        const SizedBox(height: 10),
+        _VerificationDoc(uid: uid),
         const SizedBox(height: 12),
-        Row(children: [
-          Expanded(
+        if (isApproved)
+          SizedBox(
+            width: double.infinity,
             child: OutlinedButton(
-              onPressed: () => _decide('rejected'),
+              onPressed: () => _confirmRevoke(context),
               style: OutlinedButton.styleFrom(
                   side: BorderSide(color: AppTheme.error),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10))),
-              child: Text('Reject',
+              child: Text('Revoke',
                   style: TextStyle(color: AppTheme.error, fontSize: 13)),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: () => _decide('approved'),
-              child: const Text('Approve'),
+          )
+        else
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => _decide('rejected'),
+                style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppTheme.error),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10))),
+                child: Text('Reject',
+                    style: TextStyle(color: AppTheme.error, fontSize: 13)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => _decide('approved'),
+                child: const Text('Approve'),
+              ),
+            ),
+          ]),
+      ]),
+    );
+  }
+}
+
+/// Fetches and shows the organizer's optional verification photo, or a
+/// clear "no document attached" flag — the whole point of this screen
+/// existing is giving the admin a real signal to weigh, not just a name.
+class _VerificationDoc extends StatelessWidget {
+  final String uid;
+  const _VerificationDoc({required this.uid});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List?>(
+      future: StorageService.fetchOrganizerVerificationDoc(uid),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+              height: 24,
+              child: Center(child: SizedBox(
+                  width: 14, height: 14,
+                  child: CircularProgressIndicator(
+                      color: AppTheme.accent, strokeWidth: 2))));
+        }
+        if (snapshot.hasError) {
+          // Deliberately NOT the same message as "nothing was ever
+          // uploaded" — this is a real failure (e.g. a permission error on
+          // the read itself) and needs to look different so it doesn't get
+          // misread as "this organizer skipped the photo."
+          return Row(children: [
+            Icon(Icons.error_outline, color: AppTheme.error, size: 14),
+            const SizedBox(width: 6),
+            Expanded(child: Text("Couldn't load photo: ${snapshot.error}",
+                style: TextStyle(color: AppTheme.error, fontSize: 11))),
+          ]);
+        }
+        final bytes = snapshot.data;
+        if (bytes == null) {
+          return Row(children: [
+            Icon(Icons.warning_amber_rounded,
+                color: AppTheme.error, size: 14),
+            const SizedBox(width: 6),
+            Text('No verification photo attached',
+                style: TextStyle(color: AppTheme.error, fontSize: 11)),
+          ]);
+        }
+        return GestureDetector(
+          onTap: () => showDialog(
+            context: context,
+            builder: (_) => Dialog(
+              backgroundColor: Colors.transparent,
+              child: InteractiveViewer(child: Image.memory(bytes)),
             ),
           ),
-        ]),
-      ]),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.memory(bytes, height: 120, width: double.infinity,
+                fit: BoxFit.cover),
+          ),
+        );
+      },
     );
   }
 }
