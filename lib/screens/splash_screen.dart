@@ -2,6 +2,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -56,8 +57,17 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      // Already logged in → straight to home
-      Get.offAllNamed('/home');
+      // A super-admin lands on the approval queue instead of the normal
+      // role-based home screen — see admin_review_screen.dart. There's no
+      // in-app way to become admin; this only ever matches an account
+      // hand-flipped to role:'admin' directly in Firestore.
+      final doc = await FirebaseFirestore.instance
+          .collection('users').doc(user.uid).get();
+      if (doc.data()?['role'] == 'admin') {
+        Get.offAllNamed('/admin');
+      } else {
+        Get.offAllNamed('/home');
+      }
       return;
     }
     // Not logged in — check if onboarding was done

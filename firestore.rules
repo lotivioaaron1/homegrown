@@ -1,0 +1,191 @@
+rules_version = '2';
+
+// Derived from a full audit of every real read/write/query shape used by
+// the Flutter app (see docs/superpowers/specs if present, or the plan this
+// shipped with) — not a generic template. Two documented simplifications
+// exist below (notification creation, cross-user points/ratings updates)
+// where full validation would require disproportionate complexity for a
+// low-severity risk; each is called out at the point it applies.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isApprovedOrganizer(uid) {
+      return isSignedIn() &&
+        userData(uid).role == 'organizer' &&
+        userData(uid).organizerStatus == 'approved';
+    }
+
+    function isAdmin(uid) {
+      return isSignedIn() && userData(uid).role == 'admin';
+    }
+
+    function eventOrganizerId(eventId) {
+      return get(/databases/$(database)/documents/events/$(eventId)).data.organizerId;
+    }
+
+    // ── users ──────────────────────────────────────────
+    match /users/{uid} {
+      // role is set once at registration (or once, from '' to a real
+      // value, by google-profile-setup) and is never 'admin' through the
+      // public app — an admin account only ever exists because someone
+      // hand-set it directly in Firestore/Console.
+      allow create: if isSelf(uid) &&
+        request.resource.data.role in ['athlete', 'coach', 'organizer', ''];
+
+      allow update: if isSelf(uid) && (
+        request.resource.data.role == resource.data.role ||
+        (resource.data.role == '' &&
+         request.resource.data.role in ['athlete', 'coach', 'organizer'])
+      );
+
+      // Cross-user exception #1: add_stats_screen.dart / rating_service.dart
+      // bump a participant's points/rating after the organizer records
+      // results. Simplification: this checks the requester is a real,
+      // admin-approved organizer account and restricts the write to
+      // exactly these two fields — it does not re-derive the specific
+      // event/match linkage (that would need the write itself to carry an
+      // eventId, which it doesn't). An approved organizer could misuse this
+      // to nudge a number with no matching stats doc, which is a much
+      // smaller residual risk than "anyone" being able to.
+      allow update: if isSignedIn() && request.auth.uid != uid &&
+        isApprovedOrganizer(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['points', 'ratings']);
+
+      // Cross-user exception #2: the super-admin approving/rejecting a
+      // pending organizer — see admin_review_screen.dart. Field-restricted
+      // so an admin account can only ever flip this one status, never
+      // rewrite anything else on someone else's profile.
+      allow update: if isSignedIn() && request.auth.uid != uid &&
+        isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['organizerStatus']);
+
+      allow read: if isSignedIn();
+
+      match /media/{mediaId} {
+        allow read: if isSignedIn();
+        allow write: if isSelf(uid);
+      }
+
+      match /ratingHistory/{entryId} {
+        allow read: if isSelf(uid);
+        allow write: if isSignedIn() && request.auth.uid != uid &&
+          isApprovedOrganizer(request.auth.uid);
+      }
+    }
+
+    // ── events ─────────────────────────────────────────
+    match /events/{eventId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        isApprovedOrganizer(request.auth.uid);
+
+      allow update: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        request.resource.data.organizerId == resource.data.organizerId;
+
+      // hasMatchData is set by rating_service.dart the moment a match is
+      // recorded, specifically so this check doesn't need an arbitrary
+      // "does any doc in matches reference this event" query, which rules
+      // can't cheaply express.
+      allow delete: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        resource.data.get('hasMatchData', false) != true;
+
+      // Read visibility is unchanged from today's de facto behavior
+      // (a single-doc read has never been gated by isPublic/roster
+      // membership) — tightening that is a separate, not-yet-scoped piece
+      // of privacy hardening, not part of this pass.
+      allow read: if isSignedIn();
+    }
+
+    // ── matches ────────────────────────────────────────
+    match /matches/{matchId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.recordedBy == request.auth.uid &&
+        eventOrganizerId(request.resource.data.eventId) == request.auth.uid;
+
+      // finalizeMatch only ever changes status/finalizedAt.
+      allow update: if isSignedIn() &&
+        eventOrganizerId(resource.data.eventId) == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'finalizedAt']);
+
+      allow read: if isSignedIn();
+    }
+
+    // ── stats ──────────────────────────────────────────
+    match /stats/{statId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        eventOrganizerId(request.resource.data.eventId) == request.auth.uid;
+
+      // No code path ever updates or deletes a stats doc.
+      allow update, delete: if false;
+
+      // Intentionally broad — profile viewing and leaderboards both
+      // depend on reading any athlete's stats, not just your own.
+      allow read: if isSignedIn();
+    }
+
+    // ── teamMemberships ────────────────────────────────
+    match /teamMemberships/{membershipId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.coachId == request.auth.uid &&
+        userData(request.auth.uid).role == 'coach';
+
+      // acceptInvite only ever changes status/respondedAt.
+      allow update: if isSignedIn() &&
+        resource.data.athleteId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'respondedAt']);
+
+      // decline/cancel/remove/leave share one implementation; either side
+      // of the relationship can end it.
+      allow delete: if isSignedIn() &&
+        (resource.data.coachId == request.auth.uid ||
+         resource.data.athleteId == request.auth.uid);
+
+      // Intentionally broad — Scout's roster-fullness check on other
+      // coaches and an athlete viewing teammates via a different coach's
+      // roster both depend on this not being owner-only.
+      allow read: if isSignedIn();
+    }
+
+    // ── notifications ──────────────────────────────────
+    match /notifications/{notificationId} {
+      // Simplification: every real call site has writer != recipient
+      // (coach->athlete invite, organizer->roster, etc.) and there are 6+
+      // distinct relationships that would each need their own get()
+      // cross-check to validate properly. Worst-case abuse of an
+      // unrestricted create here is spam, not data corruption or identity
+      // fraud, so this is left open to any signed-in user.
+      allow create: if isSignedIn();
+
+      // Reading, marking read, and deleting are owner-only — closes a
+      // real gap (today anyone could read/delete anyone's notifications).
+      allow read, update, delete: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
+    }
+
+    // Anything not explicitly matched above is denied — a forgotten
+    // collection fails closed, not open.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

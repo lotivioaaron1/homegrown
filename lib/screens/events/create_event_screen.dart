@@ -52,8 +52,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   String? _teamACoachId;
   String? _teamBCoachId;
 
-  // ── Sport restricted to what this organizer declared ──
+  // ── Sport restricted to what this organizer declared, and gated on
+  // admin approval (see firestore.rules / admin_review_screen.dart) ──
   List<String> _allowedSports = [];
+  bool _isApprovedOrganizer = false;
   bool _loadingAllowedSports = true;
 
   @override
@@ -62,14 +64,60 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _loadAllowedSports();
   }
 
+  Widget _blockingScreen({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    bool showUpdateSportsButton = false,
+  }) {
+    return Scaffold(
+      backgroundColor: AppTheme.bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(icon, color: AppTheme.muted, size: 40),
+            const SizedBox(height: 16),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textPrimary, fontSize: 15,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+            const SizedBox(height: 24),
+            if (showUpdateSportsButton) ...[
+              SizedBox(
+                width: double.infinity, height: 50,
+                child: ElevatedButton(
+                  onPressed: () => Get.to(() => const EditProfileScreen())
+                      ?.then((_) => _loadAllowedSports()),
+                  child: const Text('Update My Sports'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            TextButton(
+              onPressed: () => Get.back(),
+              child: Text('Back', style: TextStyle(color: AppTheme.sub)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadAllowedSports() async {
     setState(() => _loadingAllowedSports = true);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    final sports = (doc.data()?['sportsOrganized'] as List?)?.cast<String>() ?? [];
+    final data = doc.data() ?? {};
+    final sports = (data['sportsOrganized'] as List?)?.cast<String>() ?? [];
     if (mounted) {
       setState(() {
         _allowedSports = sports;
+        _isApprovedOrganizer = data['organizerStatus'] == 'approved';
         _loadingAllowedSports = false;
       });
     }
@@ -761,40 +809,20 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             color: AppTheme.accent, strokeWidth: 2)),
       );
     }
+    if (!_isApprovedOrganizer) {
+      return _blockingScreen(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Your organizer account is awaiting admin approval',
+        subtitle: "You'll be able to create events once approved. This "
+            'usually only needs to happen once.',
+      );
+    }
     if (_allowedSports.isEmpty) {
-      return Scaffold(
-        backgroundColor: AppTheme.bg,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.sports_outlined, color: AppTheme.muted, size: 40),
-              const SizedBox(height: 16),
-              Text("You haven't set which sports you organize yet",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 15,
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Text('Add at least one sport in your profile before creating an event.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppTheme.sub, fontSize: 13)),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity, height: 50,
-                child: ElevatedButton(
-                  onPressed: () => Get.to(() => const EditProfileScreen())
-                      ?.then((_) => _loadAllowedSports()),
-                  child: const Text('Update My Sports'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () => Get.back(),
-                child: Text('Back', style: TextStyle(color: AppTheme.sub)),
-              ),
-            ]),
-          ),
-        ),
+      return _blockingScreen(
+        icon: Icons.sports_outlined,
+        title: "You haven't set which sports you organize yet",
+        subtitle: 'Add at least one sport in your profile before creating an event.',
+        showUpdateSportsButton: true,
       );
     }
     return Scaffold(

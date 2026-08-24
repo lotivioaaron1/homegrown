@@ -12,6 +12,7 @@ class RatingService {
   static final _matches = FirebaseFirestore.instance.collection('matches');
   static final _users = FirebaseFirestore.instance.collection('users');
   static final _stats = FirebaseFirestore.instance.collection('stats');
+  static final _events = FirebaseFirestore.instance.collection('events');
 
   static String sportKey(String sport) => sport.toLowerCase();
 
@@ -29,7 +30,8 @@ class RatingService {
     assert(scoreA != scoreB, 'A match cannot end in a tie');
     final winner = scoreA > scoreB ? 'A' : 'B';
     final doc = _matches.doc();
-    await doc.set({
+    final batch = FirebaseFirestore.instance.batch();
+    batch.set(doc, {
       'eventId': eventId,
       'sport': sport,
       'sideA': sideA,
@@ -42,6 +44,11 @@ class RatingService {
       'createdAt': FieldValue.serverTimestamp(),
       'finalizedAt': null,
     });
+    // Denormalized onto the event so the Delete-event Firestore rule can
+    // check "does this event have any match data" without an arbitrary
+    // collection query, which security rules can't cheaply express.
+    batch.update(_events.doc(eventId), {'hasMatchData': true});
+    await batch.commit();
     return doc.id;
   }
 

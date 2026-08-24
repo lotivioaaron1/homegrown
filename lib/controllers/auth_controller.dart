@@ -37,12 +37,19 @@ class AuthController extends GetxController {
       isLoading.value    = true;
       errorMessage.value = '';
 
-      await _authService.signInWithEmail(email, password);
+      final credential = await _authService.signInWithEmail(email, password);
 
-      // Always allow login — unverified users see a
-      // soft reminder banner on the home screen instead
-      // of being blocked from accessing the app.
-      Get.offAllNamed('/home');
+      // A super-admin lands on the approval queue instead of the normal
+      // role-based home screen — mirrors splash_screen.dart's cold-start
+      // check, needed here too since a direct sign-in never passes through
+      // splash. Always allow login otherwise — unverified users see a
+      // soft reminder banner on the home screen instead of being blocked.
+      final doc = await _firestore.collection('users').doc(credential.user!.uid).get();
+      if (doc.data()?['role'] == 'admin') {
+        Get.offAllNamed('/admin');
+      } else {
+        Get.offAllNamed('/home');
+      }
 
     } on FirebaseAuthException catch (e) {
       errorMessage.value = _mapFirebaseError(e.code);

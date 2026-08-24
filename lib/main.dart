@@ -30,6 +30,7 @@ import 'screens/profile/profile_screen.dart';
 import 'screens/team/team_invites_screen.dart';
 import 'screens/team/my_team_screen.dart';
 import 'screens/team/athlete_team_screen.dart';
+import 'screens/admin/admin_review_screen.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/theme_controller.dart';
 import 'services/connectivity_service.dart';
@@ -88,6 +89,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/team/invites',        page: () => const TeamInvitesScreen()),
         GetPage(name: '/team/roster',         page: () => const MyTeamScreen()),
         GetPage(name: '/team/mine',           page: () => const AthleteTeamScreen()),
+        GetPage(name: '/admin',               page: () => const AdminReviewScreen()),
       ],
     );
   }

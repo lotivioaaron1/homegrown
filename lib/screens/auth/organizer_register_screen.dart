@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../theme/app_theme.dart';
 import '../../constants/legazpi_barangays.dart';
+import '../../services/notification_service.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -185,6 +186,9 @@ class _OrganizerRegisterScreenState
         'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
         'email':           _emailCtrl.text.trim(),
         'role':            'organizer',
+        // An organizer can't create/publish events until a super-admin
+        // approves this — see firestore.rules and admin_review_screen.dart.
+        'organizerStatus': 'pending',
         'barangay':        _selectedBarangay,
         'organization':    _organizationCtrl.text.trim(),
         'organizationType': _organizationType,
@@ -195,6 +199,22 @@ class _OrganizerRegisterScreenState
         'createdAt':       FieldValue.serverTimestamp(),
       });
       await cred.user?.sendEmailVerification();
+
+      // Let the super-admin know someone's waiting, instead of relying on
+      // them to remember to check /admin — see admin_review_screen.dart.
+      final admins = await FirebaseFirestore.instance
+          .collection('users').where('role', isEqualTo: 'admin').get();
+      for (final admin in admins.docs) {
+        await NotificationService.create(
+          userId: admin.id,
+          type: 'organizer_pending',
+          title: 'New organizer awaiting approval',
+          body: '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()} '
+              'registered as an organizer and needs review.',
+          relatedId: cred.user!.uid,
+        );
+      }
+
       if (mounted) setState(() => _showSuccess = true);
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
@@ -519,16 +539,17 @@ class _SuccessView extends StatelessWidget {
           decoration: BoxDecoration(color: AppTheme.accentSurface,
               shape: BoxShape.circle,
               border: Border.all(color: AppTheme.accent, width: 2)),
-          child: const Center(child: Text('📋',
+          child: const Center(child: Text('⏳',
               style: TextStyle(fontSize: 48)))),
         const SizedBox(height: 32),
-        Text('Welcome, Organizer!', textAlign: TextAlign.center,
+        Text('Account Created!', textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.textPrimary, fontSize: 26,
               fontWeight: FontWeight.w900, letterSpacing: -0.5)),
         const SizedBox(height: 12),
         Text(
-          'Hello $firstName! Start creating events and '
-          'recording stats for your athletes.',
+          "Hello $firstName! Your organizer account is being reviewed "
+          "by our team — you'll be notified once you're approved and "
+          "able to start creating events.",
           textAlign: TextAlign.center,
           style: TextStyle(
               color: AppTheme.sub, fontSize: 15, height: 1.6)),

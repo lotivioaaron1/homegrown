@@ -57,8 +57,10 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       return;
     }
-    // Existing user with role → go straight home
-    Get.offAllNamed('/home');
+    // Existing user with role → go straight home, unless they're the
+    // super-admin (see auth_controller.dart's signInWithEmail for why this
+    // check has to live at every sign-in entry point, not just splash).
+    Get.offAllNamed(role == 'admin' ? '/admin' : '/home');
   }
 
   // ── Build ─────────────────────────────────────
@@ -272,7 +274,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                             fontSize: 18,
                                             fontWeight: FontWeight.w900)),
                                   ),
-                                  const SizedBox(width: 10),
+                                  const SizedBox(width: 10),  
                                   Text('Continue with Google',
                                       style: TextStyle(
                                         color: AppTheme.textPrimary,
