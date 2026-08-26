@@ -10,8 +10,8 @@
 // firebase_core_platform_interface (setupFirebaseCoreMocks) plus fakes for
 // Auth and Firestore — worth doing, but a larger piece of work than this
 // file should carry. Until then this covers the bundled barangay snapshot,
-// which is release-critical: it is the only thing standing between a user
-// with no connection and a registration flow they cannot complete.
+// which is release-critical: it is what keeps registration working when
+// psgc.gitlab.io is unreachable while the device is otherwise online.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:homegrown/constants/legazpi_barangays_fallback.dart';
