@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
-import '../../constants/legazpi_barangays.dart';
+import '../../widgets/barangay_picker_sheet.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -86,94 +86,10 @@ class _GoogleProfileSetupScreenState
 
   // ── Barangay picker ───────────────────────
 
-  void _pickBarangay() {
-    final search = TextEditingController();
-    List<String> filtered = List.from(kLegazpiBarangays);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setModal) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize:     0.92,
-          builder: (_, ctrl) => Column(children: [
-            const SizedBox(height: 12),
-            Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(2))),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Text('Select Barangay', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 16,
-                  fontWeight: FontWeight.w800)),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: search,
-                autofocus: true,
-                style: TextStyle(color: AppTheme.textPrimary),
-                onChanged: (q) => setModal(() {
-                  filtered = kLegazpiBarangays
-                      .where((b) => b.toLowerCase()
-                          .contains(q.toLowerCase()))
-                      .toList();
-                }),
-                decoration: InputDecoration(
-                  hintText: 'Search barangay...',
-                  hintStyle: TextStyle(color: AppTheme.muted),
-                  prefixIcon: Icon(Icons.search_rounded,
-                      color: AppTheme.muted, size: 20),
-                  filled: true, fillColor: AppTheme.bg,
-                  contentPadding: const EdgeInsets.symmetric(
-                      vertical: 12, horizontal: 16),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.border)),
-                  focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: AppTheme.accent, width: 1.5)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: ListView.builder(
-              controller: ctrl,
-              itemCount: filtered.length,
-              itemBuilder: (_, i) {
-                final b   = filtered[i];
-                final sel = b == _selectedBarangay;
-                return ListTile(
-                  dense: true,
-                  title: Text(b, style: TextStyle(
-                    color: sel
-                        ? AppTheme.accentText : AppTheme.textPrimary,
-                    fontWeight:
-                        sel ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 14)),
-                  trailing: sel
-                      ? Icon(Icons.check_circle_rounded,
-                          color: AppTheme.accent, size: 20) : null,
-                  onTap: () {
-                    setState(() => _selectedBarangay = b);
-                    Navigator.pop(context);
-                  },
-                );
-              },
-            )),
-          ]),
-        ),
-      ),
-    );
+  Future<void> _pickBarangay() async {
+    final picked = await showBarangayPickerSheet(context,
+        selected: _selectedBarangay);
+    if (picked != null) setState(() => _selectedBarangay = picked);
   }
 
   // ── Validation ────────────────────────────

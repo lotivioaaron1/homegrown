@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../services/storage_service.dart';
+import '../../widgets/barangay_picker_sheet.dart';
 
 const _kRadius = 14.0;
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
@@ -32,7 +33,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _positionCtrl = TextEditingController();
   final _heightCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
-  final _barangayCtrl = TextEditingController();
+  String? _barangay;
   final _bioCtrl = TextEditingController();
   String _sport = '';
   String _experience = '';
@@ -53,7 +54,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _positionCtrl.dispose();
     _heightCtrl.dispose();
     _weightCtrl.dispose();
-    _barangayCtrl.dispose();
     _bioCtrl.dispose();
     super.dispose();
   }
@@ -73,7 +73,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _positionCtrl.text = data['position'] as String? ?? '';
       _heightCtrl.text = data['heightCm']?.toString() ?? '';
       _weightCtrl.text = data['weightKg']?.toString() ?? '';
-      _barangayCtrl.text = data['barangay'] as String? ?? '';
+      _barangay = data['barangay'] as String?;
       _bioCtrl.text = data['bio'] as String? ?? '';
       _experience = data['yearsOfPlaying'] as String? ?? '';
       _openToRecruitment = data['openToRecruitment'] as bool? ?? false;
@@ -120,7 +120,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'heightCm': _heightCtrl.text.trim(),
         'weightKg': _weightCtrl.text.trim(),
         'bio': _bioCtrl.text.trim(),
-        'barangay': _barangayCtrl.text.trim(),
+        'barangay': _barangay ?? '',
         'yearsOfPlaying': _experience,
         'openToRecruitment': _openToRecruitment,
         if (_sport.isNotEmpty) 'primarySports': [_sport],
@@ -245,7 +245,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 14),
                 _label('Barangay'),
                 const SizedBox(height: 8),
-                _field(_barangayCtrl, 'e.g. Legazpi'),
+                _buildBarangayPicker(),
                 const SizedBox(height: 14),
                 _label('Bio'),
                 const SizedBox(height: 8),
@@ -461,6 +461,38 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(_kRadius),
             borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+      ),
+    );
+  }
+
+  Widget _buildBarangayPicker() {
+    final hasValue = _barangay != null && _barangay!.isNotEmpty;
+    return GestureDetector(
+      onTap: () async {
+        final picked =
+            await showBarangayPickerSheet(context, selected: _barangay);
+        if (picked != null) setState(() => _barangay = picked);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(_kRadius),
+            border: Border.all(
+                color: hasValue ? AppTheme.accent : AppTheme.border,
+                width: 1.5)),
+        child: Row(children: [
+          Icon(Icons.location_on_outlined,
+              color: hasValue ? AppTheme.accent : AppTheme.muted, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(hasValue ? _barangay! : 'Select Barangay',
+                  style: TextStyle(
+                      color: hasValue ? AppTheme.textPrimary : AppTheme.muted,
+                      fontSize: 14))),
+          Icon(Icons.keyboard_arrow_down_rounded,
+              color: AppTheme.muted, size: 20),
+        ]),
       ),
     );
   }
