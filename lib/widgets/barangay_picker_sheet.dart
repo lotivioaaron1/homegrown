@@ -31,7 +31,7 @@ class _BarangayPickerSheetState extends State<_BarangayPickerSheet> {
   List<String> _all = [];
   List<String> _filtered = [];
   bool _isLoading = true;
-  bool _failed = false;
+  bool _isOffline = false;
 
   @override
   void initState() {
@@ -46,25 +46,47 @@ class _BarangayPickerSheetState extends State<_BarangayPickerSheet> {
   }
 
   Future<void> _load() async {
+    setState(() => _isLoading = true);
+    // Always resolves: BarangayService falls back to a bundled snapshot
+    // rather than failing, because a user who can't pick a barangay can't
+    // finish registering at all.
+    final result = await BarangayService.fetchBarangays();
+    if (!mounted) return;
     setState(() {
-      _isLoading = true;
-      _failed = false;
+      _all = result.names;
+      _filtered = _filterList(result.names, _search.text);
+      _isOffline = result.isOffline;
+      _isLoading = false;
     });
-    try {
-      final names = await BarangayService.fetchBarangays();
-      if (!mounted) return;
-      setState(() {
-        _all = names;
-        _filtered = _filterList(names, _search.text);
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _failed = true;
-      });
-    }
+  }
+
+  /// Shown when the live registry was unreachable and the bundled snapshot
+  /// is standing in. Informational, not an error: the list below is complete
+  /// and selectable, it just may not reflect a very recent PSGC change.
+  Widget _offlineNotice() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(children: [
+        Icon(Icons.cloud_off_rounded, color: AppTheme.muted, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text('Showing a saved list — we couldn\'t reach the registry.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+        ),
+        TextButton(
+          onPressed: _load,
+          style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+          child: Text('Retry',
+              style: TextStyle(
+                  color: AppTheme.accent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700)),
+        ),
+      ]),
+    );
   }
 
   List<String> _filterList(List<String> source, String query) {
@@ -79,26 +101,6 @@ class _BarangayPickerSheetState extends State<_BarangayPickerSheet> {
       return const Center(
           child: CircularProgressIndicator(
               color: AppTheme.accent, strokeWidth: 2));
-    }
-    if (_failed) {
-      return Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.wifi_off_rounded, color: AppTheme.muted, size: 32),
-        const SizedBox(height: 10),
-        Text('Something went wrong',
-            style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w700)),
-        const SizedBox(height: 4),
-        Text("We couldn't load the barangay list just now.",
-            style: TextStyle(color: AppTheme.muted, fontSize: 12)),
-        const SizedBox(height: 8),
-        TextButton(
-          onPressed: _load,
-          child: Text('Retry', style: TextStyle(color: AppTheme.accent)),
-        ),
-      ]));
     }
     if (_filtered.isEmpty) {
       return Center(
@@ -181,6 +183,7 @@ class _BarangayPickerSheetState extends State<_BarangayPickerSheet> {
           ),
         ),
         const SizedBox(height: 8),
+        if (_isOffline && !_isLoading) _offlineNotice(),
         Expanded(child: _buildBody(ctrl)),
       ]),
     );
