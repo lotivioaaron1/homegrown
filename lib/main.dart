@@ -1,7 +1,12 @@
 // lib/main.dart
 
+import 'dart:async';
+import 'dart:ui';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:get/get.dart';
 import 'firebase_options.dart';
 import 'theme/app_theme.dart';
@@ -37,11 +42,94 @@ import 'services/connectivity_service.dart';
 import 'widgets/no_internet_overlay.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  runApp(const HomegrownApp());
+  // runZonedGuarded catches errors raised outside a Flutter callback — a
+  // failed async call in a controller, for instance — which FlutterError
+  // and PlatformDispatcher hooks never see.
+  runZonedGuarded<Future<void>>(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      await _initCrashReporting();
+    } catch (e, st) {
+      // Previously an init failure took down runApp() and left users on a
+      // blank screen with nothing reported. Show something explanatory
+      // instead, and keep the stack trace for the logs.
+      debugPrint('Firebase initialization failed: $e\n$st');
+      runApp(const _StartupFailureApp());
+      return;
+    }
+
+    runApp(const HomegrownApp());
+  }, (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+  });
+}
+
+Future<void> _initCrashReporting() async {
+  // Debug runs already surface errors in the console, and reporting them
+  // would bury real user crashes under development noise.
+  await FirebaseCrashlytics.instance
+      .setCrashlyticsCollectionEnabled(!kDebugMode);
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+  };
+
+  // Errors from the engine itself, outside the Flutter framework.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+}
+
+/// Shown only when Firebase cannot start, which makes every screen in the
+/// app non-functional. A blank window gives the user nothing to act on.
+class _StartupFailureApp extends StatelessWidget {
+  const _StartupFailureApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF07070C),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('📡', style: TextStyle(fontSize: 48)),
+                const SizedBox(height: 20),
+                const Text(
+                  "Homegrown couldn't start",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Check your connection and reopen the app. If this keeps '
+                  'happening, reinstalling usually fixes it.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 14,
+                      height: 1.6),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class HomegrownApp extends StatelessWidget {

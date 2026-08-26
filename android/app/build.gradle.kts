@@ -10,6 +10,10 @@ plugins {
     // inert: no default_web_client_id is generated and Google Sign-In cannot
     // resolve an ID token on Android.
     id("com.google.gms.google-services")
+    // Uploads native debug symbols so Crashlytics can symbolicate NDK stack
+    // traces. Dart errors come through readable without it; native crashes do
+    // not. Must be applied after the google-services plugin.
+    id("com.google.firebase.crashlytics")
 }
 
 // Signing credentials live in android/key.properties, which is gitignored and

@@ -18,6 +18,7 @@ dependencies:
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.3
   firebase_storage: ^12.3.4
+  firebase_crashlytics: ^4.1.3
 
   # Maps & Location
   google_maps_flutter: ^2.5.0      # Keep for future use
