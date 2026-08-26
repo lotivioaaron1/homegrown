@@ -50,3 +50,18 @@ app.*.map.json
 
 # Android generated reports
 android/build/reports/
+
+# Signing material — NEVER commit these.
+# The upload keystore cannot be rotated: if it leaks, anyone can publish an
+# update impersonating this app, and if it is lost the app can never be
+# updated again under this package name. Keep the .jks outside the repo
+# entirely; key.properties only points at it and holds the passwords.
+*.jks
+*.keystore
+key.properties
+android/key.properties
+
+# Secrets / local API keys
+.env
+.env.*
+!.env.example
