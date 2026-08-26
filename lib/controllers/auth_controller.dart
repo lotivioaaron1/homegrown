@@ -160,11 +160,15 @@ class AuthController extends GetxController {
       _showErrorSnackbar(errorMessage.value);
       return null;
     } catch (e, st) {
-      // ignore: avoid_print
-      print('GOOGLE SIGN-IN ERROR: $e');
-      // ignore: avoid_print
-      print('STACK TRACE: $st');
-      errorMessage.value = 'Google sign-in failed: $e';
+      // debugPrint is stripped in release builds; print() is not, and would
+      // leak the raw exception and stack trace to logcat on user devices.
+      debugPrint('GOOGLE SIGN-IN ERROR: $e');
+      debugPrint('STACK TRACE: $st');
+      // The overwhelmingly common cause here is a signing-certificate SHA-1
+      // that isn't registered in Firebase, which surfaces as an opaque
+      // PlatformException. Don't put that in front of the user.
+      errorMessage.value =
+          "Couldn't sign in with Google. Check your connection and try again.";
       _showErrorSnackbar(errorMessage.value);
       return null;
     } finally {
