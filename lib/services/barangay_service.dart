@@ -20,9 +20,15 @@ class BarangayResult {
 /// Prefers the live Philippine Standard Geographic Code (PSGC) registry,
 /// which replaced a hand-typed catalog that was missing several barangays
 /// and misspelling others. Falls back to a generated offline snapshot of
-/// that same registry when the network is unavailable — without the
-/// fallback, an outage at psgc.gitlab.io or a user on patchy mobile data
-/// simply cannot create an account.
+/// that same registry when the fetch fails.
+///
+/// The fallback is not about the user being offline — NoInternetOverlay
+/// already gates the whole app on a DNS check, so a fully offline user
+/// never reaches this picker. It covers the narrower case where general
+/// internet works but this one host does not: psgc.gitlab.io is a free
+/// GitLab Pages site with no SLA, and it sits on the critical path of
+/// every registration. An outage, a 5xx, a slow response past the timeout,
+/// or a captive portal would otherwise dead-end signup entirely.
 class BarangayService {
   static const _kCityCode = '050506000'; // City of Legazpi (PSGC)
   static const _kBaseUrl =

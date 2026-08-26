@@ -5,10 +5,10 @@
 // 2026-08-26. 70 barangays, in PSGC code order.
 //
 // BarangayService fetches the live list at runtime and falls back to this
-// only when that fetch fails. The fallback exists because registration
-// requires a barangay: without it, a user with no connection - or any
-// outage at psgc.gitlab.io - cannot create an account at all, which is a
-// real risk for a community app used on patchy mobile data.
+// only when that fetch fails. It covers the case where general internet
+// works but psgc.gitlab.io specifically does not - an outage, a 5xx, or a
+// response slower than the timeout. A fully offline user never gets here,
+// since NoInternetOverlay gates the whole app before any screen renders.
 //
 // This is generated data, not hand-typed. The hand-typed catalog this
 // replaced was missing barangays and misspelled others, which is what
