@@ -101,10 +101,10 @@ class _SplashScreenState extends State<SplashScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Mayon Volcano photo (signature background) ────
-          // Drop your photo at this path. Falls back to a plain
-          // dark gradient if it's missing so layout never breaks.
-          // Light blur + mild darken — volcano stays clearly visible.
+          // ── Signature background photo ────
+          // Falls back to a plain dark gradient if the asset is missing
+          // so layout never breaks. Light blur + mild darken keeps the
+          // photo readable behind the logo without competing with it.
           ImageFiltered(
             imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
             child: Image.asset(
