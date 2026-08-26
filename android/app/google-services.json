@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:560298311855:android:19cb8427e0f2b34388d45a",
         "android_client_info": {
-          "package_name": "com.homegrown.homegrown"
+          "package_name": "com.homegrown.app"
         }
       },
       "oauth_client": [
@@ -49,6 +49,14 @@
         }
       },
       "oauth_client": [
+        {
+          "client_id": "560298311855-c5m8ubl2mhm65dr6jbjjapfupipr5dkc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.homegrown.homegrown",
+            "certificate_hash": "5ce1991114e63b7da7eab9d5d7055d279742612d"
+          }
+        },
         {
           "client_id": "560298311855-d5tmo4rqrnmt08f0vn5184a66vvke36q.apps.googleusercontent.com",
           "client_type": 1,
