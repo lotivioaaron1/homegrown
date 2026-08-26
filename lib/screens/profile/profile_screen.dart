@@ -52,13 +52,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final role = data['role'] as String? ?? 'athlete';
             final firstName = data['firstName'] as String? ?? '';
             final lastName = data['lastName'] as String? ?? '';
-            // Coaches write their team name to `teamOrganization` at
-            // registration, not the generic `teamName` field, so fall back
-            // to it here — otherwise this subtitle silently shows nothing
-            // useful for a coach.
+            // Coaches write their team name to `teamOrganization` and
+            // organizers write theirs to `organization` at registration,
+            // neither of which is the generic `teamName` field, so fall
+            // back to those here — otherwise this subtitle silently shows
+            // nothing useful for a coach or organizer.
             final teamName = (role == 'coach'
                     ? data['teamOrganization'] as String?
-                    : data['teamName'] as String?) ??
+                    : role == 'organizer'
+                        ? data['organization'] as String?
+                        : data['teamName'] as String?) ??
                 '';
             final bio = data['bio'] as String? ?? '';
             final photoUrl = data['photoUrl'] as String?;
@@ -278,6 +281,96 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: _addButton(Icons.search_rounded,
                             'Scout Players', () => Get.toNamed('/scout'))),
                   ]),
+                ],
+
+                // Organization identity hub (organizer only) — a condensed
+                // summary card; Settings remains the full-detail view (also
+                // showing certifications/barangay, deliberately left out
+                // here to match the coach section's restraint above).
+                if (role == 'organizer') ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.border)),
+                    child: Row(children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                            color: AppTheme.cardNested,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppTheme.border)),
+                        child: Icon(Icons.business_rounded,
+                            color: AppTheme.muted, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  teamName.isNotEmpty
+                                      ? teamName
+                                      : 'Your Organization',
+                                  style: TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800)),
+                              if ((data['organizationType'] as String?)
+                                      ?.isNotEmpty ==
+                                  true) ...[
+                                const SizedBox(height: 2),
+                                Text(data['organizationType'] as String,
+                                    style: TextStyle(
+                                        color: AppTheme.sub, fontSize: 12)),
+                              ],
+                            ]),
+                      ),
+                      const SizedBox(width: 8),
+                      _organizerStatusBadge(
+                          data['organizerStatus'] as String?),
+                    ]),
+                  ),
+                  const SizedBox(height: 14),
+                  if ((data['sportsOrganized'] as List?)?.isNotEmpty ==
+                      true) ...[
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: (data['sportsOrganized'] as List)
+                          .map((s) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                    color: AppTheme.cardNested,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border:
+                                        Border.all(color: AppTheme.border)),
+                                child: Text(s.toString(),
+                                    style: TextStyle(
+                                        color: AppTheme.sub, fontSize: 11)),
+                              ))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  FutureBuilder<QuerySnapshot>(
+                    future: FirebaseFirestore.instance
+                        .collection('events')
+                        .where('organizerId', isEqualTo: _uid)
+                        .get(),
+                    builder: (context, eventsSnap) {
+                      final count = eventsSnap.data?.docs.length;
+                      return _credentialBox(
+                          'Events Created', count == null ? '—' : '$count');
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  _addButton(LucideIcons.plus, 'Create Event',
+                      () => Get.toNamed('/events/create')),
                 ],
               ],
             );
@@ -694,6 +787,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
             style: TextStyle(color: AppTheme.muted, fontSize: 10),
             overflow: TextOverflow.ellipsis),
       ]),
+    );
+  }
+
+  Widget _organizerStatusBadge(String? status) {
+    final (label, color) = switch (status) {
+      'approved' => ('Approved', AppTheme.success),
+      'rejected' => ('Rejected', AppTheme.error),
+      'revoked' => ('Revoked', AppTheme.error),
+      _ => ('Pending Review', AppTheme.warning),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.4))),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 11, fontWeight: FontWeight.w700)),
     );
   }
 

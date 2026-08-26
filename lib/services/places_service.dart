@@ -1,5 +1,6 @@
 // lib/services/places_service.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/venue.dart';
 
@@ -43,8 +44,7 @@ class PlacesService {
         .timeout(const Duration(seconds: 10));
 
     if (res.statusCode != 200) {
-      throw PlacesException(
-          'Venue search unavailable (HTTP ${res.statusCode}). Please try again later.');
+      throw PlacesException(_messageForError(res.statusCode, res.body));
     }
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -75,6 +75,40 @@ class PlacesService {
         })
         .whereType<Venue>()
         .toList();
+  }
+
+  /// Places API (New) returns a `google.rpc.Status`-shaped error body —
+  /// `{"error": {"status": "...", "message": "...", "details": [{"reason": "..."}]}}`
+  /// — distinct from the legacy `{"status": "..."}` shape other Google
+  /// Maps Platform APIs in this app use. Logging the parsed detail (rather
+  /// than just the HTTP code) is what makes a key/quota misconfiguration
+  /// diagnosable instead of a bare "HTTP 403" with no further clue.
+  static String _messageForError(int statusCode, String body) {
+    String? status;
+    String? reason;
+    try {
+      final error = (jsonDecode(body) as Map<String, dynamic>)['error']
+          as Map<String, dynamic>?;
+      status = error?['status'] as String?;
+      final details = error?['details'] as List?;
+      reason = details
+          ?.map((d) => (d as Map<String, dynamic>)['reason'] as String?)
+          .firstWhere((r) => r != null, orElse: () => null);
+      debugPrint('PlacesService error: HTTP $statusCode, status=$status, '
+          'reason=$reason, message=${error?['message']}');
+    } catch (_) {
+      debugPrint('PlacesService error: HTTP $statusCode, body=$body');
+    }
+
+    switch (status) {
+      case 'PERMISSION_DENIED':
+      case 'REQUEST_DENIED':
+        return 'Venue search is temporarily unavailable. Drop a pin instead.';
+      case 'RESOURCE_EXHAUSTED':
+        return 'Venue search is busy right now. Try again shortly, or drop a pin.';
+      default:
+        return 'Couldn\'t search venues right now. Drop a pin instead.';
+    }
   }
 }
 

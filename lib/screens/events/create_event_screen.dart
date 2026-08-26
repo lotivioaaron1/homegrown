@@ -227,28 +227,40 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               ));
             }
             if (searchFailed) {
-              return Center(child: Column(
+              return Center(child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.wifi_off_rounded,
+                  Icon(Icons.search_off_rounded,
                       color: AppTheme.muted, size: 32),
                   const SizedBox(height: 10),
-                  Text('Something went wrong', style: TextStyle(
+                  Text('Search is unavailable right now', textAlign: TextAlign.center,
+                      style: TextStyle(
                       color: AppTheme.textPrimary, fontSize: 14,
                       fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
-                  Text("We couldn't search venues just now.",
+                  Text('You can still add the venue by dropping a pin on the map.',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                           color: AppTheme.muted, fontSize: 12)),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity, height: 46,
+                    child: ElevatedButton.icon(
+                      onPressed: openMapPicker,
+                      icon: Icon(Icons.add_location_alt_rounded, size: 18),
+                      label: Text('Drop a Pin'),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
                   TextButton(
                     onPressed: () => runSearch(search.text),
-                    child: Text('Retry',
+                    child: Text('Retry search',
                         style: TextStyle(color: AppTheme.accent)),
                   ),
-                  dropPinButton(),
                 ],
-              ));
+              )));
             }
             if (results.isEmpty) {
               return Center(child: Column(

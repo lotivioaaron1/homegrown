@@ -1798,22 +1798,10 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: List.generate(items.length, (i) {
             final active = i == _navIndex;
-            return GestureDetector(
+            return _BottomNavItem(
+              icon: items[i]['icon'] as IconData,
+              active: active,
               onTap: () => _onNavTap(i, role),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: active ? AppTheme.accent : Colors.transparent,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  items[i]['icon'] as IconData,
-                  color: active ? AppTheme.buttonFg : AppTheme.muted,
-                  size: 22,
-                ),
-              ),
             );
           }),
         ),
@@ -1852,6 +1840,66 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ── Shared widgets ────────────────────────────────────────────
+
+// Adds real press feedback (a quick scale-down/release on tap) and, for
+// pointer-driven platforms like the Windows/web builds, a hover tint —
+// on top of the existing active-tab color fill, which stays untouched.
+class _BottomNavItem extends StatefulWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _BottomNavItem({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  State<_BottomNavItem> createState() => _BottomNavItemState();
+}
+
+class _BottomNavItemState extends State<_BottomNavItem> {
+  bool _pressed = false;
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed ? 0.86 : 1.0,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: widget.active
+                  ? AppTheme.accent
+                  : _hovering
+                      ? AppTheme.accent.withValues(alpha: 0.12)
+                      : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              widget.icon,
+              color: widget.active ? AppTheme.buttonFg : AppTheme.muted,
+              size: 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _EventList extends StatelessWidget {
   final List<QueryDocumentSnapshot> events;
