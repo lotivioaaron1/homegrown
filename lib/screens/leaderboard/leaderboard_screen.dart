@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
 import '../../utils/elo_calculator.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../utils/error_messages.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
 
@@ -115,7 +116,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           return _buildEmpty(
             icon: LucideIcons.alertCircle,
             title: 'Something went wrong',
-            subtitle: snapshot.error.toString());
+            subtitle: friendlyError(snapshot.error));
         }
 
         final docs = snapshot.data?.docs ?? [];

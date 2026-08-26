@@ -10,6 +10,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../services/notification_service.dart';
 import '../../services/storage_service.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -156,7 +157,7 @@ class _OrganizerRegisterScreenState
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

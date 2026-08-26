@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../services/storage_service.dart';
 import '../../widgets/barangay_picker_sheet.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius = 14.0;
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
@@ -141,7 +142,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         duration: const Duration(seconds: 2),
       );
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

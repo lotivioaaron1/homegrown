@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
+import '../../utils/error_messages.dart';
 
 const _kSideA = 'A';
 const _kSideB = 'B';
@@ -83,7 +84,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
       );
     } catch (e) {
       Get.snackbar(
-        'Error', e.toString(),
+        'Error', friendlyError(e),
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: const Color(0xFF2A1A1A),
         colorText: AppTheme.error,

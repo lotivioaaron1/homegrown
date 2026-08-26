@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/barangay_picker_sheet.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -181,7 +182,7 @@ class _GoogleProfileSetupScreenState
 
       Get.offAllNamed('/home');
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

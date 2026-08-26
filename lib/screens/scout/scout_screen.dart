@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
 import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../utils/error_messages.dart';
 
 // ─────────────────────────────────────────────
 // Constants
@@ -253,7 +254,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
           return _buildEmpty(
             icon:     Icons.error_outline,
             title:    'Something went wrong',
-            subtitle: snapshot.error.toString());
+            subtitle: friendlyError(snapshot.error));
         }
 
         var athletes = (snapshot.data?.docs ?? [])

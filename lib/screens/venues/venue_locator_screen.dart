@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import '../../services/directions_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/error_messages.dart';
 
 // ─────────────────────────────────────────────
 // Config
@@ -127,7 +128,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
       });
     } catch (e) {
       if (mounted) setState(() {
-        _error = e.toString(); _isLoading = false;
+        _error = friendlyError(e); _isLoading = false;
       });
     }
   }

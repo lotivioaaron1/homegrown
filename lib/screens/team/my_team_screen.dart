@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../utils/error_messages.dart';
 
 class MyTeamScreen extends StatefulWidget {
   const MyTeamScreen({super.key});
@@ -214,7 +215,7 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
           .update({'teamLogoUrl': url});
     } catch (e) {
       if (mounted) {
-        Get.snackbar('Error', e.toString(),
+        Get.snackbar('Error', friendlyError(e),
             snackPosition: SnackPosition.BOTTOM,
             backgroundColor: const Color(0xFF2A1A1A),
             colorText: AppTheme.error,

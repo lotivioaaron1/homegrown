@@ -9,6 +9,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/barangay_picker_sheet.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -121,7 +122,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

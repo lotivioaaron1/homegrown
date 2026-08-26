@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_messages.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({super.key});
@@ -91,7 +92,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     } catch (e) {
       Get.snackbar(
         'Error',
-        e.toString(),
+        friendlyError(e),
         snackPosition:   SnackPosition.BOTTOM,
         backgroundColor: const Color(0xFF2A1A1A),
         colorText:       const Color(0xFFFF5C5C),

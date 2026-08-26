@@ -10,6 +10,7 @@ import '../../services/notification_service.dart';
 import '../../services/rating_service.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/stat_scoring.dart';
+import '../../utils/error_messages.dart';
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 class AddStatsScreen extends StatefulWidget {
@@ -187,7 +188,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         duration:        const Duration(seconds: 3),
       );
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -331,7 +332,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           return _EmptyState(
             icon: Icons.error_outline,
             title: 'Something went wrong',
-            subtitle: snapshot.error.toString());
+            subtitle: friendlyError(snapshot.error));
         }
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {

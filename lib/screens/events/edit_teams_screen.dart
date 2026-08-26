@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_messages.dart';
 
 /// Lets an organizer name two teams and assign each registered player to
 /// one, for an event that was created before team-based stat entry
@@ -73,7 +74,7 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
           margin: const EdgeInsets.all(16), borderRadius: 12,
           duration: const Duration(seconds: 3));
     } catch (e) {
-      Get.snackbar('Error', e.toString(),
+      Get.snackbar('Error', friendlyError(e),
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: const Color(0xFF2A1A1A),
           colorText: AppTheme.error,

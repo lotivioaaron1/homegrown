@@ -14,6 +14,7 @@ import '../../services/places_service.dart';
 import '../../services/team_service.dart';
 import '../profile/edit_profile_screen.dart';
 import 'venue_map_picker_screen.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -607,7 +608,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       }).toList();
       if (mounted) setState(() => _addedPlayers.addAll(newPlayers));
     } catch (e) {
-      if (mounted) _snack('Error', e.toString(), isError: true);
+      if (mounted) _snack('Error', friendlyError(e), isError: true);
     }
   }
 
@@ -820,7 +821,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         margin: const EdgeInsets.all(16), borderRadius: 12,
         duration: const Duration(seconds: 3));
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
