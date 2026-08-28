@@ -91,6 +91,8 @@ class SettingsScreen extends StatelessWidget {
                 _buildSettingsSection(),
                 const SizedBox(height: 16),
                 _buildSignOutSection(context),
+                const SizedBox(height: 12),
+                _buildDeleteAccountRow(),
               ],
             );
           },
@@ -548,6 +550,25 @@ class SettingsScreen extends StatelessWidget {
           const Icon(LucideIcons.chevronRight,
               color: Color(0xFFFF5C5C), size: 20),
         ]),
+      ),
+    );
+  }
+
+  // ── Delete account ─────────────────────────────────────────────────────
+  // Deliberately understated next to Sign Out: Google Play requires this to
+  // be reachable in-app, but it is permanent, so it should not compete for
+  // attention with the action almost everyone actually wants.
+  Widget _buildDeleteAccountRow() {
+    return Center(
+      child: TextButton(
+        onPressed: () => Get.toNamed('/account/delete'),
+        child: Text('Delete my account',
+            style: TextStyle(
+                color: AppTheme.muted,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                decoration: TextDecoration.underline,
+                decorationColor: AppTheme.muted)),
       ),
     );
   }

@@ -85,6 +85,12 @@ service cloud.firestore {
         allow read: if isSelf(uid);
         allow write: if isSignedIn() && request.auth.uid != uid &&
           isApprovedOrganizer(request.auth.uid);
+
+        // Entries are written by organizers, never by the athlete, so the
+        // rule above deliberately excludes self-writes. Deletion is the one
+        // exception: account deletion has to be able to clear a user's own
+        // rating history, and only that user can initiate it.
+        allow delete: if isSelf(uid);
       }
     }
 

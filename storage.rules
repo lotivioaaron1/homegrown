@@ -19,6 +19,16 @@ service firebase.storage {
       return uid == 'HjtB738VdObEoei73u2e2Oy7uy62';
     }
 
+    // Every `allow write` below guards on request.resource.size and
+    // contentType, which is correct for uploads but silently makes deletion
+    // impossible: on a delete, request.resource is null, so those conditions
+    // can never hold. Each path therefore gets an explicit delete rule.
+    // Account deletion (AccountDeletionService) depends on the owner being
+    // able to remove their own objects.
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
     // Single profile avatar per user (see lib/services/storage_service.dart).
     match /profile_photos/{uid}/{fileName} {
       allow read: if request.auth != null;
@@ -26,6 +36,7 @@ service firebase.storage {
                    && request.auth.uid == uid
                    && request.resource.size < 10 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner(uid);
     }
 
     // Single team logo per coach (see lib/services/team_service.dart).
@@ -35,6 +46,7 @@ service firebase.storage {
                    && request.auth.uid == coachId
                    && request.resource.size < 10 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner(coachId);
     }
 
     // Optional organizer proof-of-legitimacy photo, reviewed by a
@@ -51,6 +63,7 @@ service firebase.storage {
                    && request.auth.uid == uid
                    && request.resource.size < 10 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner(uid);
     }
 
     // Portfolio photos/videos (see lib/services/media_service.dart).
@@ -61,6 +74,7 @@ service firebase.storage {
                    && request.resource.size < 25 * 1024 * 1024
                    && (request.resource.contentType.matches('image/.*')
                        || request.resource.contentType.matches('video/.*'));
+      allow delete: if isOwner(uid);
     }
 
     // Deny everything else by default.
