@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/venue.dart';
+import '../constants/maps_config.dart';
 
 /// Searches for real-world venues via Google's Places API (New) Text
 /// Search, replacing the old hand-typed `kLegazpiVenues` catalog with
 /// live data from Google's own place database.
 class PlacesService {
-  static const _kApiKey = 'AIzaSyANxN_-pADVGhenw5VdLZe9_O-620BAFuo';
+  static const _kApiKey = MapsConfig.apiKey;
   static const _kBaseUrl = 'https://places.googleapis.com/v1/places:searchText';
   static const _kBiasCenterLat = 13.1391;
   static const _kBiasCenterLng = 123.7438;

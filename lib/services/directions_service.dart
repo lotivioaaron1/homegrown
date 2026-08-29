@@ -2,12 +2,13 @@
 import 'dart:convert';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
+import '../constants/maps_config.dart';
 
 /// Fetches driving routes from the Google Directions API. Kept
 /// separate from the venue locator screen so the request/response
 /// handling can be unit-tested with an injected [http.Client].
 class DirectionsService {
-  static const _kApiKey = 'AIzaSyANxN_-pADVGhenw5VdLZe9_O-620BAFuo';
+  static const _kApiKey = MapsConfig.apiKey;
   static const _kBaseUrl =
       'https://maps.googleapis.com/maps/api/directions/json';
 

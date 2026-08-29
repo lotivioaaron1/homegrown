@@ -22,6 +22,17 @@ plugins {
 // `flutter run --release` still works locally. A fallback build is NOT
 // publishable: Play rejects debug-signed uploads, and Google Sign-In will fail
 // because Firebase has no matching certificate fingerprint.
+// The Maps SDK key is read from android/local.properties (gitignored) rather
+// than written into AndroidManifest.xml, so it never enters git history. Set
+// MAPS_API_KEY there; an absent value leaves the placeholder empty and the map
+// simply fails to render, which is a clearer failure than a committed key.
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY") ?: ""
+
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
 val hasReleaseKeystore = keystorePropertiesFile.exists()
@@ -53,6 +64,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        manifestPlaceholders["mapsApiKey"] = mapsApiKey
     }
 
     signingConfigs {

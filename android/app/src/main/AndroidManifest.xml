@@ -21,10 +21,11 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
-        <!-- Google Maps API Key -->
+        <!-- Injected from MAPS_API_KEY in android/local.properties, which is
+             gitignored. See the manifestPlaceholders block in build.gradle.kts. -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyCHOytd7hyH_SdNIbeCXjKPg5lJWSLNtho"/>
+            android:value="${mapsApiKey}"/>
 
         <activity
             android:name=".MainActivity"

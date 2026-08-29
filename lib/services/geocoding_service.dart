@@ -2,13 +2,14 @@
 import 'dart:convert';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
+import '../constants/maps_config.dart';
 
 /// Reverse-geocodes a manually tapped map point into a human-readable
 /// address, used by VenueMapPickerScreen when Places search finds
 /// nothing for a venue. A miss (null) is a normal, expected outcome —
 /// the caller falls back to a manual label, not an error state.
 class GeocodingService {
-  static const _kApiKey = 'AIzaSyANxN_-pADVGhenw5VdLZe9_O-620BAFuo';
+  static const _kApiKey = MapsConfig.apiKey;
   static const _kBaseUrl = 'https://maps.googleapis.com/maps/api/geocode/json';
 
   static Future<String?> reverseGeocode(
