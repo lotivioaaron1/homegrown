@@ -7,42 +7,6 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:560298311855:android:19cb8427e0f2b34388d45a",
-        "android_client_info": {
-          "package_name": "com.homegrown.app"
-        }
-      },
-      "oauth_client": [
-        {
-          "client_id": "560298311855-hio6qlm0qt7ab6r2hsjcn6ub7ru2r9uh.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
-      "api_key": [
-        {
-          "current_key": "AIzaSyAbuLjfy3T3G0h6aNac11VR6jxerO8rE8w"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "560298311855-hio6qlm0qt7ab6r2hsjcn6ub7ru2r9uh.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "560298311855-30vjhks4gscgff8r017esco38gee2nrp.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.homegrown.homegrown"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "client_info": {
         "mobilesdk_app_id": "1:560298311855:android:02fc72485bf61c0488d45a",
         "android_client_info": {
           "package_name": "com.homegrown.homegrown"

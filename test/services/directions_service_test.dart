@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:homegrown/constants/maps_config.dart';
 import 'package:homegrown/services/directions_service.dart';
 
 const _origin = LatLng(13.1391, 123.7438);
@@ -45,7 +46,11 @@ void main() {
       expect(capturedUrl!.queryParameters['origin'], '13.1391,123.7438');
       expect(capturedUrl!.queryParameters['destination'], '13.15,123.75');
       expect(capturedUrl!.queryParameters['mode'], 'driving');
-      expect(capturedUrl!.queryParameters['key'], isNotEmpty);
+      // Asserts the request carries whatever key the build was configured
+      // with, rather than that a key exists. The value comes from a
+      // --dart-define that tests deliberately do not supply, so checking for
+      // non-empty here would only be testing the test runner's environment.
+      expect(capturedUrl!.queryParameters['key'], MapsConfig.apiKey);
     });
 
     test('parses distance and duration text from a successful OK response', () async {

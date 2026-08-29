@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:homegrown/constants/maps_config.dart';
 import 'package:homegrown/services/places_service.dart';
 
 void main() {
@@ -23,7 +24,11 @@ void main() {
       expect(bias['center']['latitude'], 13.1391);
       expect(bias['center']['longitude'], 123.7438);
       expect(bias['radius'], 15000);
-      expect(capturedHeaders!['X-Goog-Api-Key'], isNotEmpty);
+      // Asserts the request carries whatever key the build was configured
+      // with, rather than that a key exists. The value comes from a
+      // --dart-define that tests deliberately do not supply, so checking for
+      // non-empty here would only be testing the test runner's environment.
+      expect(capturedHeaders!['X-Goog-Api-Key'], MapsConfig.apiKey);
       expect(capturedHeaders!['X-Goog-FieldMask'], contains('places.location'));
     });
 
