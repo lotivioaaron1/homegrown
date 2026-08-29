@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../utils/error_messages.dart';
 
@@ -454,7 +455,9 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           _Chip(label: '❌  Not now', sel: !_openToRecruitment,
               onTap: () => setState(() => _openToRecruitment = false)),
         ]),
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
+        const PrivacyConsentText(),
+        const SizedBox(height: 14),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))

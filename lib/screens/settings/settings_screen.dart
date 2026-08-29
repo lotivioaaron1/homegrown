@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../constants/app_links.dart';
 import '../../theme/app_theme.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/theme_controller.dart';
@@ -502,9 +503,22 @@ class SettingsScreen extends StatelessWidget {
                 inactiveThumbColor: AppTheme.muted,
                 inactiveTrackColor: AppTheme.border,
               ),
-              isLast: true,
             );
           }),
+          // Play requires the privacy policy to be reachable from inside the
+          // app, not only from the store listing.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openPrivacyPolicy,
+            child: _settingsRow(
+              icon: LucideIcons.shieldCheck,
+              label: 'Privacy Policy',
+              sub: 'What we collect, and how to delete it',
+              trailing: Icon(LucideIcons.externalLink,
+                  color: AppTheme.muted, size: 16),
+              isLast: true,
+            ),
+          ),
         ]),
       ),
     ]);
@@ -552,6 +566,22 @@ class SettingsScreen extends StatelessWidget {
         ]),
       ),
     );
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    final opened = await AppLinks.open(AppLinks.privacyPolicy);
+    if (!opened) {
+      Get.snackbar(
+        'Could not open the link',
+        'Visit ${AppLinks.privacyPolicy} in your browser.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: AppTheme.card,
+        colorText: AppTheme.textPrimary,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
+        duration: const Duration(seconds: 5),
+      );
+    }
   }
 
   // ── Delete account ─────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../utils/error_messages.dart';
 
@@ -374,7 +375,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           hint: 'e.g. FIBA Level 1, PhilSports Certified',
           icon: Icons.workspace_premium_outlined,
           cap: TextCapitalization.sentences),
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
+        const PrivacyConsentText(),
+        const SizedBox(height: 14),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))

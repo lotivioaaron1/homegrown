@@ -5,6 +5,17 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!-- Android 11+ hides installed apps from package visibility by default,
+         so url_launcher's canLaunchUrl/launchUrl fail for external links on
+         every device unless the intents are declared here. Needed for the
+         privacy policy link in Settings. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
+
     <application
         android:label="Homegrown"
         android:name="${applicationName}"
