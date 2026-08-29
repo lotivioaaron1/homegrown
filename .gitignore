@@ -65,3 +65,7 @@ android/key.properties
 .env
 .env.*
 !.env.example
+
+# Build-time --dart-define values (the Maps web-services key).
+# The .example file is the tracked template; the real one never is.
+dart_defines.json

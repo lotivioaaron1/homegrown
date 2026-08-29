@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy this file to dart_defines.json and fill in the real value. dart_defines.json is gitignored and must never be committed.",
+  "_usage": "flutter run --dart-define-from-file=dart_defines.json",
+  "_which_key": "This is the WEB SERVICES key, restricted to Places API (New), Geocoding API and Directions API. The separate Maps SDK for Android key goes in android/local.properties instead.",
+
+  "MAPS_API_KEY": "paste-your-web-services-key-here"
+}
