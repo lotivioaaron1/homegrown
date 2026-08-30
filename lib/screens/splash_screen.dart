@@ -7,7 +7,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
+import '../widgets/homegrown_mark.dart';
 
+/// Deliberately a single dark scene in both themes.
+///
+/// A splash is a held moment, not a screen you work in, and a photographic
+/// background only holds up against dark type. Keeping it fixed also removes
+/// a flash: the app used to build in light theme and then snap to the saved
+/// one, which was most visible here. main() now resolves the theme before the
+/// first frame, and this screen simply commits to its own palette.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -18,35 +26,50 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animController;
+  late Animation<double> _markAnim;
   late Animation<double> _fadeAnim;
   late Animation<double> _riseAnim;
-  late Animation<double> _volcanoRevealAnim;
+  late Animation<double> _scrimAnim;
 
   bool _showButtons = false;
+
+  // Ink colours for this screen only. The scene is always dark, so these do
+  // not come from AppTheme — a theme-aware getter here would produce dark
+  // text on a dark photograph in light mode.
+  static const _ink = Colors.white;
+  static final _inkSoft = Colors.white.withValues(alpha: 0.72);
+  static final _inkFaint = Colors.white.withValues(alpha: 0.55);
 
   @override
   void initState() {
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(milliseconds: 1800),
     );
-    // Volcano silhouette draws in first, grounding the scene.
-    _volcanoRevealAnim = CurvedAnimation(
+
+    // The scene darkens first so the mark has something to sit against.
+    _scrimAnim = CurvedAnimation(
       parent: _animController,
-      curve: const Interval(0.0, 0.65, curve: Curves.easeOutCubic),
+      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
     );
-    // Headline fades and rises in shortly after.
+    // Then Mayon rises from the baseline.
+    _markAnim = CurvedAnimation(
+      parent: _animController,
+      curve: const Interval(0.10, 0.70, curve: Curves.easeOutCubic),
+    );
+    // Wordmark and tagline follow it up.
     _fadeAnim = CurvedAnimation(
       parent: _animController,
-      curve: const Interval(0.25, 0.85, curve: Curves.easeOut),
+      curve: const Interval(0.45, 1.0, curve: Curves.easeOut),
     );
-    _riseAnim = Tween<double>(begin: 24, end: 0).animate(
+    _riseAnim = Tween<double>(begin: 20, end: 0).animate(
       CurvedAnimation(
         parent: _animController,
-        curve: const Interval(0.25, 0.85, curve: Curves.easeOutCubic),
+        curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
       ),
     );
+
     _animController.forward();
     // Always wait 2.5s total before routing — user always sees splash
     Future.delayed(const Duration(milliseconds: 2500), _checkAuthState);
@@ -95,165 +118,206 @@ class _SplashScreenState extends State<SplashScreen>
   // ── Build ────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-
     return Scaffold(
+      backgroundColor: const Color(0xFF07070C),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Signature background photo ────
-          // Falls back to a plain dark gradient if the asset is missing
-          // so layout never breaks. Light blur + mild darken keeps the
-          // photo readable behind the logo without competing with it.
-          ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
-            child: Image.asset(
-              'assets/images/ring.jpg',
-              fit: BoxFit.cover,
-              color: Colors.black.withValues(alpha: 0.12),
-              colorBlendMode: BlendMode.darken,
-              errorBuilder: (context, error, stackTrace) =>
-                  const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF07070C), Color(0xFF1A1200)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // ── Scrim for text legibility over the photo ──────
-          AnimatedBuilder(
-            animation: _volcanoRevealAnim,
-            builder: (context, child) => DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: const [0.0, 0.55, 1.0],
-                  colors: [
-                    Color.lerp(Colors.transparent, const Color(0xB307070C),
-                        _volcanoRevealAnim.value)!,
-                    Color.lerp(Colors.transparent, const Color(0x800C0B14),
-                        _volcanoRevealAnim.value)!,
-                    Color.lerp(Colors.transparent, const Color(0xE01A1200),
-                        _volcanoRevealAnim.value)!,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // ── Content ────────────────────────────────
+          _background(),
+          _scrim(),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
                 children: [
                   const Spacer(flex: 3),
-                  AnimatedBuilder(
-                    animation: _animController,
-                    builder: (context, child) => Opacity(
-                      opacity: _fadeAnim.value,
-                      child: Transform.translate(
-                        offset: Offset(0, _riseAnim.value),
-                        child: child,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          'HOMEGROWN',
-                          style: TextStyle(
-                            color: AppTheme.accent,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 6,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        const Text(
-                          'Every Game\nCounts.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 38,
-                            fontWeight: FontWeight.w900,
-                            height: 1.14,
-                            letterSpacing: -1.0,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '"I can do all things through Christ\nwho strengthens me." — Philippians 4:13',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.dancingScript(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            height: 1.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _identity(),
                   const Spacer(flex: 4),
-                  // ── Buttons — fade in only for new users ──
-                  AnimatedOpacity(
-                    opacity: _showButtons ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 400),
-                    child: AnimatedSlide(
-                      offset: _showButtons
-                          ? Offset.zero
-                          : const Offset(0, 0.08),
-                      duration: const Duration(milliseconds: 400),
-                      curve: Curves.easeOut,
-                      child: IgnorePointer(
-                        ignoring: !_showButtons,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: double.infinity,
-                              height: 54,
-                              child: ElevatedButton(
-                                onPressed: _onGetStarted,
-                                child: const Text('Get Started'),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            GestureDetector(
-                              onTap: _onSignIn,
-                              child: RichText(
-                                text: const TextSpan(
-                                  text: 'Already have an account? ',
-                                  style: TextStyle(
-                                      color: Color(0xFF8888AA),
-                                      fontSize: 14),
-                                  children: [
-                                    TextSpan(
-                                      text: 'Sign In',
-                                      style: TextStyle(
-                                        color: AppTheme.accent,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 48),
+                  _actions(),
+                  const SizedBox(height: 40),
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _background() {
+    return ImageFiltered(
+      imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+      child: Image.asset(
+        'assets/images/ring.jpg',
+        fit: BoxFit.cover,
+        color: Colors.black.withValues(alpha: 0.12),
+        colorBlendMode: BlendMode.darken,
+        // Falls back to a plain dark gradient if the asset is missing so
+        // layout never breaks.
+        errorBuilder: (context, error, stackTrace) => const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF07070C), Color(0xFF1A1200)],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _scrim() {
+    return AnimatedBuilder(
+      animation: _scrimAnim,
+      builder: (context, child) => DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: const [0.0, 0.55, 1.0],
+            colors: [
+              Color.lerp(Colors.transparent, const Color(0xB307070C),
+                  _scrimAnim.value)!,
+              Color.lerp(Colors.transparent, const Color(0x800C0B14),
+                  _scrimAnim.value)!,
+              Color.lerp(Colors.transparent, const Color(0xE01A1200),
+                  _scrimAnim.value)!,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Mark, wordmark, tagline and dedication as one stacked lockup.
+  Widget _identity() {
+    return AnimatedBuilder(
+      animation: _animController,
+      builder: (context, child) {
+        return Column(
+          children: [
+            HomegrownMark(size: 88, progress: _markAnim.value),
+            const SizedBox(height: 26),
+            Opacity(
+              opacity: _fadeAnim.value,
+              child: Transform.translate(
+                offset: Offset(0, _riseAnim.value),
+                child: child,
+              ),
+            ),
+          ],
+        );
+      },
+      child: Column(
+        children: [
+          Text(
+            'HOMEGROWN',
+            style: TextStyle(
+              color: AppTheme.accent,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 6,
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Every Game\nCounts.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _ink,
+              fontSize: 38,
+              fontWeight: FontWeight.w900,
+              height: 1.14,
+              letterSpacing: -1.0,
+            ),
+          ),
+          const SizedBox(height: 22),
+          // The verse is a dedication, not a headline. Set quieter and
+          // narrower than the tagline so the two stop competing — the script
+          // face at near-tagline size was the loudest thing on the screen and
+          // pulled the eye away from the brand.
+          SizedBox(
+            width: 240,
+            child: Column(
+              children: [
+                Container(width: 28, height: 1, color: _inkFaint),
+                const SizedBox(height: 14),
+                Text(
+                  'I can do all things through Christ who strengthens me.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dancingScript(
+                    color: _inkSoft,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'PHILIPPIANS 4:13',
+                  style: TextStyle(
+                    color: _inkFaint,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actions() {
+    return AnimatedOpacity(
+      opacity: _showButtons ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 400),
+      child: AnimatedSlide(
+        offset: _showButtons ? Offset.zero : const Offset(0, 0.08),
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOut,
+        child: IgnorePointer(
+          ignoring: !_showButtons,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton(
+                  onPressed: _onGetStarted,
+                  child: const Text('Get Started'),
+                ),
+              ),
+              const SizedBox(height: 18),
+              GestureDetector(
+                onTap: _onSignIn,
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: RichText(
+                    text: TextSpan(
+                      text: 'Already have an account?  ',
+                      style: TextStyle(color: _inkSoft, fontSize: 14),
+                      children: const [
+                        TextSpan(
+                          text: 'Sign in',
+                          style: TextStyle(
+                            color: AppTheme.accent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

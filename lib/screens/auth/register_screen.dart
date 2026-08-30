@@ -156,7 +156,7 @@ class _RoleCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               LucideIcons.chevronRight,
               color: AppTheme.muted,
               size: 18,

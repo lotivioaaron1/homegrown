@@ -658,11 +658,11 @@ class _SportCardDisabled extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.border.withValues(alpha: 0.4)),
       ),
-      child: const Column(
+      child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('⏳', style: TextStyle(fontSize: 38)),
-          SizedBox(height: 10),
+          const Text('⏳', style: TextStyle(fontSize: 38)),
+          const SizedBox(height: 10),
           Text(
             'More Soon',
             style: TextStyle(

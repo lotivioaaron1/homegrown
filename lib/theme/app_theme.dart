@@ -65,8 +65,14 @@ class AppTheme {
       ? const Color(0xFF8888AA)
       : const Color(0xFF555566);
 
-  /// Muted — same both modes
-  static const Color muted = Color(0xFF8888AA);
+  /// Tertiary text — captions, hints, disabled states.
+  ///
+  /// Was a single value for both modes, which left it at roughly 3.5:1 on the
+  /// light background — under the 4.5:1 needed for body text. The dark-mode
+  /// value is unchanged; only light mode darkens.
+  static Color get muted => _isDark
+      ? const Color(0xFF8888AA)
+      : const Color(0xFF6B6B80);
 
   /// Gold-tinted surface (chip bg, highlight card bg)
   static Color get accentSurface => _isDark
@@ -134,7 +140,9 @@ class AppTheme {
       filled:    true,
       fillColor: const Color(0xFF1A1A2E),
 
-      labelStyle: const TextStyle(color: Color(0xFF1A1A2E)), 
+      // Was 0xFF1A1A2E — the exact same value as fillColor above, which made
+      // every input label invisible in dark mode.
+      labelStyle: const TextStyle(color: Color(0xFF8888AA)),
       floatingLabelStyle: const TextStyle(color: Color(0xFFFFB800)),
 
       border: OutlineInputBorder(

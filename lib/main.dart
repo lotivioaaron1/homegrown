@@ -63,7 +63,14 @@ void main() async {
       return;
     }
 
-    runApp(const HomegrownApp());
+    // Read the saved theme before the first frame. ThemeController also
+    // loads it, but asynchronously — which meant a dark-mode user saw the
+    // app build in light theme and then snap to dark. Worse, AppTheme's
+    // getters read Get.isDarkMode, so any widget built during that gap
+    // picked light-mode colours and kept them.
+    final startupTheme = await ThemeController.savedThemeMode();
+
+    runApp(HomegrownApp(initialThemeMode: startupTheme));
   }, (error, stack) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
   });
@@ -134,7 +141,12 @@ class _StartupFailureApp extends StatelessWidget {
 }
 
 class HomegrownApp extends StatelessWidget {
-  const HomegrownApp({super.key});
+  /// Resolved from SharedPreferences before runApp, so the first frame is
+  /// already in the user's chosen theme. ThemeController still owns changes
+  /// made while the app is running.
+  final ThemeMode initialThemeMode;
+
+  const HomegrownApp({super.key, this.initialThemeMode = ThemeMode.light});
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +155,7 @@ class HomegrownApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme:     AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.light,
+      themeMode: initialThemeMode,
       builder:   (context, child) => NoInternetOverlay(
           child: child ?? const SizedBox()),
       initialBinding: BindingsBuilder(() {

@@ -56,7 +56,7 @@ class _VideoTile extends StatelessWidget {
         border: Border.all(color: AppTheme.border),
       ),
       child: Stack(children: [
-        const Center(
+        Center(
           child: Icon(LucideIcons.playCircle, color: AppTheme.muted, size: 28),
         ),
         if (duration.isNotEmpty)

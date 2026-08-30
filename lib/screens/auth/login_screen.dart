@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../controllers/auth_controller.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/homegrown_mark.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -103,6 +104,15 @@ class _LoginScreenState extends State<LoginScreen> {
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             SizedBox(height: topSpacing),
+
+                            // Carries the splash's mark through to the first
+                            // screen you actually use. Without it the app
+                            // goes from a full identity moment straight to
+                            // bare form fields, and the two read as
+                            // unrelated screens.
+                            HomegrownMark(size: isCompactHeight ? 48 : 60),
+
+                            SizedBox(height: isCompactHeight ? 18 : 24),
 
                             // ── Heading ───────────────────
                             Text(
@@ -226,20 +236,21 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     )),
 
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 20),
 
                     // ── OR divider ────────────────
                     Row(children: [
                       Expanded(child: Divider(color: AppTheme.border)),
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
                         child: Text('OR', style: TextStyle(
-                            color: AppTheme.muted, fontSize: 12,
-                            fontWeight: FontWeight.w600))),
+                            color: AppTheme.muted, fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2))),
                       Expanded(child: Divider(color: AppTheme.border)),
                     ]),
 
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 20),
 
                     // ── Google Sign-In ────────────
                     Obx(() => SizedBox(
@@ -364,25 +375,6 @@ class _LoginScreenState extends State<LoginScreen> {
               color: _kErrorRed, width: 1.5)),
       errorStyle: const TextStyle(
           color: _kErrorRed, fontSize: 12),
-    );
-  }
-}
-
-/// Small styled "G" glyph used on the Google sign-in button.
-/// Lucide (and most generic icon packs) don't ship brand logos, so this
-/// keeps the button visually correct without pulling in a new asset/package.
-class _GoogleGlyph extends StatelessWidget {
-  const _GoogleGlyph();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      'G',
-      style: TextStyle(
-        fontSize:   18,
-        fontWeight: FontWeight.w800,
-        color:      AppTheme.textPrimary,
-      ),
     );
   }
 }

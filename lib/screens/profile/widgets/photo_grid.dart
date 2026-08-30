@@ -47,7 +47,7 @@ class _PhotoTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppTheme.border),
       ),
-      child: const Center(
+      child: Center(
         child: Icon(LucideIcons.image, color: AppTheme.muted, size: 22),
       ),
     );

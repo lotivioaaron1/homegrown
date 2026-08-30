@@ -322,7 +322,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           onChanged: (_) => setState(() {}),
           style: TextStyle(color: AppTheme.textPrimary,
               fontSize: 18, fontWeight: FontWeight.w800),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: '0',
             hintStyle: TextStyle(color: AppTheme.muted, fontSize: 18),
             border: InputBorder.none, isDense: true,
