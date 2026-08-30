@@ -175,13 +175,18 @@ class _SplashScreenState extends State<SplashScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            stops: const [0.0, 0.55, 1.0],
+            // Weighted toward the middle, where the mark and wordmark sit.
+            // A lighter scrim left the photograph competing with the lockup
+            // — the hoop read louder than the brand.
+            stops: const [0.0, 0.38, 0.72, 1.0],
             colors: [
-              Color.lerp(Colors.transparent, const Color(0xB307070C),
+              Color.lerp(Colors.transparent, const Color(0xCC07070C),
                   _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0x800C0B14),
+              Color.lerp(Colors.transparent, const Color(0xE60A0910),
                   _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0xE01A1200),
+              Color.lerp(Colors.transparent, const Color(0xD90C0B14),
+                  _scrimAnim.value)!,
+              Color.lerp(Colors.transparent, const Color(0xF01A1200),
                   _scrimAnim.value)!,
             ],
           ),
