@@ -2,10 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../controllers/auth_controller.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/homegrown_wordmark.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -110,16 +110,11 @@ class _LoginScreenState extends State<LoginScreen> {
                             // app goes from a full identity moment straight
                             // to bare form fields, and the two read as
                             // unrelated screens.
-                            Text(
-                              'HOMEGROWN',
-                              style: GoogleFonts.barlowCondensed(
-                                color: AppTheme.accentText,
-                                fontSize: isCompactHeight ? 22 : 26,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 2.5,
-                                height: 1.0,
-                              ),
-                            ),
+                            // Theme-aware here, unlike the splash: this screen
+                            // follows the app theme, so the ink has to match
+                            // whichever background it lands on.
+                            HomegrownWordmark(
+                                width: isCompactHeight ? 200 : 232),
 
                             SizedBox(height: isCompactHeight ? 18 : 24),
 

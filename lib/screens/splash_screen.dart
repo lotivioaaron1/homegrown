@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
+import '../widgets/homegrown_wordmark.dart';
 
 /// Deliberately a single dark scene in both themes.
 ///
@@ -205,22 +206,16 @@ class _SplashScreenState extends State<SplashScreen>
       builder: (context, child) {
         return Column(
           children: [
-            // The wordmark inherits the entrance the mark used to drive: it
-            // rises and settles first, then the supporting lines follow.
+            // The wordmark inherits the entrance the drawn mark used to
+            // drive: it rises and settles first, then the supporting lines
+            // follow. Always the on-dark variant — this scene is dark in both
+            // themes, so the light-background artwork would put black letters
+            // on a black photograph.
             Opacity(
               opacity: _markAnim.value,
               child: Transform.translate(
                 offset: Offset(0, (1 - _markAnim.value) * 16),
-                child: Text(
-                  'HOMEGROWN',
-                  style: GoogleFonts.barlowCondensed(
-                    color: AppTheme.accent,
-                    fontSize: 54,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 3,
-                    height: 1.0,
-                  ),
-                ),
+                child: const HomegrownWordmark(width: 300, onDark: true),
               ),
             ),
             const SizedBox(height: 16),
