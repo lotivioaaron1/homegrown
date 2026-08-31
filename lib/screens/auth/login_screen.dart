@@ -2,10 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../controllers/auth_controller.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/homegrown_mark.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -105,12 +105,21 @@ class _LoginScreenState extends State<LoginScreen> {
                           children: [
                             SizedBox(height: topSpacing),
 
-                            // Carries the splash's mark through to the first
-                            // screen you actually use. Without it the app
-                            // goes from a full identity moment straight to
-                            // bare form fields, and the two read as
+                            // Carries the splash's wordmark through to the
+                            // first screen you actually use. Without it the
+                            // app goes from a full identity moment straight
+                            // to bare form fields, and the two read as
                             // unrelated screens.
-                            HomegrownMark(size: isCompactHeight ? 48 : 60),
+                            Text(
+                              'HOMEGROWN',
+                              style: GoogleFonts.barlowCondensed(
+                                color: AppTheme.accentText,
+                                fontSize: isCompactHeight ? 22 : 26,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 2.5,
+                                height: 1.0,
+                              ),
+                            ),
 
                             SizedBox(height: isCompactHeight ? 18 : 24),
 

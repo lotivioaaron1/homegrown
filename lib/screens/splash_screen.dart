@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
-import '../widgets/homegrown_mark.dart';
 
 /// Deliberately a single dark scene in both themes.
 ///
@@ -195,15 +194,36 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  /// Mark, wordmark, tagline and dedication as one stacked lockup.
+  /// Wordmark, tagline and dedication as one stacked lockup.
+  ///
+  /// The app name is the hero. A drawn mark sat here previously and read as a
+  /// shape rather than an identity; a splash for an app called Homegrown
+  /// should lead with the word itself until real artwork exists.
   Widget _identity() {
     return AnimatedBuilder(
       animation: _animController,
       builder: (context, child) {
         return Column(
           children: [
-            HomegrownMark(size: 88, progress: _markAnim.value),
-            const SizedBox(height: 26),
+            // The wordmark inherits the entrance the mark used to drive: it
+            // rises and settles first, then the supporting lines follow.
+            Opacity(
+              opacity: _markAnim.value,
+              child: Transform.translate(
+                offset: Offset(0, (1 - _markAnim.value) * 16),
+                child: Text(
+                  'HOMEGROWN',
+                  style: GoogleFonts.barlowCondensed(
+                    color: AppTheme.accent,
+                    fontSize: 54,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 3,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             Opacity(
               opacity: _fadeAnim.value,
               child: Transform.translate(
@@ -216,28 +236,19 @@ class _SplashScreenState extends State<SplashScreen>
       },
       child: Column(
         children: [
+          // Supports the wordmark rather than competing with it — this was
+          // 38px and the loudest thing on the screen.
           Text(
-            'HOMEGROWN',
-            style: TextStyle(
-              color: AppTheme.accent,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 6,
-            ),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'Every Game\nCounts.',
+            'Every Game Counts.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: _ink,
-              fontSize: 38,
-              fontWeight: FontWeight.w900,
-              height: 1.14,
-              letterSpacing: -1.0,
+              color: _ink.withValues(alpha: 0.88),
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 26),
           // The verse is a dedication, not a headline. Set quieter and
           // narrower than the tagline so the two stop competing — the script
           // face at near-tagline size was the loudest thing on the screen and
