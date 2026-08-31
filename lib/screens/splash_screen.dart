@@ -215,7 +215,7 @@ class _SplashScreenState extends State<SplashScreen>
               opacity: _markAnim.value,
               child: Transform.translate(
                 offset: Offset(0, (1 - _markAnim.value) * 16),
-                child: const HomegrownWordmark(width: 300, onDark: true),
+                child: const HomegrownWordmark(width: 236, onDark: true),
               ),
             ),
             const SizedBox(height: 16),
@@ -231,19 +231,22 @@ class _SplashScreenState extends State<SplashScreen>
       },
       child: Column(
         children: [
-          // Supports the wordmark rather than competing with it — this was
-          // 38px and the loudest thing on the screen.
-          Text(
-            'Every Game Counts.',
+          // The tagline carries the screen; the wordmark identifies it. Both
+          // can be large because the artwork is wide and short — it takes
+          // horizontal space, the tagline takes vertical, so they occupy
+          // different room instead of competing for the same.
+          const Text(
+            'Every Game\nCounts.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: _ink.withValues(alpha: 0.88),
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
+              color: _ink,
+              fontSize: 38,
+              fontWeight: FontWeight.w900,
+              height: 1.14,
+              letterSpacing: -1.0,
             ),
           ),
-          const SizedBox(height: 26),
+          const SizedBox(height: 28),
           // The verse is a dedication, not a headline. Set quieter and
           // narrower than the tagline so the two stop competing — the script
           // face at near-tagline size was the loudest thing on the screen and
@@ -252,8 +255,6 @@ class _SplashScreenState extends State<SplashScreen>
             width: 240,
             child: Column(
               children: [
-                Container(width: 28, height: 1, color: _inkFaint),
-                const SizedBox(height: 14),
                 Text(
                   'I can do all things through Christ who strengthens me.',
                   textAlign: TextAlign.center,
