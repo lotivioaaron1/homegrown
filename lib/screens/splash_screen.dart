@@ -215,7 +215,10 @@ class _SplashScreenState extends State<SplashScreen>
               opacity: _markAnim.value,
               child: Transform.translate(
                 offset: Offset(0, (1 - _markAnim.value) * 16),
-                child: const HomegrownWordmark(width: 236, onDark: true),
+                // 200 wide gives ~62 tall at the stacked 3.24:1 aspect, which
+                // sits under the 38px two-line tagline rather than rivalling
+                // it. The same width on the old 11:1 artwork was only ~21 tall.
+                child: const HomegrownWordmark(width: 200, onDark: true),
               ),
             ),
             const SizedBox(height: 16),

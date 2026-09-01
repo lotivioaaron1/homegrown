@@ -114,7 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             // follows the app theme, so the ink has to match
                             // whichever background it lands on.
                             HomegrownWordmark(
-                                width: isCompactHeight ? 200 : 232),
+                                width: isCompactHeight ? 132 : 152),
 
                             SizedBox(height: isCompactHeight ? 18 : 24),
 

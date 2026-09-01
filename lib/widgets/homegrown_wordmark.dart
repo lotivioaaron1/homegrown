@@ -8,9 +8,14 @@ import 'package:flutter/material.dart';
 /// variant is drawn for the surface it sits on rather than recoloured at
 /// runtime — which a flat PNG cannot do anyway.
 ///
-/// The artwork is roughly 11:1, so it is sized by width and left to derive its
-/// own height. Constraining the height instead would make it overflow narrow
-/// phones.
+/// The artwork stacks HOME over GROWN at roughly 3.24:1. It is sized by width
+/// and left to derive its own height, so callers pick one number and the
+/// proportions look after themselves.
+///
+/// Worth knowing when changing sizes: the wordmark used to be a single line at
+/// about 11:1, so any width now yields a mark more than three times taller
+/// than it did. The widths at each call site were re-tuned when it changed,
+/// not carried over.
 class HomegrownWordmark extends StatelessWidget {
   /// Target width in logical pixels. Height follows the artwork's aspect.
   final double width;
