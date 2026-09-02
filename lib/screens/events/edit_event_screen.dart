@@ -56,6 +56,18 @@ class _EditEventScreenState extends State<EditEventScreen> {
   // fallen out of that list, so editing never silently reassigns it.
   List<String> _allowedSports = [];
 
+  /// Once an event has players, its sport is fixed.
+  ///
+  /// Unlike create_event_screen.dart — which can just clear the picked teams
+  /// and let the organizer choose again — there's no way back from a switch
+  /// here: this screen edits event details only, and edit_teams_screen.dart
+  /// merely renames the two sides, so a re-picked coach isn't reachable from
+  /// the UI at all. Worse, any match already recorded has written per-sport
+  /// Elo under the *old* sport (see RatingService.sportKey), which flipping
+  /// the field would silently orphan. An organizer who truly picked the wrong
+  /// sport should create the right event instead.
+  bool get _sportLocked => _playerUids.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -573,11 +585,20 @@ class _EditEventScreenState extends State<EditEventScreen> {
               spacing: 8,
               runSpacing: 8,
               children: _allowedSports
-                  .map((s) => _chip(
-                      label: s,
-                      sel: _sport == s,
-                      onTap: () => setState(() => _sport = s)))
+                  .map((s) => Opacity(
+                      opacity: _sportLocked && _sport != s ? 0.4 : 1,
+                      child: _chip(
+                          label: s,
+                          sel: _sport == s,
+                          onTap: _sportLocked ? () {} : () => setState(() => _sport = s))))
                   .toList()),
+          if (_sportLocked) ...[
+            const SizedBox(height: 6),
+            Text(
+                "Sport can't be changed once teams are set. Players were "
+                'picked for $_sport, and their ratings are recorded under it.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+          ],
           const SizedBox(height: 16),
           _sectionLabel('Event Type'),
           const SizedBox(height: 8),

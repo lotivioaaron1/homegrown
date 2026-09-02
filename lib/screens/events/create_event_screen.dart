@@ -118,6 +118,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     if (mounted) {
       setState(() {
         _allowedSports = sports;
+        // A single-sport organizer has nothing to choose between, so the one
+        // chip is preselected rather than made a required tap. Multi-sport
+        // organizers (an SK Liga running both a basketball and a volleyball
+        // tournament) still pick deliberately.
+        if (sports.length == 1) _sport = sports.first;
         _isApprovedOrganizer = data['organizerStatus'] == 'approved';
         _loadingAllowedSports = false;
       });
@@ -456,6 +461,67 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   void _removePlayer(String uid) =>
       setState(() => _addedPlayers.removeWhere((p) => p['uid'] == uid));
+
+  /// Switching sport invalidates whatever teams are already picked: the
+  /// picker only ever lists coaches for the sport selected at the time, so
+  /// carrying the old picks over would publish (say) a volleyball event
+  /// rostered with basketball players. Only a multi-sport organizer — an SK
+  /// Liga running both tournaments — can reach this; a single-sport organizer
+  /// has one chip, already selected.
+  ///
+  /// Clearing silently would lose a roster the organizer spent real time on,
+  /// so it's confirmed first — but only when there's something to lose.
+  Future<void> _changeSport(String sport) async {
+    if (sport == _sport) return;
+
+    final hasPicks = _teamACoachId != null ||
+        _teamBCoachId != null ||
+        _addedPlayers.isNotEmpty;
+    if (!hasPicks) {
+      setState(() => _sport = sport);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: AppTheme.border)),
+        title: Text('Switch to $sport?',
+            style: TextStyle(color: AppTheme.textPrimary, fontSize: 16,
+                fontWeight: FontWeight.w800)),
+        content: Text(
+            "This clears the teams and players you've picked, because each "
+            'team belongs to the sport its coach handles.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.5)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: TextStyle(color: AppTheme.sub)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Switch Sport',
+                style: TextStyle(color: AppTheme.accent,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _sport = sport;
+      _teamACoachId   = null;      _teamBCoachId   = null;
+      _teamAName      = 'Team A';  _teamBName      = 'Team B';
+      _teamACoachName = null;      _teamBCoachName = null;
+      _teamALogoUrl   = null;      _teamBLogoUrl   = null;
+      _expandedA      = false;     _expandedB      = false;
+      _addedPlayers.clear();
+    });
+  }
 
   // ── Pick a coach's team to auto-fill a side ─
 
@@ -1002,7 +1068,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           Wrap(spacing: 8, runSpacing: 8,
             children: _allowedSports.map((s) => _Chip(
               label: s, sel: _sport == s,
-              onTap: () => setState(() => _sport = s))).toList()),
+              onTap: () => _changeSport(s))).toList()),
           const SizedBox(height: 16),
           const _SectionLabel(label: 'Event Type'),
           const SizedBox(height: 8),
