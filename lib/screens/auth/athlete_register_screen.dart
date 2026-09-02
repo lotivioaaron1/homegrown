@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/profile_photo_picker.dart';
+import '../../widgets/fill_viewport_scroll.dart';
 import '../../services/storage_service.dart';
 import '../../utils/error_messages.dart';
 
@@ -246,7 +247,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   // ── Step 1 ────────────────────────────────
 
   Widget _buildStep1() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Form(key: _step1Key,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -341,7 +342,10 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
               if (v != _passwordCtrl.text) return 'Passwords do not match';
               return null;
             }),
-          const SizedBox(height: 262),
+          const SizedBox(height: 32),
+          // See coach_register_screen.dart — replaces a fixed 262px gap that
+          // only positioned the button correctly on one screen size.
+          const Spacer(),
           _PrimaryButton(label: 'Next', onTap: _nextStep),
         ]),
       ),

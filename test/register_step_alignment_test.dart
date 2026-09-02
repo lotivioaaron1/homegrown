@@ -65,4 +65,42 @@ void main() {
     expect(laidOut.children.last, same(incoming));
     expect(laidOut.children.first, same(outgoing));
   });
+
+  // Step 1 used to end with a fixed SizedBox(height: 262) to push the Next
+  // button down, which only positioned it correctly on the screen it was
+  // measured against. It now fills the viewport and lets a Spacer take up
+  // the slack, so the button tracks the bottom of whatever screen it is on.
+  group('step 1 Next button', () {
+    Future<void> pumpAt(
+        WidgetTester tester, Widget screen, double viewport) async {
+      // Wide enough that the side-by-side name fields don't overflow under
+      // the test font, which measures wider than the real one. Only the
+      // height is under test here.
+      await tester.binding.setSurfaceSize(Size(600, viewport));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(GetMaterialApp(home: screen));
+      await tester.pumpAndSettle();
+    }
+
+    screens.forEach((name, screen) {
+      testWidgets('sits at the bottom of a tall $name screen', (tester) async {
+        await pumpAt(tester, screen, 900);
+
+        final button =
+            tester.getRect(find.widgetWithText(ElevatedButton, 'Next'));
+        // 900 tall, less the step's 24px bottom padding.
+        expect(button.bottom, moreOrLessEquals(876, epsilon: 1),
+            reason: 'the button should track the bottom of the viewport, '
+                'not sit a fixed distance below the last field');
+      });
+
+      testWidgets('does not overflow a short $name screen', (tester) async {
+        await pumpAt(tester, screen, 480);
+
+        // A RenderFlex overflow would surface here; the step should scroll.
+        expect(tester.takeException(), isNull);
+        expect(find.byType(SingleChildScrollView), findsOneWidget);
+      });
+    });
+  });
 }
