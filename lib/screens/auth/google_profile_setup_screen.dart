@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/fill_viewport_scroll.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
@@ -270,7 +271,7 @@ class _GoogleProfileSetupScreenState
   // ── Step 1 — Choose Role ──────────────────
 
   Widget _buildStep1() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // Welcome header
@@ -344,7 +345,7 @@ class _GoogleProfileSetupScreenState
         ),
 
         const SizedBox(height: 32),
-
+        const Spacer(),
         _PrimaryButton(
           label:  'Continue',
           onTap:  _canProceed() ? _nextStep : null),
@@ -366,7 +367,7 @@ class _GoogleProfileSetupScreenState
   // ── Athlete details ───────────────────────
 
   Widget _buildAthleteDetails() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionHeader(emoji: '🏃', title: 'Athlete Details',
@@ -441,6 +442,7 @@ class _GoogleProfileSetupScreenState
               onTap: () => setState(() => _openToRecruitment = false)),
         ]),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(
           label: _isLoading ? 'Saving...' : 'Finish Setup',
           onTap: _isLoading ? null : _nextStep),
@@ -451,7 +453,7 @@ class _GoogleProfileSetupScreenState
   // ── Coach details ─────────────────────────
 
   Widget _buildCoachDetails() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionHeader(emoji: '🧢', title: 'Coaching Info',
@@ -463,14 +465,17 @@ class _GoogleProfileSetupScreenState
         _BarangayButton(value: _selectedBarangay, onTap: _pickBarangay),
         const SizedBox(height: 16),
 
-        const _Label('Sport(s) You Coach'),
+        const _Label('Sport You Coach'),
         const SizedBox(height: 8),
+        // Single-select — see coach_register_screen.dart for why a coach gets
+        // one sport. Still written as a one-element list, so `primarySports`
+        // keeps the same shape every consumer already queries.
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
             final sel = _coachSports.contains(s);
             return _Chip(label: s, sel: sel,
               onTap: () => setState(() =>
-                  sel ? _coachSports.remove(s) : _coachSports.add(s)));
+                  _coachSports..clear()..add(s)));
           }).toList()),
         const SizedBox(height: 16),
 
@@ -498,7 +503,7 @@ class _GoogleProfileSetupScreenState
             hint: 'e.g. Legazpi City Basketball Team',
             icon: Icons.groups_outlined),
         const SizedBox(height: 32),
-
+        const Spacer(),
         _PrimaryButton(
           label: _isLoading ? 'Saving...' : 'Finish Setup',
           onTap: _isLoading ? null : _nextStep),
@@ -509,7 +514,7 @@ class _GoogleProfileSetupScreenState
   // ── Organizer details ─────────────────────
 
   Widget _buildOrganizerDetails() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionHeader(emoji: '📋', title: 'Organization Info',
@@ -547,7 +552,7 @@ class _GoogleProfileSetupScreenState
                   sel ? _orgSports.remove(s) : _orgSports.add(s)));
           }).toList()),
         const SizedBox(height: 32),
-
+        const Spacer(),
         _PrimaryButton(
           label: _isLoading ? 'Saving...' : 'Finish Setup',
           onTap: _isLoading ? null : _nextStep),

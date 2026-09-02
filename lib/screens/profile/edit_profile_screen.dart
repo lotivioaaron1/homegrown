@@ -300,22 +300,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 Align(
                     alignment: Alignment.centerLeft,
                     child: _label(_role == 'coach'
-                        ? 'Sport(s) You Coach'
+                        ? 'Sport You Coach'
                         : 'Sport(s) You Play')),
                 const SizedBox(height: 4),
                 if (_role == 'coach')
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                        'Scouting only shows athletes from these sports.',
+                        'Scouting only shows athletes from this sport.',
                         style: TextStyle(color: AppTheme.sub, fontSize: 11)),
                   ),
                 const SizedBox(height: 8),
-                // Multi-select, matching registration. This used to be a
-                // single choice that saved `[_sport]`, so a coach of two
-                // sports silently lost one by editing anything on this page
-                // — and with scouting gated on this field, that would cut
-                // them off from half their athletes.
+                // Single-select for coaches (one coach, one sport — see
+                // coach_register_screen.dart), multi-select for athletes, who
+                // may genuinely play several.
+                //
+                // The coach arm deliberately does NOT truncate on load. An
+                // older version of this screen was single-choice and saved
+                // `[_sport]`, so a coach who already had two sports silently
+                // lost one by editing anything on this page — and with
+                // scouting gated on this field, that cut them off from half
+                // their athletes. Here a legacy two-sport coach sees both
+                // chips lit, because that is what is stored; it collapses to
+                // one only when they tap, which is a choice they made.
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -323,9 +330,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       .map((s) => _chip(
                           s,
                           _sports.contains(s),
-                          () => setState(() => _sports.contains(s)
-                              ? _sports.remove(s)
-                              : _sports.add(s))))
+                          () => setState(() {
+                                if (_role == 'coach') {
+                                  _sports = [s];
+                                } else if (_sports.contains(s)) {
+                                  _sports.remove(s);
+                                } else {
+                                  _sports.add(s);
+                                }
+                              })))
                       .toList(),
                 ),
                 const SizedBox(height: 20),

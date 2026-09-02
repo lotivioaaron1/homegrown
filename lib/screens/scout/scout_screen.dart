@@ -734,81 +734,118 @@ class _ScoutScreenState extends State<ScoutScreen> {
         final isFull =
             (rosterSnapshot.data?.docs.length ?? 0) >= TeamService.maxPlayers;
 
-        return StreamBuilder<DocumentSnapshot>(
-          stream: TeamService.streamMembershipStatus(coachUid, athleteUid),
-          builder: (context, snapshot) {
-            final data = snapshot.data?.data() as Map<String, dynamic>?;
-            final status = data?['status'] as String?;
+        return FutureBuilder<String?>(
+          future: TeamService.existingTeamForSports(athleteUid, _coachSports,
+              excludingCoachId: coachUid),
+          builder: (context, clashSnapshot) {
+            // Null while in flight, so the button stays on its normal path
+            // rather than flashing a disabled state at every coach. Tapping
+            // during that window is still safe: sendInvite runs the same check
+            // and the AlreadyOnTeam catch below reports it.
+            final otherTeam = clashSnapshot.data;
 
-            if (status == 'accepted') {
-              return _inviteButton(
-                label: 'Already on Your Team',
-                color: AppTheme.success,
-                onPressed: null,
-              );
-            }
-            if (status == 'pending') {
-              return _inviteButton(
-                label: 'Invite Pending',
-                color: AppTheme.muted,
-                onPressed: null,
-              );
-            }
-            if (isFull) {
-              return _inviteButton(
-                label: 'Team Full',
-                color: AppTheme.muted,
-                onPressed: null,
-              );
-            }
-            return _inviteButton(
-              label: 'Invite to Team',
-              color: AppTheme.accent,
-              onPressed: () async {
-                final coachName = _coachProfile?['fullName'] as String? ?? '';
-                final teamName =
-                    _coachProfile?['teamOrganization'] as String? ?? 'your team';
-                try {
-                  await TeamService.sendInvite(
-                    coachId: coachUid,
-                    coachName: coachName,
-                    teamName: teamName,
-                    athleteId: athleteUid,
-                    athleteName: athleteName,
-                    coachSports: _coachSports,
-                    athleteSports: athleteSports,
-                    athletePhotoUrl: athletePhotoUrl,
+            return StreamBuilder<DocumentSnapshot>(
+              stream: TeamService.streamMembershipStatus(coachUid, athleteUid),
+              builder: (context, snapshot) {
+                final data = snapshot.data?.data() as Map<String, dynamic>?;
+                final status = data?['status'] as String?;
+
+                if (status == 'accepted') {
+                  return _inviteButton(
+                    label: 'Already on Your Team',
+                    color: AppTheme.success,
+                    onPressed: null,
                   );
-                  Get.snackbar('Invite Sent', 'Invite sent to $athleteName',
-                      snackPosition: SnackPosition.BOTTOM,
-                      backgroundColor: AppTheme.card,
-                      colorText: AppTheme.textPrimary,
-                      margin: const EdgeInsets.all(16),
-                      borderRadius: 12,
-                      duration: const Duration(seconds: 2));
-                } on TeamFullException {
-                  Get.snackbar('Team Full',
-                      'Your roster is already at its max of '
-                          '${TeamService.maxPlayers} players.',
-                      snackPosition: SnackPosition.BOTTOM,
-                      backgroundColor: AppTheme.card,
-                      colorText: AppTheme.textPrimary,
-                      margin: const EdgeInsets.all(16),
-                      borderRadius: 12,
-                      duration: const Duration(seconds: 2));
-                } on SportMismatchException {
-                  // Scout shouldn't be able to surface this athlete at all,
-                  // so reaching here means the profile changed sports since
-                  // the list loaded.
-                  Get.snackbar('Different Sport',
-                      '$athleteName does not play a sport you coach.',
-                      snackPosition: SnackPosition.BOTTOM,
-                      backgroundColor: AppTheme.card,
-                      colorText: AppTheme.textPrimary,
-                      margin: const EdgeInsets.all(16),
-                      borderRadius: 12,
-                      duration: const Duration(seconds: 3));
                 }
+                if (status == 'pending') {
+                  return _inviteButton(
+                    label: 'Invite Pending',
+                    color: AppTheme.muted,
+                    onPressed: null,
+                  );
+                }
+                if (isFull) {
+                  return _inviteButton(
+                    label: 'Team Full',
+                    color: AppTheme.muted,
+                    onPressed: null,
+                  );
+                }
+                // An athlete already playing this sport for someone else can't
+                // be recruited — one team per sport. Resolved when the sheet
+                // opens rather than per row in the list, which would put a
+                // query behind every Scout card.
+                if (otherTeam != null) {
+                  return _inviteButton(
+                    label: 'Already on $otherTeam',
+                    color: AppTheme.muted,
+                    onPressed: null,
+                  );
+                }
+                return _inviteButton(
+                  label: 'Invite to Team',
+                  color: AppTheme.accent,
+                  onPressed: () async {
+                    final coachName =
+                        _coachProfile?['fullName'] as String? ?? '';
+                    final teamName =
+                        _coachProfile?['teamOrganization'] as String? ??
+                            'your team';
+                    try {
+                      await TeamService.sendInvite(
+                        coachId: coachUid,
+                        coachName: coachName,
+                        teamName: teamName,
+                        athleteId: athleteUid,
+                        athleteName: athleteName,
+                        coachSports: _coachSports,
+                        athleteSports: athleteSports,
+                        athletePhotoUrl: athletePhotoUrl,
+                      );
+                      Get.snackbar('Invite Sent', 'Invite sent to $athleteName',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: AppTheme.card,
+                          colorText: AppTheme.textPrimary,
+                          margin: const EdgeInsets.all(16),
+                          borderRadius: 12,
+                          duration: const Duration(seconds: 2));
+                    } on TeamFullException {
+                      Get.snackbar('Team Full',
+                          'Your roster is already at its max of '
+                              '${TeamService.maxPlayers} players.',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: AppTheme.card,
+                          colorText: AppTheme.textPrimary,
+                          margin: const EdgeInsets.all(16),
+                          borderRadius: 12,
+                          duration: const Duration(seconds: 2));
+                    } on AlreadyOnTeamException catch (e) {
+                      // Reachable when the clash lookup above was still in
+                      // flight, or when the athlete joined someone else's team
+                      // while this sheet was open.
+                      Get.snackbar('Already on a Team',
+                          '$athleteName already plays for ${e.teamName}.',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: AppTheme.card,
+                          colorText: AppTheme.textPrimary,
+                          margin: const EdgeInsets.all(16),
+                          borderRadius: 12,
+                          duration: const Duration(seconds: 3));
+                    } on SportMismatchException {
+                      // Scout shouldn't be able to surface this athlete at all,
+                      // so reaching here means the profile changed sports since
+                      // the list loaded.
+                      Get.snackbar('Different Sport',
+                          '$athleteName does not play a sport you coach.',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: AppTheme.card,
+                          colorText: AppTheme.textPrimary,
+                          margin: const EdgeInsets.all(16),
+                          borderRadius: 12,
+                          duration: const Duration(seconds: 3));
+                    }
+                  },
+                );
               },
             );
           },

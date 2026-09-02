@@ -110,7 +110,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
     }
     if (_step == 1) {
       if (_selectedSports.isEmpty) {
-        _snack('Select Sport', 'Please select at least one sport.'); return;
+        _snack('Select Sport', 'Please select the sport you coach.'); return;
       }
       if (_coachingLevel.isEmpty) {
         _snack('Coaching Level', 'Please select your coaching level.'); return;
@@ -365,20 +365,31 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   // ── Step 2 — Coaching Details ─────────────
 
   Widget _buildStep2() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '🏅', title: 'Coaching Info',
             subtitle: 'Step 2 of 3 — Your experience'),
         const SizedBox(height: 24),
-        const _SectionLabel(label: 'Sport(s) You Coach'),
+        const _SectionLabel(label: 'Sport You Coach'),
         const SizedBox(height: 8),
+        // Single-select: a coach handles one sport. Everything else about a
+        // coach's team is singular too — one `teamOrganization`, one logo, one
+        // roster in `teamMemberships` (which carries no sport of its own), and
+        // one 15-player cap — so a second sport would share all of them rather
+        // than getting a team of its own. Stored as a one-element list because
+        // `primarySports` stays a list: Scout's `arrayContainsAny` and the
+        // event team picker's `arrayContains` both read it that way.
+        //
+        // Assign rather than toggle, matching Coaching Level below: tapping
+        // the selected chip keeps it selected, so there's no way to land back
+        // on an empty selection once a sport is chosen.
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
             final sel = _selectedSports.contains(s);
             return _Chip(label: s, sel: sel,
               onTap: () => setState(() =>
-                  sel ? _selectedSports.remove(s) : _selectedSports.add(s)));
+                  _selectedSports..clear()..add(s)));
           }).toList()),
         const SizedBox(height: 20),
         const _SectionLabel(label: 'Coaching Level'),
@@ -402,6 +413,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           icon: Icons.groups_outlined,
           cap: TextCapitalization.words),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(label: 'Next', onTap: _nextStep),
       ]),
     );
@@ -410,7 +422,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   // ── Step 3 — Bio & Certifications ─────────
 
   Widget _buildStep3() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '📋', title: 'Your Profile',
@@ -436,6 +448,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         const SizedBox(height: 24),
         const PrivacyConsentText(),
         const SizedBox(height: 14),
+        const Spacer(),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))

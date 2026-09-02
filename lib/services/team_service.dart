@@ -58,6 +58,10 @@ class TeamService {
     final existing = await ref.get();
     if (existing.exists && existing.data()?['status'] == 'accepted') return;
 
+    final clash = await existingTeamForSports(athleteId, coachSports,
+        excludingCoachId: coachId);
+    if (clash != null) throw AlreadyOnTeamException(clash);
+
     if (await rosterCountFor(coachId) >= maxPlayers) {
       throw const TeamFullException();
     }
@@ -83,6 +87,41 @@ class TeamService {
     );
   }
 
+  /// The team [athleteId] already plays for in any of [sports], or null when
+  /// they are free to join one.
+  ///
+  /// An athlete has at most one team per sport: a basketball player belongs to
+  /// one basketball team, though someone who also plays volleyball may have a
+  /// volleyball coach as well. A membership doc records no sport of its own, so
+  /// the sport is read off each existing coach's profile — unambiguous now that
+  /// a coach handles exactly one sport.
+  ///
+  /// [excludingCoachId] skips the coach doing the asking, so a coach
+  /// re-checking an athlete they already roster isn't reported as a clash with
+  /// themselves.
+  ///
+  /// Two reads, and only on invite or accept — never per Scout card, which
+  /// would put a query behind every row in the list.
+  static Future<String?> existingTeamForSports(
+    String athleteId,
+    List<String> sports, {
+    String? excludingCoachId,
+  }) async {
+    if (sports.isEmpty || athleteId.isEmpty) return null;
+
+    final accepted = await _col
+        .where('athleteId', isEqualTo: athleteId)
+        .where('status', isEqualTo: 'accepted')
+        .get();
+
+    final byCoach = teamNamesByCoach(accepted.docs.map((d) => d.data()),
+        excludingCoachId: excludingCoachId);
+    if (byCoach.isEmpty) return null;
+
+    final coaches = await fetchMemberProfiles(byCoach.keys);
+    return clashingTeam(byCoach, coaches, sports);
+  }
+
   /// Accepts an invite, then — if this was the last open roster slot —
   /// notifies every other athlete still pending on the same coach so
   /// nobody is left wondering. Those invites are left as 'pending' rather
@@ -92,12 +131,27 @@ class TeamService {
   /// else's invite. The coach can still cancel the leftovers manually from
   /// My Team, and the capacity check below already blocks any of them
   /// from being accepted into a team that's already full.
+  ///
+  /// Throws [AlreadyOnTeamException] if the athlete already plays for another
+  /// team in this coach's sport.
   static Future<void> acceptInvite(String inviteId) async {
     final ref = _col.doc(inviteId);
     final invite = await ref.get();
     final data = invite.data();
     final coachId = data?['coachId'] as String?;
-    if (coachId == null) return;
+    final athleteId = data?['athleteId'] as String?;
+    if (coachId == null || athleteId == null) return;
+
+    // The check that actually holds the one-team-per-sport rule. Two coaches
+    // can both invite before either invite is answered, so an athlete can be
+    // sitting on conflicting pending invites that sendInvite had no way to
+    // refuse at the time — this is the last point where it can be caught.
+    final coachDoc =
+        await FirebaseFirestore.instance.collection('users').doc(coachId).get();
+    final clash = await existingTeamForSports(
+        athleteId, sportsOf(coachDoc.data()),
+        excludingCoachId: coachId);
+    if (clash != null) throw AlreadyOnTeamException(clash);
 
     if (await rosterCountFor(coachId) >= maxPlayers) {
       throw const TeamFullException();
@@ -240,6 +294,67 @@ class TeamFullException implements Exception {
 /// no sport — a coach recruits for the sports they coach, nothing else.
 class SportMismatchException implements Exception {
   const SportMismatchException();
+}
+
+/// Thrown by [TeamService.sendInvite]/[TeamService.acceptInvite] when the
+/// athlete already plays for another team in the same sport.
+///
+/// One athlete, one team per sport. An athlete who plays two sports may still
+/// have a coach for each; they just can't hold two basketball teams at once.
+class AlreadyOnTeamException implements Exception {
+  /// The team they already belong to, so the message can name it.
+  final String teamName;
+  const AlreadyOnTeamException(this.teamName);
+}
+
+/// Maps each coach an athlete currently plays for to the team name to use when
+/// naming the clash, given that athlete's accepted membership docs.
+///
+/// [excludingCoachId] drops the coach doing the asking, so a coach re-checking
+/// an athlete they already roster is never reported as clashing with
+/// themselves.
+///
+/// A membership whose `teamName` is missing, blank, or — Firestore enforcing no
+/// schema — not a string at all still has to be nameable, since the value goes
+/// straight into a sentence shown to the user. Those degrade to a generic
+/// phrase rather than leaving a hole in the message.
+Map<String, String> teamNamesByCoach(
+  Iterable<Map<String, dynamic>> acceptedMemberships, {
+  String? excludingCoachId,
+}) {
+  final byCoach = <String, String>{};
+  for (final data in acceptedMemberships) {
+    final coachId = data['coachId'];
+    if (coachId is! String || coachId.isEmpty) continue;
+    if (coachId == excludingCoachId) continue;
+
+    final rawName = data['teamName'];
+    final teamName = rawName is String ? rawName.trim() : '';
+    byCoach[coachId] = teamName.isNotEmpty ? teamName : 'another team';
+  }
+  return byCoach;
+}
+
+/// The team from [teamNameByCoach] whose coach coaches any of [sports], or null
+/// when the athlete is free to join one.
+///
+/// A membership doc records no sport of its own, so the sport comes off each
+/// coach's live `users/{uid}` profile in [coachProfiles] — unambiguous now that
+/// a coach handles exactly one sport. A coach whose profile is missing from the
+/// map (unreadable, or deleted) contributes no sports and so never clashes,
+/// which is the safe direction: it lets an invite through rather than blocking
+/// one on a team that can't be identified.
+String? clashingTeam(
+  Map<String, String> teamNameByCoach,
+  Map<String, Map<String, dynamic>> coachProfiles,
+  List<String> sports,
+) {
+  for (final entry in teamNameByCoach.entries) {
+    if (sportsOverlap(sportsOf(coachProfiles[entry.key]), sports)) {
+      return entry.value;
+    }
+  }
+  return null;
 }
 
 /// A member's *current* display identity, as opposed to the copy frozen into
