@@ -26,6 +26,17 @@ class MediaSection extends StatelessWidget {
   final int max;
   final void Function(MediaItem)? onTapItem;
 
+  /// Whether the header counts against [max]. True on the owner's own
+  /// profile, where the remaining quota is what they need to know; false
+  /// when a coach or teammate is looking, since someone else's upload
+  /// allowance tells the viewer nothing and reads as a limit on browsing.
+  final bool showQuota;
+
+  /// Replaces the grid's default empty-state copy. The defaults are written
+  /// to the owner ("Upload your best plays"), which is the wrong voice on a
+  /// profile someone else is viewing.
+  final String? emptyMessage;
+
   const MediaSection({
     super.key,
     required this.items,
@@ -35,6 +46,8 @@ class MediaSection extends StatelessWidget {
     required this.max,
     this.loading = false,
     this.onTapItem,
+    this.showQuota = true,
+    this.emptyMessage,
   });
 
   @override
@@ -47,9 +60,11 @@ class MediaSection extends StatelessWidget {
         if (loading)
           _loading()
         else if (type == MediaType.video)
-          VideoGrid(items: items, onTapItem: onTapItem)
+          VideoGrid(
+              items: items, onTapItem: onTapItem, emptyMessage: emptyMessage)
         else
-          PhotoGrid(items: items, onTapItem: onTapItem),
+          PhotoGrid(
+              items: items, onTapItem: onTapItem, emptyMessage: emptyMessage),
       ],
     );
   }
@@ -57,7 +72,9 @@ class MediaSection extends StatelessWidget {
   /// [count] is null while loading, so the counter appears with the content
   /// rather than flashing `0 / 20` before the real number arrives.
   Widget _header(int? count) {
-    final atCap = count != null && count >= max;
+    // Never at cap in the viewer's eyes: the amber warning below is an
+    // "you can't upload more" signal, which means nothing to a coach.
+    final atCap = showQuota && count != null && count >= max;
     return Row(children: [
       Container(
         width: 30,
@@ -88,7 +105,7 @@ class MediaSection extends StatelessWidget {
                     ? AppTheme.warning.withValues(alpha: 0.4)
                     : AppTheme.border),
           ),
-          child: Text('$count / $max',
+          child: Text(showQuota ? '$count / $max' : '$count',
               style: TextStyle(
                   color: atCap ? AppTheme.warning : AppTheme.sub,
                   fontSize: 11,

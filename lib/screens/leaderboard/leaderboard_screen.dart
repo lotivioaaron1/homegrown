@@ -38,8 +38,20 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   String _filter = 'All';
 
+  // Name search, filtered client-side over the already-streamed result set —
+  // Firestore has no substring operator, and the board is capped at
+  // _kMaxRankedAthletes anyway, so this costs no extra reads.
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
   String? _streamedFilter;
   Stream<QuerySnapshot>? _athletesStream;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   /// Held across rebuilds rather than rebuilt inside `build()`. A freshly
   /// constructed `snapshots()` is a new stream identity, so StreamBuilder would
@@ -70,6 +82,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       body: SafeArea(
         child: Column(children: [
           _buildTopBar(),
+          _buildSearchBar(),
           _buildFilterRow(),
           Expanded(child: _buildList()),
         ]),
@@ -100,6 +113,46 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       ]),
     );
   }
+
+  // Deliberately identical in shape and styling to Scout's search bar
+  // (scout_screen.dart): a coach moves between the two screens constantly and
+  // they should not feel like different apps.
+  Widget _buildSearchBar() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        child: TextField(
+          controller: _searchCtrl,
+          onChanged: (v) => setState(() => _searchQuery = v.trim()),
+          style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+          decoration: InputDecoration(
+            hintText: 'Search athlete by name...',
+            hintStyle: TextStyle(color: AppTheme.muted, fontSize: 13),
+            prefixIcon:
+                Icon(LucideIcons.search, color: AppTheme.muted, size: 18),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? GestureDetector(
+                    onTap: () {
+                      _searchCtrl.clear();
+                      setState(() => _searchQuery = '');
+                    },
+                    child: Icon(LucideIcons.x, color: AppTheme.muted, size: 18))
+                : null,
+            filled: true,
+            fillColor: AppTheme.card,
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide:
+                    const BorderSide(color: AppTheme.accent, width: 1.5)),
+          ),
+        ),
+      );
 
   Widget _buildFilterRow() {
     return SingleChildScrollView(
@@ -163,8 +216,40 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         final athletes = docs.map((d) => d.data() as Map<String, dynamic>).toList()
           ..sort((a, b) => _rankValue(b).compareTo(_rankValue(a)));
 
-        final top3 = athletes.take(3).toList();
-        final rest = athletes.length > 3 ? athletes.sublist(3) : <Map<String, dynamic>>[];
+        final searching = _searchQuery.isNotEmpty;
+
+        // Ranks are fixed here, against the full sorted board, before any
+        // search narrows it. An athlete found by name must still show the
+        // position they actually hold — renumbering the matches would tell
+        // someone they are #2 when they are #37.
+        final ranked = [
+          for (var i = 0; i < athletes.length; i++) (i + 1, athletes[i]),
+        ];
+
+        final matches = searching
+            ? ranked.where((r) {
+                final a = r.$2;
+                final name = '${a['firstName'] ?? ''} ${a['lastName'] ?? ''}';
+                return name.toLowerCase().contains(_searchQuery.toLowerCase());
+              }).toList()
+            : ranked;
+
+        if (searching && matches.isEmpty) {
+          return _buildEmpty(
+              icon: LucideIcons.searchX,
+              title: 'No athletes found',
+              subtitle: 'Try a different name or sport filter');
+        }
+
+        // A podium built from search results would crown whoever happens to
+        // match first, so it is dropped for the duration of a search and the
+        // matches render as one flat, truly-ranked list.
+        final top3 = searching
+            ? const <(int, Map<String, dynamic>)>[]
+            : matches.take(3).toList();
+        final rest = searching
+            ? matches
+            : (matches.length > 3 ? matches.sublist(3) : const []);
         final myRank = athletes.indexWhere((a) => a['uid'] == _uid) + 1;
 
         return StreamBuilder<DocumentSnapshot>(
@@ -185,9 +270,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 children: [
-                  if (top3.isNotEmpty) _buildPodium(top3, role),
-                  const SizedBox(height: 20),
-                  if (role == 'athlete' && myRank > 3 && myRank > 0) ...[
+                  if (top3.isNotEmpty) ...[
+                    _buildPodium(
+                        top3.map((r) => r.$2).toList(growable: false), role),
+                    const SizedBox(height: 20),
+                  ],
+                  if (!searching &&
+                      role == 'athlete' &&
+                      myRank > 3 &&
+                      myRank > 0) ...[
                     _buildMyRankBanner(myRank, athletes[myRank - 1]),
                     const SizedBox(height: 16),
                   ],
@@ -195,7 +286,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Text(
-                        role == 'coach' ? 'TAP ATHLETE TO SCOUT' : 'FULL RANKINGS',
+                        searching
+                            ? '${rest.length} MATCH${rest.length == 1 ? '' : 'ES'}'
+                            : role == 'coach'
+                                ? 'TAP ATHLETE TO SCOUT'
+                                : 'FULL RANKINGS',
                         style: TextStyle(color: AppTheme.muted, fontSize: 10,
                             fontWeight: FontWeight.w700, letterSpacing: 1)),
                     ),
@@ -206,8 +301,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                         border: Border.all(color: AppTheme.border)),
                       child: Column(
                         children: rest.asMap().entries.map((e) {
-                          final rank = e.key + 4;
-                          final athlete = e.value;
+                          final (rank, athlete) = e.value;
                           final isLast = e.key == rest.length - 1;
                           final isMe = athlete['uid'] == _uid;
                           return _buildRow(

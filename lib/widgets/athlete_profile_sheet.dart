@@ -1,11 +1,19 @@
 // lib/widgets/athlete_profile_sheet.dart
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
-import '../constants/query_limits.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../models/media_item.dart';
+import '../screens/profile/athlete_profile_view_screen.dart';
+import '../services/media_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/stat_scoring.dart';
+import 'athlete_profile_parts.dart';
+
+/// How many portfolio thumbnails the sheet previews. Four fits the strip
+/// across a phone without scrolling; the rest live on the full profile.
+const int _kTeaserCount = 4;
 
 /// Shared read-only athlete profile bottom sheet — avatar, stat boxes,
 /// per-category stat averages, and bio. Leaderboard, Scout, My Team, and
@@ -167,26 +175,31 @@ class _AthleteProfileContent extends StatelessWidget {
           ])),
           const SizedBox(height: 20),
           Row(children: [
-            _StatBox(value: '$pts', label: 'Total Pts', isAccent: true),
+            ProfileStatBox(value: '$pts', label: 'Total Pts', isAccent: true),
             const SizedBox(width: 8),
-            _StatBox(value: years, label: 'Experience'),
+            ProfileStatBox(value: years, label: 'Experience'),
             const SizedBox(width: 8),
-            _StatBox(value: '${height}cm', label: 'Height'),
+            ProfileStatBox(value: '${height}cm', label: 'Height'),
             const SizedBox(width: 8),
-            _StatBox(value: '${weight}kg', label: 'Weight'),
+            ProfileStatBox(value: '${weight}kg', label: 'Weight'),
           ]),
           const SizedBox(height: 16),
-          _buildStatAverages(athleteId),
+          // Sits directly under the headline figures, above the averages and
+          // the detail rows: the footage is the thing a scout came for, so it
+          // should not be below a scroll.
+          _buildHighlightsTeaser(context),
+          const SizedBox(height: 16),
+          AthleteStatAverages(athleteId: athleteId),
           const SizedBox(height: 16),
           Divider(color: AppTheme.border),
           const SizedBox(height: 12),
-          _InfoRow(label: 'Sport', value: sports),
+          ProfileInfoRow(label: 'Sport', value: sports),
           const SizedBox(height: 8),
-          _InfoRow(label: 'Position', value: position),
+          ProfileInfoRow(label: 'Position', value: position),
           const SizedBox(height: 8),
-          _InfoRow(label: 'Barangay', value: barangay),
+          ProfileInfoRow(label: 'Barangay', value: barangay),
           const SizedBox(height: 8),
-          _InfoRow(label: 'Experience', value: years),
+          ProfileInfoRow(label: 'Experience', value: years),
           if (bio.isNotEmpty) ...[
             const SizedBox(height: 14),
             Text('Bio',
@@ -225,153 +238,139 @@ class _AthleteProfileContent extends StatelessWidget {
     );
   }
 
-  // ── Per-stat-category averages ────────────
-  // Answers "what is this player good at" (rebounding, steals, etc.)
-  // rather than one comparative number, which is what Rating answers.
-  Widget _buildStatAverages(String uid) {
-    if (uid.isEmpty) return const SizedBox.shrink();
-    return FutureBuilder<QuerySnapshot>(
-      // Averaged over the most recent games rather than every game ever
-      // recorded, so one prolific athlete can't turn opening a profile into an
-      // unbounded read. Deterministic because it is ordered, not arbitrary.
-      future: FirebaseFirestore.instance
-          .collection('stats')
-          .where('athleteId', isEqualTo: uid)
-          .orderBy('createdAt', descending: true)
-          .limit(kMaxListQuery)
-          .get(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const SizedBox(
-              height: 32,
-              child: Center(
-                  child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          color: AppTheme.accent, strokeWidth: 2))));
-        }
-        final docs = snapshot.data!.docs;
-        if (docs.isEmpty) return const SizedBox.shrink();
+  // ── Highlights teaser ─────────────────────
+  // The reason this sheet exists at all is to decide "is this player worth a
+  // closer look", and footage answers that better than any average does. A
+  // strip of thumbnails makes it visible that highlights exist without the
+  // viewer having to open anything — during a fast Scout scan, a plain
+  // button would be scrolled past.
 
-        final bySport = <String, List<Map<String, dynamic>>>{};
-        for (final d in docs) {
-          final data = d.data() as Map<String, dynamic>;
-          final sport = data['sport'] as String? ?? '';
-          final stats = (data['stats'] as Map?)?.cast<String, dynamic>() ?? {};
-          bySport.putIfAbsent(sport, () => []).add(stats);
-        }
-
+  Widget _buildHighlightsTeaser(BuildContext context) {
+    if (athleteId.isEmpty) return const SizedBox.shrink();
+    return StreamBuilder<List<MediaItem>>(
+      // Capped at the four the strip can show. The full profile opens its own
+      // unbounded stream; this one must not pull a 23-item portfolio just to
+      // render a preview.
+      stream: MediaService.streamMedia(athleteId, limit: _kTeaserCount),
+      builder: (context, snap) {
+        final items = snap.data ?? const <MediaItem>[];
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Averages',
-                style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            ...bySport.entries.map((e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _SportAverages(sport: e.key, games: e.value),
-                )),
+            if (items.isNotEmpty) ...[
+              Row(children: [
+                const Icon(LucideIcons.clapperboard,
+                    color: AppTheme.accent, size: 14),
+                const SizedBox(width: 6),
+                Text('Highlights',
+                    style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+              ]),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 72,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) => _TeaserTile(
+                    item: items[i],
+                    onTap: () => _openFullProfile(context),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: OutlinedButton(
+                onPressed: () => _openFullProfile(context),
+                style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppTheme.accent, width: 1.5)),
+                child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('View Full Profile',
+                          style: TextStyle(
+                              color: AppTheme.accentText,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 6),
+                      Icon(LucideIcons.arrowRight,
+                          color: AppTheme.accentText, size: 15),
+                    ]),
+              ),
+            ),
           ],
         );
       },
     );
   }
+
+  /// Dismisses the sheet before pushing the full profile — without the
+  /// `Get.back()` the sheet stays mounted underneath and is still there when
+  /// the viewer pops back off the profile.
+  ///
+  /// Pushed with the widget rather than by route name so the caller's action
+  /// travels with it: a coach who watches a highlight and decides to recruit
+  /// can invite from the profile itself, instead of backing out to a sheet
+  /// this method has already dismissed. The `/profile/athlete` named route
+  /// stays registered for callers that have only a uid to offer.
+  void _openFullProfile(BuildContext context) {
+    final action = trailingActionBuilder?.call(context, athlete);
+    Get.back();
+    Get.to(() => AthleteProfileViewScreen(
+          athleteId: athleteId,
+          trailingAction: action,
+        ));
+  }
 }
 
-class _SportAverages extends StatelessWidget {
-  final String sport;
-  final List<Map<String, dynamic>> games;
-  const _SportAverages({required this.sport, required this.games});
-
-  String _format(String label, double value) {
-    final formatted = formatStatAverage(value);
-    return label == 'Win Rate %' ? '$formatted%' : formatted;
-  }
+/// One thumbnail in the teaser strip. Videos carry a play glyph so the strip
+/// distinguishes a clip from a photo at a glance, the way the portfolio grids
+/// already do.
+class _TeaserTile extends StatelessWidget {
+  final MediaItem item;
+  final VoidCallback onTap;
+  const _TeaserTile({required this.item, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final avgs = averageStats(sport, games);
-    if (avgs.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('$sport · ${games.length} game${games.length == 1 ? '' : 's'}',
-            style:
-                TextStyle(color: AppTheme.sub, fontSize: 11, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: avgs.entries
-              .map((e) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                        color: AppTheme.cardNested,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppTheme.border)),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(e.key, style: TextStyle(color: AppTheme.muted, fontSize: 9)),
-                        Text(_format(e.key, e.value),
-                            style: TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                  ))
-              .toList(),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatBox extends StatelessWidget {
-  final String value, label;
-  final bool isAccent;
-  const _StatBox({required this.value, required this.label, this.isAccent = false});
-  @override
-  Widget build(BuildContext context) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-              color: isAccent ? AppTheme.accentSurface : AppTheme.cardNested,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: isAccent ? AppTheme.accent : AppTheme.border)),
-          child: Column(children: [
-            Text(value,
-                style: TextStyle(
-                    color: isAccent ? AppTheme.accentText : AppTheme.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900),
-                overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 2),
-            Text(label,
-                style: TextStyle(color: AppTheme.muted, fontSize: 9),
-                overflow: TextOverflow.ellipsis),
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: 96,
+          height: 72,
+          child: Stack(fit: StackFit.expand, children: [
+            CachedNetworkImage(
+              imageUrl: item.thumbnailUrl,
+              fit: BoxFit.cover,
+              memCacheWidth: 220,
+              placeholder: (_, __) => Container(color: AppTheme.cardNested),
+              // A video whose poster frame failed to generate falls back to
+              // the clip's own URL, which will not decode as an image. The
+              // play badge below still reads it as a video.
+              errorWidget: (_, __, ___) =>
+                  Container(color: AppTheme.cardNested),
+            ),
+            if (item.type == MediaType.video) ...[
+              DecoratedBox(
+                decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.28)),
+              ),
+              const Center(
+                child: Icon(LucideIcons.playCircle,
+                    color: Colors.white, size: 22),
+              ),
+            ],
           ]),
         ),
-      );
-}
-
-class _InfoRow extends StatelessWidget {
-  final String label, value;
-  const _InfoRow({required this.label, required this.value});
-  @override
-  Widget build(BuildContext context) => Row(children: [
-        SizedBox(
-            width: 90,
-            child: Text(label, style: TextStyle(color: AppTheme.muted, fontSize: 12))),
-        Expanded(
-            child: Text(value,
-                style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis)),
-      ]);
+      ),
+    );
+  }
 }

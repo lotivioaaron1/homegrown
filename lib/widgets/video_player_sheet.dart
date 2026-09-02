@@ -10,10 +10,14 @@ import '../screens/profile/widgets/video_grid.dart' show formatClipDuration;
 /// Full-screen highlight player. Mirrors the photo viewer's shape — media on
 /// top, then a category chip, caption, and delete affordance — so both media
 /// types are dismissed and deleted the same way.
+///
+/// [onDelete] is null when someone other than the owner is watching — a coach
+/// scouting, or a teammate — and the delete affordance is then omitted rather
+/// than shown and refused.
 Future<void> showVideoHighlight(
   BuildContext context,
   MediaItem item, {
-  required VoidCallback onDelete,
+  VoidCallback? onDelete,
 }) {
   return showDialog(
     context: context,
@@ -24,10 +28,11 @@ Future<void> showVideoHighlight(
 
 class VideoHighlightDialog extends StatefulWidget {
   final MediaItem item;
-  final VoidCallback onDelete;
 
-  const VideoHighlightDialog(
-      {super.key, required this.item, required this.onDelete});
+  /// Null for a read-only viewing — see [showVideoHighlight].
+  final VoidCallback? onDelete;
+
+  const VideoHighlightDialog({super.key, required this.item, this.onDelete});
 
   @override
   State<VideoHighlightDialog> createState() => _VideoHighlightDialogState();
@@ -173,24 +178,28 @@ class _VideoHighlightDialogState extends State<VideoHighlightDialog> {
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        GestureDetector(
-          onTap: () {
-            Get.back();
-            widget.onDelete();
-          },
-          child: Container(
-            width: 36,
-            height: 36,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-                color: AppTheme.errorSurface,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                    color: AppTheme.errorText.withValues(alpha: 0.4))),
-            child: Icon(LucideIcons.trash2,
-                color: AppTheme.errorText, size: 16),
+        // Absent entirely when someone else is watching: the caption then
+        // runs the full width rather than leaving a gap where a control the
+        // viewer can never use would have been.
+        if (widget.onDelete != null)
+          GestureDetector(
+            onTap: () {
+              Get.back();
+              widget.onDelete!();
+            },
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: AppTheme.errorSurface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: AppTheme.errorText.withValues(alpha: 0.4))),
+              child: Icon(LucideIcons.trash2,
+                  color: AppTheme.errorText, size: 16),
+            ),
           ),
-        ),
       ]),
     );
   }

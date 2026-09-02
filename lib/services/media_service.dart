@@ -67,10 +67,16 @@ class MediaService {
   }
 
   /// Live list of a user's media, newest first, optionally filtered by type.
-  static Stream<List<MediaItem>> streamMedia(String uid, {MediaType? type}) {
+  ///
+  /// [limit] caps how many items are read. The profile sheet's teaser strip
+  /// shows only the first few thumbnails, and pulling a full 23-item
+  /// portfolio to render four of them is a read the viewer never sees.
+  static Stream<List<MediaItem>> streamMedia(String uid,
+      {MediaType? type, int? limit}) {
     Query<Map<String, dynamic>> q =
         _mediaCol(uid).orderBy('createdAt', descending: true);
     if (type != null) q = q.where('type', isEqualTo: type.name);
+    if (limit != null) q = q.limit(limit);
     return q.snapshots().map((snap) =>
         snap.docs.map((d) => MediaItem.fromMap(d.id, d.data())).toList());
   }

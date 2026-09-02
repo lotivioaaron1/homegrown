@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../models/media_item.dart';
 import '../../services/media_service.dart';
 import '../../services/team_service.dart';
+import '../../widgets/photo_viewer_dialog.dart';
 import '../../widgets/video_player_sheet.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/media_section.dart';
@@ -435,7 +436,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               title: 'Photo Highlights',
               icon: LucideIcons.image,
               max: MediaService.maxPhotos,
-              onTapItem: (item) => _openPhotoViewer(context, item),
+              onTapItem: (item) => showPhotoViewer(
+                context,
+                item,
+                onDelete: () => _confirmDelete(context, item),
+              ),
             ),
           ],
         );
@@ -666,95 +671,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         );
       },
-    );
-  }
-
-  // Photo viewer + delete
-  void _openPhotoViewer(BuildContext context, MediaItem item) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.85),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: CachedNetworkImage(
-                imageUrl: item.url,
-                fit: BoxFit.contain,
-                placeholder: (_, __) => Container(
-                  height: 220,
-                  color: AppTheme.cardNested,
-                  alignment: Alignment.center,
-                  child: const CircularProgressIndicator(
-                      color: AppTheme.accent, strokeWidth: 2),
-                ),
-                errorWidget: (_, __, ___) => Container(
-                  height: 220,
-                  color: AppTheme.cardNested,
-                  alignment: Alignment.center,
-                  child: Icon(LucideIcons.imageOff,
-                      color: AppTheme.muted, size: 32),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                  color: AppTheme.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.border)),
-              child: Row(children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                      color: AppTheme.accentSurface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppTheme.accent)),
-                  child: Text(item.categoryLabel,
-                      style: TextStyle(
-                          color: AppTheme.accentText,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    item.caption.isNotEmpty ? item.caption : 'No caption',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    Get.back();
-                    _confirmDelete(context, item);
-                  },
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                        color: AppTheme.errorSurface,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color:
-                                AppTheme.errorText.withValues(alpha: 0.4))),
-                    child: Icon(LucideIcons.trash2,
-                        color: AppTheme.errorText, size: 16),
-                  ),
-                ),
-              ]),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

@@ -12,14 +12,19 @@ class PhotoGrid extends StatelessWidget {
   final List<MediaItem> items;
   final void Function(MediaItem)? onTapItem;
 
-  const PhotoGrid({super.key, required this.items, this.onTapItem});
+  /// Overrides the empty-state copy, which is otherwise addressed to the
+  /// portfolio's owner and reads oddly to a coach or teammate viewing it.
+  final String? emptyMessage;
+
+  const PhotoGrid(
+      {super.key, required this.items, this.onTapItem, this.emptyMessage});
 
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: LucideIcons.image,
-        message:
+        message: emptyMessage ??
             'No photos yet.\nGame-day shots and training snaps will show up here.',
       );
     }

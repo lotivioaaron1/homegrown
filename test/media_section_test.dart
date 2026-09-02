@@ -12,6 +12,7 @@ import 'package:homegrown/models/media_item.dart';
 import 'package:homegrown/screens/profile/widgets/media_section.dart';
 import 'package:homegrown/screens/profile/widgets/photo_grid.dart';
 import 'package:homegrown/screens/profile/widgets/video_grid.dart';
+import 'package:homegrown/theme/app_theme.dart';
 import 'package:homegrown/widgets/skeleton.dart';
 
 MediaItem _item(MediaType type, String id) => MediaItem(
@@ -104,5 +105,58 @@ void main() {
     await tester.pumpWidget(_host(_photoSection(items: const [])));
 
     expect(find.text('Photo Highlights'), findsOneWidget);
+  });
+
+  // ── Viewing someone else's portfolio ──────
+  // A coach scouting or a teammate looking is shown the same sections, but
+  // the owner-facing quota and copy are wrong in that context.
+
+  group('viewed by someone other than the owner', () {
+    testWidgets('drops the quota denominator from the count', (tester) async {
+      await tester.pumpWidget(_host(MediaSection(
+        items: _photos(14),
+        max: 20,
+        type: MediaType.photo,
+        title: 'Photo Highlights',
+        icon: LucideIcons.image,
+        showQuota: false,
+      )));
+
+      expect(find.text('14'), findsOneWidget);
+      expect(find.text('14 / 20'), findsNothing);
+    });
+
+    testWidgets('never flags the at-cap warning', (tester) async {
+      // At 20/20 the owner sees an amber "you cannot upload more" counter.
+      // To a viewer that would read as a limit on what they may look at.
+      await tester.pumpWidget(_host(MediaSection(
+        items: _photos(20),
+        max: 20,
+        type: MediaType.photo,
+        title: 'Photo Highlights',
+        icon: LucideIcons.image,
+        showQuota: false,
+      )));
+
+      final label = tester.widget<Text>(find.text('20'));
+      expect(label.style?.color, isNot(AppTheme.warning));
+    });
+
+    testWidgets('passes viewer-facing empty copy down to the grid',
+        (tester) async {
+      await tester.pumpWidget(_host(const MediaSection(
+        items: [],
+        max: 3,
+        type: MediaType.video,
+        title: 'Video Highlights',
+        icon: LucideIcons.video,
+        showQuota: false,
+        emptyMessage: 'No highlights yet.\nNothing uploaded.',
+      )));
+
+      expect(find.text('No highlights yet.\nNothing uploaded.'), findsOneWidget);
+      // The owner-voiced default must not survive into a viewer's screen.
+      expect(find.textContaining('Upload your best plays'), findsNothing);
+    });
   });
 }

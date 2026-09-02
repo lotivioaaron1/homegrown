@@ -31,6 +31,7 @@ import 'screens/events/edit_event_screen.dart';
 import 'screens/stats/add_stats_screen.dart';
 import 'screens/leaderboard/leaderboard_screen.dart';
 import 'screens/dashboard/performance_dashboard_screen.dart';
+import 'screens/profile/athlete_profile_view_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/team/team_invites_screen.dart';
 import 'screens/team/my_team_screen.dart';
@@ -187,6 +188,9 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/leaderboard',        page: () => const LeaderboardScreen()),
         GetPage(name: '/dashboard',          page: () => const PerformanceDashboardScreen()),
         GetPage(name: '/profile',            page: () => const ProfileScreen()),
+        // Another athlete's profile, read-only. Takes {'athleteId': uid} as
+        // route arguments; ProfileScreen above stays the signed-in user's own.
+        GetPage(name: '/profile/athlete',    page: AthleteProfileViewScreen.fromRoute),
         GetPage(name: '/team/invites',        page: () => const TeamInvitesScreen()),
         GetPage(name: '/team/roster',         page: () => const MyTeamScreen()),
         GetPage(name: '/team/mine',           page: () => const AthleteTeamScreen()),

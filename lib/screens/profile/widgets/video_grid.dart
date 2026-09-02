@@ -21,14 +21,20 @@ class VideoGrid extends StatelessWidget {
   final List<MediaItem> items;
   final void Function(MediaItem)? onTapItem;
 
-  const VideoGrid({super.key, required this.items, this.onTapItem});
+  /// Overrides the empty-state copy, which is otherwise addressed to the
+  /// portfolio's owner and reads oddly to a coach or teammate viewing it.
+  final String? emptyMessage;
+
+  const VideoGrid(
+      {super.key, required this.items, this.onTapItem, this.emptyMessage});
 
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: LucideIcons.video,
-        message: 'No highlights yet.\nUpload your best plays to build your reel.',
+        message: emptyMessage ??
+            'No highlights yet.\nUpload your best plays to build your reel.',
       );
     }
     return GridView.builder(
