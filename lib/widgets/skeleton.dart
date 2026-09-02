@@ -91,9 +91,8 @@ class SkeletonBox extends StatelessWidget {
 
   /// A line of text. [widthFactor] lets a paragraph end raggedly rather than
   /// as a suspiciously perfect rectangle.
-  const SkeletonBox.text({super.key, double? width})
-      : width = width,
-        height = 12,
+  const SkeletonBox.text({super.key, this.width})
+      : height = 12,
         radius = 6;
 
   const SkeletonBox.circle({super.key, required double diameter})

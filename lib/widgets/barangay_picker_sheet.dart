@@ -79,7 +79,7 @@ class _BarangayPickerSheetState extends State<_BarangayPickerSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               minimumSize: const Size(0, 32),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-          child: Text('Retry',
+          child: const Text('Retry',
               style: TextStyle(
                   color: AppTheme.accent,
                   fontSize: 12,
@@ -121,7 +121,7 @@ class _BarangayPickerSheetState extends State<_BarangayPickerSheet> {
                   fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
                   fontSize: 14)),
           trailing: sel
-              ? Icon(Icons.check_circle_rounded,
+              ? const Icon(Icons.check_circle_rounded,
                   color: AppTheme.accent, size: 20)
               : null,
           onTap: () => Navigator.pop(context, b),
@@ -178,7 +178,7 @@ class _BarangayPickerSheetState extends State<_BarangayPickerSheet> {
               focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide:
-                      BorderSide(color: AppTheme.accent, width: 1.5)),
+                      const BorderSide(color: AppTheme.accent, width: 1.5)),
             ),
           ),
         ),

@@ -946,7 +946,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
             icon: LucideIcons.barChart2,
             title: 'No stats yet',
             subtitle:
@@ -1142,7 +1142,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('TOTAL POINTS', style: TextStyle(color: AppTheme.sub,
               fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
           const SizedBox(height: 4),
-          Text('$points', style: TextStyle(color: AppTheme.accent,
+          Text('$points', style: const TextStyle(color: AppTheme.accent,
               fontSize: 36, fontWeight: FontWeight.w900, height: 1)),
           const SizedBox(height: 2),
           Text('Earn points by playing games',
@@ -1194,7 +1194,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('COACHING LEVEL', style: TextStyle(color: AppTheme.sub,
               fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
           const SizedBox(height: 4),
-          Text(level, style: TextStyle(color: AppTheme.accent,
+          Text(level, style: const TextStyle(color: AppTheme.accent,
               fontSize: 24, fontWeight: FontWeight.w900, height: 1.1)),
         ]),
         const Spacer(),
@@ -1229,7 +1229,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('ORGANIZATION', style: TextStyle(color: AppTheme.sub,
               fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
           const SizedBox(height: 4),
-          Text(org, style: TextStyle(color: AppTheme.accent,
+          Text(org, style: const TextStyle(color: AppTheme.accent,
               fontSize: 20, fontWeight: FontWeight.w900, height: 1.1)),
         ]),
         const Spacer(),
@@ -1267,7 +1267,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (onViewAll != null)
           GestureDetector(
             onTap: onViewAll,
-            child: Text('View All', style: TextStyle(
+            child: const Text('View All', style: TextStyle(
                 color: AppTheme.accent, fontSize: 11,
                 fontWeight: FontWeight.w700)),
           ),
@@ -1398,11 +1398,11 @@ class _HomeScreenState extends State<HomeScreen> {
               }
             },
             behavior: HitTestBehavior.opaque,
-            child: Row(children: [
+            child: const Row(children: [
               Text('View Team', style: TextStyle(
                   color: AppTheme.accent, fontSize: 13,
                   fontWeight: FontWeight.w700)),
-              const SizedBox(width: 4),
+              SizedBox(width: 4),
               Icon(Icons.chevron_right_rounded,
                   color: AppTheme.accent, size: 16),
             ]),
@@ -1428,7 +1428,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppTheme.card,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppTheme.accent)),
-              child: Icon(LucideIcons.userPlus,
+              child: const Icon(LucideIcons.userPlus,
                   color: AppTheme.accent, size: 20)),
           const SizedBox(width: 12),
           Expanded(child: Column(
@@ -1540,7 +1540,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 2),
                 GestureDetector(
                   onTap: () => Get.toNamed('/scout'),
-                  child: Text('Invite athletes from Scout', style: TextStyle(
+                  child: const Text('Invite athletes from Scout', style: TextStyle(
                       color: AppTheme.accent, fontSize: 12,
                       fontWeight: FontWeight.w700)),
                 ),
@@ -1585,11 +1585,11 @@ class _HomeScreenState extends State<HomeScreen> {
               GestureDetector(
                 onTap: () => Get.toNamed('/team/roster'),
                 behavior: HitTestBehavior.opaque,
-                child: Row(children: [
+                child: const Row(children: [
                   Text('View Full Roster', style: TextStyle(
                       color: AppTheme.accent, fontSize: 13,
                       fontWeight: FontWeight.w700)),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Icon(Icons.chevron_right_rounded,
                       color: AppTheme.accent, size: 16),
                 ]),
@@ -1645,7 +1645,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 2),
               GestureDetector(
                 onTap: () => Get.toNamed('/events/create'),
-                child: Text('Create your first event', style: TextStyle(
+                child: const Text('Create your first event', style: TextStyle(
                     color: AppTheme.accent, fontSize: 12,
                     fontWeight: FontWeight.w700)),
               ),
@@ -1706,11 +1706,11 @@ class _HomeScreenState extends State<HomeScreen> {
               GestureDetector(
                 onTap: () => Get.toNamed('/events/detail',
                     arguments: {'eventId': doc.id}),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
                   Text('View Roster', style: TextStyle(
                       color: AppTheme.accent, fontSize: 13,
                       fontWeight: FontWeight.w700)),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Icon(Icons.chevron_right_rounded,
                       color: AppTheme.accent, size: 16),
                 ]),
@@ -1786,7 +1786,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: AppTheme.accent, strokeWidth: 2)));
             }
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return _EmptyCard(
+              return const _EmptyCard(
                   icon: LucideIcons.calendar,
                   title: 'No events yet',
                   subtitle: 'Tap + to create your first event');
@@ -1802,7 +1802,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return bT.compareTo(aT);
               });
             if (events.isEmpty) {
-              return _EmptyCard(
+              return const _EmptyCard(
                   icon: LucideIcons.calendar,
                   title: 'No upcoming events',
                   subtitle: 'Past events have moved to History');
@@ -2218,7 +2218,7 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
               ),
               const SizedBox(width: 8),
               Text('+$pts',
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppTheme.accent,
                       fontSize: 14,
                       fontWeight: FontWeight.w800)),

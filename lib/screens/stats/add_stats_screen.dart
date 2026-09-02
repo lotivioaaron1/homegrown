@@ -515,9 +515,9 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
               color: const Color(0xFF0D3020),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: AppTheme.success)),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(Icons.check_circle_outline, color: AppTheme.success, size: 12),
-              const SizedBox(width: 4),
+              SizedBox(width: 4),
               Text('= Stats submitted',
                 style: TextStyle(color: AppTheme.success, fontSize: 10,
                     fontWeight: FontWeight.w600)),
@@ -527,7 +527,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ),
       Expanded(
         child: players.isEmpty
-            ? _EmptyState(
+            ? const _EmptyState(
                 icon: Icons.people_outline,
                 title: 'No players in this event',
                 subtitle: 'Add players when creating the event')
@@ -579,15 +579,15 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                             ],
                           )),
                           done
-                              ? Row(children: [
+                              ? const Row(children: [
                                   Icon(Icons.check_circle_rounded,
                                       color: AppTheme.success, size: 18),
-                                  const SizedBox(width: 4),
+                                  SizedBox(width: 4),
                                   Text('Done', style: TextStyle(
                                     color: AppTheme.success, fontSize: 11,
                                     fontWeight: FontWeight.w600)),
                                 ])
-                              : Icon(Icons.add_circle_outline_rounded,
+                              : const Icon(Icons.add_circle_outline_rounded,
                                   color: AppTheme.accent, size: 22),
                         ]),
                       ),

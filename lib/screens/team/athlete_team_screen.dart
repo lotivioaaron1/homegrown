@@ -68,7 +68,7 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
         _buildTopBar(),
         Expanded(
           child: _coachId.isEmpty
-              ? _EmptyCard(
+              ? const _EmptyCard(
                   icon: Icons.error_outline_rounded,
                   title: "Can't load this team",
                   subtitle: 'Go back and try again')
@@ -145,8 +145,8 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
         child: Row(children: [
           Container(
             width: 42, height: 42,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
                 begin: Alignment.topLeft, end: Alignment.bottomRight,
                 colors: [AppTheme.accent, AppTheme.accent2]),
               shape: BoxShape.circle),
@@ -211,7 +211,7 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
         // content there. (The home screen's deck still shows coach + you in
         // that case, which reads fine as a two-card deck.)
         if (teammates.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
             icon: Icons.groups_outlined,
             title: 'No teammates yet',
             subtitle: "You're currently the only athlete on this team");
@@ -492,8 +492,8 @@ class _TeammateCard extends StatelessWidget {
       child: Row(children: [
         Container(
           width: 42, height: 42,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [AppTheme.accent, AppTheme.accent2]),

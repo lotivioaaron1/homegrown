@@ -251,7 +251,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Form(key: _step1Key,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _StepHeader(emoji: '👤', title: 'Personal Info',
+          const _StepHeader(emoji: '👤', title: 'Personal Info',
               subtitle: 'Step 1 of 3 — Your information'),
           const SizedBox(height: 24),
           Row(children: [
@@ -320,10 +320,12 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
             validator: (v) {
               if (v!.isEmpty) return 'Password is required';
               if (v.length < 8) return 'At least 8 characters required';
-              if (!RegExp(r'[A-Z]').hasMatch(v))
+              if (!RegExp(r'[A-Z]').hasMatch(v)) {
                 return 'Add at least one uppercase letter';
-              if (!RegExp(r'[0-9]').hasMatch(v))
+              }
+              if (!RegExp(r'[0-9]').hasMatch(v)) {
                 return 'Add at least one number';
+              }
               return null;
             }),
           const SizedBox(height: 12),
@@ -443,7 +445,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
                 borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
             focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(_kRadius),
-                borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+                borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
           ),
         ),
         const SizedBox(height: 16),
@@ -615,7 +617,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
           borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

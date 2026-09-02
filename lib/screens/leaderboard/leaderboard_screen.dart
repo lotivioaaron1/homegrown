@@ -242,7 +242,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         border: Border.all(color: AppTheme.border)),
       child: Column(children: [
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(LucideIcons.crown, color: AppTheme.accent, size: 16),
+          const Icon(LucideIcons.crown, color: AppTheme.accent, size: 16),
           const SizedBox(width: 6),
           Text('Top Athletes', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w800)),
@@ -349,7 +349,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               style: TextStyle(
               color: AppTheme.accentText, fontSize: 12, fontWeight: FontWeight.w600)),
           ])),
-        Icon(LucideIcons.star, color: AppTheme.accent, size: 20),
+        const Icon(LucideIcons.star, color: AppTheme.accent, size: 20),
       ]),
     );
   }

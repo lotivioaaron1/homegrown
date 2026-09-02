@@ -229,7 +229,7 @@ class _SportPanel extends StatelessWidget {
             children: [
               Text(
                 data.eyebrow,
-                style: TextStyle(
+                style: const TextStyle(
                   color: AppTheme.accent,
                   fontSize: 12,
                   fontWeight: FontWeight.w800,

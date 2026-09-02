@@ -326,7 +326,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
             hintText: '0',
             hintStyle: TextStyle(color: AppTheme.muted, fontSize: 18),
             border: InputBorder.none, isDense: true,
-            contentPadding: EdgeInsets.only(top: 4)),
+            contentPadding: const EdgeInsets.only(top: 4)),
         ),
       ]),
     );

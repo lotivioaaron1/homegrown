@@ -348,7 +348,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
 
   Widget _progressBox(String status) {
     return Row(children: [
-      SizedBox(
+      const SizedBox(
         width: 16,
         height: 16,
         child: CircularProgressIndicator(

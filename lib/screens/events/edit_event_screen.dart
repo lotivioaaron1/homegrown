@@ -354,8 +354,8 @@ class _EditEventScreenState extends State<EditEventScreen> {
 
           Widget dropPinButton() => TextButton.icon(
                 onPressed: openMapPicker,
-                icon: Icon(Icons.add_location_alt_rounded, color: AppTheme.accent),
-                label: Text("Can't find it? Drop a pin",
+                icon: const Icon(Icons.add_location_alt_rounded, color: AppTheme.accent),
+                label: const Text("Can't find it? Drop a pin",
                     style: TextStyle(color: AppTheme.accent)),
               );
 
@@ -391,7 +391,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () => scheduleSearch(search.text),
-                  child: Text('Retry', style: TextStyle(color: AppTheme.accent)),
+                  child: const Text('Retry', style: TextStyle(color: AppTheme.accent)),
                 ),
                 dropPinButton(),
               ]));
@@ -460,7 +460,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
                         borderSide: BorderSide(color: AppTheme.border)),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+                        borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
                   ),
                 ),
               ),
@@ -503,7 +503,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
           subtitle:
               Text(v.address, style: TextStyle(color: AppTheme.muted, fontSize: 11)),
           trailing: sel
-              ? Icon(Icons.check_circle_rounded, color: AppTheme.accent, size: 20)
+              ? const Icon(Icons.check_circle_rounded, color: AppTheme.accent, size: 20)
               : null,
           onTap: () {
             setState(() => _selectedVenue = v);
@@ -809,7 +809,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
             borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(_kRadius),
-            borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+            borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
         errorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(_kRadius),
             borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

@@ -239,9 +239,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           // matches, so the manual pin can't be gated on zero results.
           Widget dropPinButton() => TextButton.icon(
             onPressed: openMapPicker,
-            icon: Icon(Icons.add_location_alt_rounded,
+            icon: const Icon(Icons.add_location_alt_rounded,
                 color: AppTheme.accent),
-            label: Text("Can't find it? Drop a pin",
+            label: const Text("Can't find it? Drop a pin",
                 style: TextStyle(color: AppTheme.accent)),
           );
 
@@ -286,14 +286,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                     width: double.infinity, height: 46,
                     child: ElevatedButton.icon(
                       onPressed: openMapPicker,
-                      icon: Icon(Icons.add_location_alt_rounded, size: 18),
-                      label: Text('Drop a Pin'),
+                      icon: const Icon(Icons.add_location_alt_rounded, size: 18),
+                      label: const Text('Drop a Pin'),
                     ),
                   ),
                   const SizedBox(height: 4),
                   TextButton(
                     onPressed: () => scheduleSearch(search.text),
-                    child: Text('Retry search',
+                    child: const Text('Retry search',
                         style: TextStyle(color: AppTheme.accent)),
                   ),
                 ],
@@ -358,7 +358,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         borderSide: BorderSide(color: AppTheme.border)),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
+                        borderSide: const BorderSide(
                             color: AppTheme.accent, width: 1.5)),
                   ),
                 ),
@@ -403,7 +403,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           subtitle: Text(v.address, style: TextStyle(
               color: AppTheme.muted, fontSize: 11)),
           trailing: sel
-              ? Icon(Icons.check_circle_rounded,
+              ? const Icon(Icons.check_circle_rounded,
                   color: AppTheme.accent, size: 20) : null,
           onTap: () {
             setState(() => _selectedVenue = v);
@@ -779,14 +779,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   ],
                   const SizedBox(height: 2),
                   Text('${players.length} player${players.length == 1 ? '' : 's'}',
-                      style: TextStyle(color: AppTheme.accent, fontSize: 11,
+                      style: const TextStyle(color: AppTheme.accent, fontSize: 11,
                           fontWeight: FontWeight.w700)),
                 ]),
               ),
               GestureDetector(
                 onTap: () => _pickTeamSheet(side),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   child: Text('Change', style: TextStyle(
                       color: AppTheme.accent, fontSize: 12, fontWeight: FontWeight.w700)),
                 ),
@@ -1132,7 +1132,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppTheme.accent)),
               child: Row(children: [
-                Icon(Icons.gps_fixed_rounded,
+                const Icon(Icons.gps_fixed_rounded,
                     color: AppTheme.accent, size: 14),
                 const SizedBox(width: 6),
                 Text(
@@ -1365,7 +1365,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(_kRadius),
-            borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+            borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
         errorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(_kRadius),
             borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

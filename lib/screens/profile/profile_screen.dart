@@ -51,7 +51,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               .snapshots(),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
-              return Center(
+              return const Center(
                 child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2.5),
               );
@@ -638,7 +638,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide:
-                            BorderSide(color: AppTheme.accent, width: 1.5)),
+                            const BorderSide(color: AppTheme.accent, width: 1.5)),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -689,7 +689,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   height: 220,
                   color: AppTheme.cardNested,
                   alignment: Alignment.center,
-                  child: CircularProgressIndicator(
+                  child: const CircularProgressIndicator(
                       color: AppTheme.accent, strokeWidth: 2),
                 ),
                 errorWidget: (_, __, ___) => Container(

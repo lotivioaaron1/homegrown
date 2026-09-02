@@ -102,14 +102,14 @@ class NoInternetOverlay extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                                 color: AppTheme.border)),
-                          child: Column(children: [
+                          child: const Column(children: [
                             _TipRow(icon: Icons.wifi_rounded,
                                 text: 'Check your Wi-Fi connection'),
-                            const SizedBox(height: 10),
+                            SizedBox(height: 10),
                             _TipRow(
                                 icon: Icons.signal_cellular_alt_rounded,
                                 text: 'Check your mobile data'),
-                            const SizedBox(height: 10),
+                            SizedBox(height: 10),
                             _TipRow(icon: Icons.airplane_ticket_rounded,
                                 text:
                                     'Make sure Airplane mode is off'),

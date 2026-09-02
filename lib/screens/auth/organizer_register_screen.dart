@@ -329,8 +329,9 @@ class _OrganizerRegisterScreenState
             keyboard: TextInputType.emailAddress,
             validator: (v) {
               if (v!.trim().isEmpty) return 'Email is required';
-              if (!GetUtils.isEmail(v.trim()))
+              if (!GetUtils.isEmail(v.trim())) {
                 return 'Enter a valid email';
+              }
               return null;
             }),
           const SizedBox(height: 12),
@@ -391,10 +392,12 @@ class _OrganizerRegisterScreenState
             validator: (v) {
               if (v!.isEmpty) return 'Password is required';
               if (v.length < 8) return 'At least 8 characters';
-              if (!RegExp(r'[A-Z]').hasMatch(v))
+              if (!RegExp(r'[A-Z]').hasMatch(v)) {
                 return 'Add at least one uppercase letter';
-              if (!RegExp(r'[0-9]').hasMatch(v))
+              }
+              if (!RegExp(r'[0-9]').hasMatch(v)) {
                 return 'Add at least one number';
+              }
               return null;
             }),
           const SizedBox(height: 12),
@@ -411,8 +414,9 @@ class _OrganizerRegisterScreenState
                 color: AppTheme.muted, size: 20)),
             validator: (v) {
               if (v!.isEmpty) return 'Please confirm your password';
-              if (v != _passwordCtrl.text)
+              if (v != _passwordCtrl.text) {
                 return 'Passwords do not match';
+              }
               return null;
             }),
           const SizedBox(height: 32),
@@ -528,7 +532,7 @@ class _OrganizerRegisterScreenState
                         style: TextStyle(
                             color: AppTheme.textPrimary, fontSize: 13,
                             fontWeight: FontWeight.w600))),
-                    Text('Change', style: TextStyle(
+                    const Text('Change', style: TextStyle(
                         color: AppTheme.accent, fontSize: 12,
                         fontWeight: FontWeight.w700)),
                   ])
@@ -569,7 +573,7 @@ class _OrganizerRegisterScreenState
         borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
     focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_kRadius),
-        borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+        borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
   );
 }
 
@@ -701,7 +705,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
           borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

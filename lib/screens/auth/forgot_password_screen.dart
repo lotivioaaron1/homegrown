@@ -179,7 +179,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             color:  AppTheme.accentSurface,
                             shape:  BoxShape.circle,
                             border: Border.all(color: AppTheme.accent, width: 2)),
-                          child: Center(
+                          child: const Center(
                               child: Icon(LucideIcons.lock,
                                   color: AppTheme.accent, size: 36)),
                         ),
@@ -246,10 +246,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                 color: _kErrorRed, fontSize: 12),
                           ),
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty)
+                            if (v == null || v.trim().isEmpty) {
                               return 'Email is required';
-                            if (!GetUtils.isEmail(v.trim()))
+                            }
+                            if (!GetUtils.isEmail(v.trim())) {
                               return 'Enter a valid email address';
+                            }
                             return null;
                           },
                         ),
@@ -368,7 +370,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       Text(
                         _emailCtrl.text.trim(),
                         textAlign: TextAlign.center,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color:      AppTheme.accent,
                           fontSize:   15,
                           fontWeight: FontWeight.w700)),
@@ -382,17 +384,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           color:        AppTheme.card,
                           borderRadius: BorderRadius.circular(16),
                           border:       Border.all(color: AppTheme.border)),
-                        child: Column(children: [
+                        child: const Column(children: [
                           _InfoRow(
                             icon:  LucideIcons.inbox,
                             text:  'Check your email inbox (and spam folder)',
                           ),
-                          const SizedBox(height: 12),
+                          SizedBox(height: 12),
                           _InfoRow(
                             icon:  LucideIcons.mousePointerClick,
                             text:  'Click the reset link in the email',
                           ),
-                          const SizedBox(height: 12),
+                          SizedBox(height: 12),
                           _InfoRow(
                             // Lucide has no exact "lock-reset" icon — a
                             // key stands in for "get a new password".
@@ -424,7 +426,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: _isLoading
-                              ? SizedBox(
+                              ? const SizedBox(
                                   width: 18, height: 18,
                                   child: CircularProgressIndicator(
                                       strokeWidth: 2, color: AppTheme.accent))

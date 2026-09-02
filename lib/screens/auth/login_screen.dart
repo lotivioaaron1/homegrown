@@ -156,10 +156,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         iconData: LucideIcons.mail,
                       ),
                       validator: (v) {
-                        if (v == null || v.trim().isEmpty)
+                        if (v == null || v.trim().isEmpty) {
                           return 'Email is required';
-                        if (!GetUtils.isEmail(v.trim()))
+                        }
+                        if (!GetUtils.isEmail(v.trim())) {
                           return 'Enter a valid email';
+                        }
                         return null;
                       },
                     ),
@@ -191,10 +193,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       validator: (v) {
-                        if (v == null || v.isEmpty)
+                        if (v == null || v.isEmpty) {
                           return 'Password is required';
-                        if (v.length < 8)
+                        }
+                        if (v.length < 8) {
                           return 'At least 8 characters required';
+                        }
                         return null;
                       },
                     ),
@@ -268,7 +272,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               borderRadius: BorderRadius.circular(_kRadius)),
                         ),
                         child: _auth.isGoogleLoading.value
-                            ? SizedBox(
+                            ? const SizedBox(
                                 width: 20, height: 20,
                                 child: CircularProgressIndicator(
                                     strokeWidth: 2.2, color: AppTheme.accent))

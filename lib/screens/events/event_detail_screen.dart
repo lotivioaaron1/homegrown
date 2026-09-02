@@ -203,9 +203,9 @@ class EventDetailScreen extends StatelessWidget {
                 GestureDetector(
                   onTap: () => Get.toNamed('/events/edit',
                       arguments: {'eventId': _eventId}),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.tune_rounded, color: AppTheme.accent, size: 13),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 4),
                     Text('Edit Event', style: TextStyle(
                         color: AppTheme.accent, fontSize: 12,
                         fontWeight: FontWeight.w700)),
@@ -217,9 +217,9 @@ class EventDetailScreen extends StatelessWidget {
                 GestureDetector(
                   onTap: () => Get.toNamed('/events/edit-teams',
                       arguments: {'eventId': _eventId}),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.edit_outlined, color: AppTheme.accent, size: 13),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 4),
                     Text('Edit Teams', style: TextStyle(
                         color: AppTheme.accent, fontSize: 12,
                         fontWeight: FontWeight.w700)),
@@ -258,7 +258,7 @@ class EventDetailScreen extends StatelessWidget {
                       backgroundColor: AppTheme.accent,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12))),
-                  child: Text('Record Match Results', style: TextStyle(
+                  child: const Text('Record Match Results', style: TextStyle(
                       color: AppTheme.buttonFg, fontSize: 14,
                       fontWeight: FontWeight.w700)),
                 ),
@@ -309,8 +309,8 @@ class EventDetailScreen extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                 leading: Container(
                   width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [AppTheme.accent, AppTheme.accent2]),
@@ -370,11 +370,11 @@ class EventDetailScreen extends StatelessWidget {
                   ? _confirmCancel(context, ev)
                   : _confirmDelete(context),
               style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: AppTheme.error),
+                  side: const BorderSide(color: AppTheme.error),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12))),
               child: Text(hasMatches ? 'Cancel Event' : 'Delete Event',
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppTheme.error,
                       fontSize: 14,
                       fontWeight: FontWeight.w700)),
@@ -409,7 +409,7 @@ class EventDetailScreen extends StatelessWidget {
                   .collection('events').doc(_eventId).delete();
               Get.back();
             },
-            child: Text('Delete', style: TextStyle(
+            child: const Text('Delete', style: TextStyle(
                 color: AppTheme.error, fontSize: 14, fontWeight: FontWeight.w700)),
           ),
         ],
@@ -439,7 +439,7 @@ class EventDetailScreen extends StatelessWidget {
               Navigator.pop(dialogContext);
               await _cancelEvent(ev);
             },
-            child: Text('Cancel Event', style: TextStyle(
+            child: const Text('Cancel Event', style: TextStyle(
                 color: AppTheme.error, fontSize: 14, fontWeight: FontWeight.w700)),
           ),
         ],
@@ -548,7 +548,7 @@ class _TeamScore extends StatelessWidget {
           fontSize: 24, fontWeight: FontWeight.w900)),
       if (isWinner) ...[
         const SizedBox(height: 4),
-        Icon(Icons.emoji_events_rounded, color: AppTheme.accent, size: 14),
+        const Icon(Icons.emoji_events_rounded, color: AppTheme.accent, size: 14),
       ],
     ]);
   }

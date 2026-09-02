@@ -328,10 +328,12 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
             validator: (v) {
               if (v!.isEmpty) return 'Password is required';
               if (v.length < 8) return 'At least 8 characters';
-              if (!RegExp(r'[A-Z]').hasMatch(v))
+              if (!RegExp(r'[A-Z]').hasMatch(v)) {
                 return 'Add at least one uppercase letter';
-              if (!RegExp(r'[0-9]').hasMatch(v))
+              }
+              if (!RegExp(r'[0-9]').hasMatch(v)) {
                 return 'Add at least one number';
+              }
               return null;
             }),
           const SizedBox(height: 12),
@@ -471,7 +473,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
     focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_kRadius),
-        borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+        borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
   );
 }
 
@@ -592,7 +594,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
           borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

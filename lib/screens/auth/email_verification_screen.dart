@@ -156,7 +156,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                             color: AppTheme.accentSurface,
                             shape: BoxShape.circle,
                             border: Border.all(color: AppTheme.accent, width: 2)),
-                          child: Center(
+                          child: const Center(
                               child: Icon(LucideIcons.mailCheck,
                                   color: AppTheme.accent, size: 42)),
                         ),
@@ -179,7 +179,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(_email, textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: const TextStyle(
                             color:      AppTheme.accent,
                             fontSize:   15,
                             fontWeight: FontWeight.w700)),
@@ -229,7 +229,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             child: _isResending
-                                ? SizedBox(width: 18, height: 18,
+                                ? const SizedBox(width: 18, height: 18,
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2, color: AppTheme.accent))
                                 : Text(

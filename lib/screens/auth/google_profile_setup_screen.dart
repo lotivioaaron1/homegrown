@@ -48,7 +48,7 @@ class _GoogleProfileSetupScreenState
   final _heightCtrl                     = TextEditingController();
   final _weightCtrl                     = TextEditingController();
   final _bioCtrl                        = TextEditingController();
-  bool _isPublic           = true;
+  final bool _isPublic           = true;
   bool _openToRecruitment  = true;
 
   // ── Coach ─────────────────────────────────
@@ -606,7 +606,7 @@ class _RoleCard extends StatelessWidget {
               color: AppTheme.sub, fontSize: 12, height: 1.4)),
         ])),
         if (isSelected)
-          Icon(Icons.check_circle_rounded,
+          const Icon(Icons.check_circle_rounded,
               color: AppTheme.accent, size: 22),
       ]),
     ),
@@ -728,7 +728,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
     ),
   );
 }

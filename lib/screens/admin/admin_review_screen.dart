@@ -214,7 +214,7 @@ class _OrganizerCard extends StatelessWidget {
               Navigator.pop(dialogContext);
               _decide('revoked');
             },
-            child: Text('Revoke', style: TextStyle(
+            child: const Text('Revoke', style: TextStyle(
                 color: AppTheme.error, fontSize: 14, fontWeight: FontWeight.w700)),
           ),
         ],
@@ -280,10 +280,10 @@ class _OrganizerCard extends StatelessWidget {
             child: OutlinedButton(
               onPressed: () => _confirmRevoke(context),
               style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: AppTheme.error),
+                  side: const BorderSide(color: AppTheme.error),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10))),
-              child: Text('Revoke',
+              child: const Text('Revoke',
                   style: TextStyle(color: AppTheme.error, fontSize: 13)),
             ),
           )
@@ -293,10 +293,10 @@ class _OrganizerCard extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: () => _decide('rejected'),
                 style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppTheme.error),
+                    side: const BorderSide(color: AppTheme.error),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10))),
-                child: Text('Reject',
+                child: const Text('Reject',
                     style: TextStyle(color: AppTheme.error, fontSize: 13)),
               ),
             ),
@@ -339,18 +339,18 @@ class _VerificationDoc extends StatelessWidget {
           // the read itself) and needs to look different so it doesn't get
           // misread as "this organizer skipped the photo."
           return Row(children: [
-            Icon(Icons.error_outline, color: AppTheme.error, size: 14),
+            const Icon(Icons.error_outline, color: AppTheme.error, size: 14),
             const SizedBox(width: 6),
             Expanded(child: Text("Couldn't load photo: ${snapshot.error}",
-                style: TextStyle(color: AppTheme.error, fontSize: 11))),
+                style: const TextStyle(color: AppTheme.error, fontSize: 11))),
           ]);
         }
         final bytes = snapshot.data;
         if (bytes == null) {
-          return Row(children: [
+          return const Row(children: [
             Icon(Icons.warning_amber_rounded,
                 color: AppTheme.error, size: 14),
-            const SizedBox(width: 6),
+            SizedBox(width: 6),
             Text('No verification photo attached',
                 style: TextStyle(color: AppTheme.error, fontSize: 11)),
           ]);

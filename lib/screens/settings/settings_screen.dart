@@ -73,7 +73,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               .snapshots(),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
-              return Center(
+              return const Center(
                 child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2.5),
               );
@@ -156,7 +156,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             decoration: BoxDecoration(
                 color: AppTheme.accentSurface,
                 borderRadius: BorderRadius.circular(10)),
-            child: Icon(LucideIcons.pencil, color: AppTheme.accent, size: 16),
+            child: const Icon(LucideIcons.pencil, color: AppTheme.accent, size: 16),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -331,7 +331,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: AppTheme.accent)),
                 child:
-                    Icon(LucideIcons.flame, color: AppTheme.accent, size: 18),
+                    const Icon(LucideIcons.flame, color: AppTheme.accent, size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -520,7 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: Switch(
                 value: isDark,
                 onChanged: (_) => ThemeController.to.toggleTheme(),
-                activeColor: AppTheme.accent,
+                activeThumbColor: AppTheme.accent,
                 inactiveThumbColor: AppTheme.muted,
                 inactiveTrackColor: AppTheme.border,
               ),

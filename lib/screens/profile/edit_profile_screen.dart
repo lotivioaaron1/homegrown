@@ -293,7 +293,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(_kRadius),
                         borderSide:
-                            BorderSide(color: AppTheme.accent, width: 1.5)),
+                            const BorderSide(color: AppTheme.accent, width: 1.5)),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -406,7 +406,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ])),
                       Switch(
                         value: _openToRecruitment,
-                        activeColor: AppTheme.accent,
+                        activeThumbColor: AppTheme.accent,
                         onChanged: (v) =>
                             setState(() => _openToRecruitment = v),
                       ),
@@ -420,7 +420,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   child: ElevatedButton(
                     onPressed: _isSaving ? null : _save,
                     child: _isSaving
-                        ? SizedBox(
+                        ? const SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
@@ -445,9 +445,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         Container(
           width: 104,
           height: 104,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [AppTheme.accent, AppTheme.accent2]),
@@ -518,7 +518,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(_kRadius),
-            borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+            borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       ),
     );
   }

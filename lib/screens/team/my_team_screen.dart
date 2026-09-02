@@ -197,7 +197,7 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
             ),
             GestureDetector(
               onTap: () => _renameTeam(teamName),
-              child: Icon(Icons.edit_outlined, color: AppTheme.accent, size: 18),
+              child: const Icon(Icons.edit_outlined, color: AppTheme.accent, size: 18),
             ),
           ]),
         );
@@ -257,7 +257,7 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
               await FirebaseFirestore.instance.collection('users').doc(_uid)
                   .update({'teamOrganization': name});
             },
-            child: Text('Save', style: TextStyle(
+            child: const Text('Save', style: TextStyle(
                 color: AppTheme.accent, fontSize: 14, fontWeight: FontWeight.w700)),
           ),
         ],
@@ -375,7 +375,7 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
               .compareTo(a.createdAt ?? DateTime(0)));
 
         if (invites.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
             icon: Icons.mail_outline_rounded,
             title: 'No pending invites',
             subtitle: 'Invites you send will show up here until answered',
@@ -481,8 +481,8 @@ class _RosterCard extends StatelessWidget {
         child: Row(children: [
           Container(
             width: 42, height: 42,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [AppTheme.accent, AppTheme.accent2]),
@@ -605,7 +605,7 @@ class _EmptyCard extends StatelessWidget {
         const SizedBox(height: 14),
         TextButton(
           onPressed: onAction,
-          child: Text(actionLabel!, style: TextStyle(
+          child: Text(actionLabel!, style: const TextStyle(
               color: AppTheme.accent, fontWeight: FontWeight.w700)),
         ),
       ],

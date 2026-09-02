@@ -481,7 +481,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
           Switch(
             value:             _openOnly,
             onChanged:         (v) => setState(() => _openOnly = v),
-            activeColor:       AppTheme.success,
+            activeThumbColor:       AppTheme.success,
             inactiveThumbColor: AppTheme.muted,
             inactiveTrackColor: AppTheme.border,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -532,7 +532,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
       stream: _athleteStream(coachSports),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator(
+          return const Center(child: CircularProgressIndicator(
               color: AppTheme.accent, strokeWidth: 2.5));
         }
         if (snapshot.hasError) {

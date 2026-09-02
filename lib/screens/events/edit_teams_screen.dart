@@ -179,8 +179,8 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                   leading: Container(
                     width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [AppTheme.accent, AppTheme.accent2]),
@@ -214,7 +214,7 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
                 ? const SizedBox(width: 22, height: 22,
                     child: CircularProgressIndicator(
                         color: AppTheme.buttonFg, strokeWidth: 2))
-                : Text('Save Changes', style: TextStyle(
+                : const Text('Save Changes', style: TextStyle(
                     color: AppTheme.buttonFg, fontSize: 14,
                     fontWeight: FontWeight.w700)),
           ),
@@ -239,7 +239,7 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
     ),
   );
 

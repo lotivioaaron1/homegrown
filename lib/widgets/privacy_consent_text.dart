@@ -56,7 +56,7 @@ class _PrivacyConsentTextState extends State<PrivacyConsentText> {
           TextSpan(
             text: 'Privacy Policy',
             recognizer: _tap,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.accent,
               fontWeight: FontWeight.w700,
               decoration: TextDecoration.underline,

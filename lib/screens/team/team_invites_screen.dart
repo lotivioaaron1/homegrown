@@ -135,7 +135,7 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
               .compareTo(a.createdAt ?? DateTime(0)));
 
         if (invites.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
               icon: Icons.mail_outline_rounded,
               title: 'No pending invites',
               subtitle: 'Coaches who invite you will show up here');
@@ -171,7 +171,7 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
               .compareTo(a.respondedAt ?? DateTime(0)));
 
         if (teams.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
               icon: Icons.groups_outlined,
               title: "You're not on a team yet",
               subtitle: 'Accept an invite above to join one');

@@ -121,17 +121,21 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           .where('isPublic', isEqualTo: true)
           .limit(kMaxMapQuery)
           .get();
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _events    = snap.docs
             .map((d) => d.data())
             .where(isEventUpcoming)
             .toList();
         _isLoading = false;
       });
+      }
     } catch (e) {
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _error = friendlyError(e); _isLoading = false;
       });
+      }
     }
   }
 
@@ -339,7 +343,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppTheme.accent)),
               child: Row(children: [
-                Icon(Icons.directions_car_rounded,
+                const Icon(Icons.directions_car_rounded,
                     color: AppTheme.accent, size: 18),
                 const SizedBox(width: 8),
                 Expanded(child: Text(
@@ -400,7 +404,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
         _buildTopBar(),
         _buildFilters(),
         Expanded(child: _isLoading
-            ? Center(child: CircularProgressIndicator(
+            ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))
             : _error != null
                 ? _buildError()
@@ -451,7 +455,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           decoration: BoxDecoration(color: AppTheme.card,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppTheme.border)),
-          child: Icon(Icons.refresh_rounded,
+          child: const Icon(Icons.refresh_rounded,
               color: AppTheme.accent, size: 20)),
       ),
     ]),
@@ -552,7 +556,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppTheme.accent)),
             child: Row(children: [
-              Icon(Icons.directions_car_rounded,
+              const Icon(Icons.directions_car_rounded,
                   color: AppTheme.accent, size: 18),
               const SizedBox(width: 8),
               Expanded(child: Text(
@@ -648,7 +652,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           fontWeight: FontWeight.w700)),
       const SizedBox(height: 8),
       GestureDetector(onTap: _loadEvents,
-        child: Text('Tap to retry', style: TextStyle(
+        child: const Text('Tap to retry', style: TextStyle(
             color: AppTheme.accent, fontSize: 13,
             fontWeight: FontWeight.w600))),
     ]),
@@ -752,7 +756,7 @@ class _EventTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis)),
               if (hasGps) ...[
                 const SizedBox(width: 4),
-                Icon(Icons.gps_fixed_rounded,
+                const Icon(Icons.gps_fixed_rounded,
                     color: AppTheme.success, size: 10),
               ],
             ]),

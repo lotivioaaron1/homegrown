@@ -177,7 +177,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/register/athlete',   page: () => const AthleteRegisterScreen()),
         GetPage(name: '/register/coach',     page: () => const CoachRegisterScreen()),
         GetPage(name: '/register/organizer', page: () => const OrganizerRegisterScreen()),
-        GetPage(name: '/home',               page: () => HomeScreen()),
+        GetPage(name: '/home',               page: () => const HomeScreen()),
         GetPage(name: '/events/create',      page: () => const CreateEventScreen()),
         GetPage(name: '/events/detail',      page: () => const EventDetailScreen()),
         GetPage(name: '/events/edit-teams',  page: () => const EditTeamsScreen()),

@@ -175,7 +175,7 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide:
-                          BorderSide(color: AppTheme.accent, width: 1.5)),
+                          const BorderSide(color: AppTheme.accent, width: 1.5)),
                 ),
               ),
               const SizedBox(height: 12),

@@ -68,7 +68,7 @@ class _PerformanceDashboardScreenState
                 builder: (context, userSnap) {
                   if (statsSnap.connectionState == ConnectionState.waiting ||
                       userSnap.connectionState == ConnectionState.waiting) {
-                    return Center(child: CircularProgressIndicator(
+                    return const Center(child: CircularProgressIndicator(
                         color: AppTheme.accent, strokeWidth: 2.5));
                   }
                   final userData = userSnap.data?.data()
@@ -288,9 +288,9 @@ class _PerformanceDashboardScreenState
                 FlLine(color: AppTheme.border, strokeWidth: 1)),
           borderData: FlBorderData(show: false),
           titlesData: FlTitlesData(
-            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 34,
@@ -351,8 +351,8 @@ class _PerformanceDashboardScreenState
             ),
           ),
         ),
-        swapAnimationDuration: const Duration(milliseconds: 400),
-        swapAnimationCurve: Curves.easeInOut,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
       ),
     );
   }
@@ -385,7 +385,7 @@ class _PerformanceDashboardScreenState
           decoration: BoxDecoration(color: AppTheme.accentSurface,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: AppTheme.accent)),
-          child: Center(child: Icon(LucideIcons.barChart2,
+          child: const Center(child: Icon(LucideIcons.barChart2,
               color: AppTheme.accent, size: 34))),
         const SizedBox(height: 20),
         Text('No stats yet', style: TextStyle(
@@ -557,7 +557,7 @@ class _GameHistoryTileState extends State<_GameHistoryTile> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('+$pts', style: TextStyle(
+              Text('+$pts', style: const TextStyle(
                   color: AppTheme.accent,
                   fontSize: 14,
                   fontWeight: FontWeight.w800)),
