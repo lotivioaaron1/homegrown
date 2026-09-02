@@ -428,7 +428,7 @@ class _OrganizerRegisterScreenState
   // ── Step 2 — Organization Details ─────────
 
   Widget _buildStep2() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -461,6 +461,7 @@ class _OrganizerRegisterScreenState
                       : _sportsOrganized.add(s)));
           }).toList()),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(label: 'Next', onTap: _nextStep),
       ]),
     );
@@ -469,7 +470,7 @@ class _OrganizerRegisterScreenState
   // ── Step 3 — Bio & Credentials ────────────
 
   Widget _buildStep3() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -543,6 +544,7 @@ class _OrganizerRegisterScreenState
         const SizedBox(height: 24),
         const PrivacyConsentText(),
         const SizedBox(height: 14),
+        const Spacer(),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))

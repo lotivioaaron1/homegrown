@@ -355,7 +355,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   // ── Step 2 ────────────────────────────────
 
   Widget _buildStep2() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '🏅', title: 'Your Sport',
@@ -407,6 +407,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           ])),
         ]),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(label: 'Next', onTap: _nextStep),
       ]),
     );
@@ -415,7 +416,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   // ── Step 3 ────────────────────────────────
 
   Widget _buildStep3() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '🪪', title: 'Profile',
@@ -468,6 +469,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
         const SizedBox(height: 24),
         const PrivacyConsentText(),
         const SizedBox(height: 14),
+        const Spacer(),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))

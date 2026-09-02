@@ -103,4 +103,65 @@ void main() {
       });
     });
   });
+
+  // Steps 2 and 3 kept the plain SingleChildScrollView that step 1 was moved
+  // off, so their button sat directly under the last field with dead space
+  // below it — the button jumped up the screen as you advanced through a
+  // flow. They now use the same FillViewportScroll + Spacer as step 1.
+  group('later steps put the button in the same place as step 1', () {
+    testWidgets('athlete steps 2 and 3 track the bottom', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+          const GetMaterialApp(home: AthleteRegisterScreen()));
+      await tester.pumpAndSettle();
+
+      Future<void> fill(String hint, String value) async {
+        await tester.enterText(find.widgetWithText(TextFormField, hint), value);
+        await tester.pump();
+      }
+
+      await fill('First Name', 'Test');
+      await fill('Last Name', 'Athlete');
+      await fill('Email Address', 'test@example.com');
+      // Must clear the step's own rules: 8+ chars, an uppercase and a digit.
+      await fill('Password', 'Password123');
+      await fill('Confirm Password', 'Password123');
+
+      // Barangay is required to leave step 1. The picker is backed by
+      // BarangayService, which falls back to a bundled list when offline —
+      // which is what it does here.
+      await tester.tap(find.text('Select Barangay (Legazpi City)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(ListTile).first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Next'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Step 2 of 3 — Athletic details'), findsOneWidget,
+          reason: 'the rest of this test depends on reaching step 2');
+      expect(
+          tester.getRect(find.widgetWithText(ElevatedButton, 'Next')).bottom,
+          moreOrLessEquals(876, epsilon: 1),
+          reason: "step 2's button should sit where step 1's does, not "
+              'directly under the last field');
+
+      // Step 2 needs a sport and a years chip before it will advance.
+      await tester.tap(find.text('Basketball'));
+      await tester.tap(find.text('3-5 Yrs'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Next'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Step 3 of 3 — Photo & visibility'), findsOneWidget);
+      expect(
+          tester
+              .getRect(find.widgetWithText(ElevatedButton, 'Create Account'))
+              .bottom,
+          moreOrLessEquals(876, epsilon: 1),
+          reason: "step 3's Create Account button should sit at the same "
+              'height as every other step button');
+    });
+  });
 }
