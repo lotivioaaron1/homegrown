@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import '../../constants/maps_config.dart';
 import '../../theme/app_theme.dart';
 import '../../models/venue.dart';
 import '../../services/notification_service.dart';
@@ -167,6 +168,22 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   searchFailed = false; isSearching = false;
                 });
               }
+              return;
+            }
+            // Built without --dart-define-from-file=dart_defines.json, so the
+            // key is empty and Google would answer REQUEST_DENIED. Saying so
+            // is the whole point of this guard: the generic failure path below
+            // reads as "Google is down" and sends people hunting the wrong
+            // problem for hours.
+            if (!MapsConfig.isConfigured) {
+              if (ctx.mounted) {
+                setModal(() {
+                  results = []; isSearching = false;
+                  hasSearched = true; searchFailed = true;
+                });
+              }
+              _snack('Search Unavailable', MapsConfig.missingKeyMessage,
+                  isError: true);
               return;
             }
             if (ctx.mounted) {

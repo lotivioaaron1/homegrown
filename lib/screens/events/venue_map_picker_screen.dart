@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../../constants/maps_config.dart';
 import '../../models/venue.dart';
 import '../../services/geocoding_service.dart';
 import '../../theme/app_theme.dart';
@@ -59,8 +60,14 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
     setState(() {
       _tapped = point;
       _address = null;
-      _isResolving = true;
+      // Without a key the lookup can only fail, so don't sit on a spinner
+      // pretending to resolve an address that will never arrive. The pin and
+      // the manual name field still work, which is the whole fallback this
+      // screen exists to provide.
+      _isResolving = MapsConfig.isConfigured;
     });
+
+    if (!MapsConfig.isConfigured) return;
 
     _geocodeDebounce?.cancel();
     _geocodeDebounce = Timer(
