@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../services/storage_service.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/sports.dart';
 
 const _kRadius = 14.0;
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
@@ -36,11 +37,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _weightCtrl = TextEditingController();
   String? _barangay;
   final _bioCtrl = TextEditingController();
-  String _sport = '';
+  List<String> _sports = [];
   String _experience = '';
   bool _openToRecruitment = false;
   String _role = '';
   List<String> _sportsOrganized = [];
+
+  /// Coaches register their experience as `yearsOfExperience` and their
+  /// profile view reads that field back; athletes use `yearsOfPlaying`.
+  /// This screen used to read and write `yearsOfPlaying` for everyone, so a
+  /// coach's Experience always loaded blank and saving it silently did nothing.
+  String get _experienceField =>
+      _role == 'coach' ? 'yearsOfExperience' : 'yearsOfPlaying';
 
   @override
   void initState() {
@@ -76,11 +84,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _weightCtrl.text = data['weightKg']?.toString() ?? '';
       _barangay = data['barangay'] as String?;
       _bioCtrl.text = data['bio'] as String? ?? '';
-      _experience = data['yearsOfPlaying'] as String? ?? '';
+      // Reads _role, which is assigned above — keep that ordering.
+      _experience = data[_experienceField] as String? ?? '';
       _openToRecruitment = data['openToRecruitment'] as bool? ?? false;
       _existingPhotoUrl = data['photoUrl'] as String?;
-      final sports = (data['primarySports'] as List?)?.cast<String>();
-      _sport = sports != null && sports.isNotEmpty ? sports.first : '';
+      _sports = sportsOf(data);
     } catch (_) {
       // fields just stay blank; user can fill them in
     } finally {
@@ -117,14 +125,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await FirebaseFirestore.instance.collection('users').doc(_uid).update({
         'firstName': _firstNameCtrl.text.trim(),
         'lastName': _lastNameCtrl.text.trim(),
+        // Registration writes `fullName` and a lot of screens (leaderboard,
+        // events, admin review, the team carousel) read it in preference to
+        // the name parts. This screen used to leave it untouched, so renaming
+        // yourself changed first/last but every one of those screens kept
+        // showing whoever you used to be.
+        'fullName': '${_firstNameCtrl.text.trim()} '
+            '${_lastNameCtrl.text.trim()}'.trim(),
         'position': _positionCtrl.text.trim(),
         'heightCm': _heightCtrl.text.trim(),
         'weightKg': _weightCtrl.text.trim(),
         'bio': _bioCtrl.text.trim(),
         'barangay': _barangay ?? '',
-        'yearsOfPlaying': _experience,
-        'openToRecruitment': _openToRecruitment,
-        if (_sport.isNotEmpty) 'primarySports': [_sport],
+        _experienceField: _experience,
+        // Recruitment is an athlete-only signal; coaches and organizers don't
+        // see the toggle, so don't write a field they can't control.
+        if (_role == 'athlete') 'openToRecruitment': _openToRecruitment,
+        // Left untouched when nothing is selected, rather than cleared: an
+        // empty list would hide an athlete from every coach's Scout, and
+        // stop a coach from scouting at all.
+        if (_sports.isNotEmpty) 'primarySports': _sports,
         if (_role == 'organizer') 'sportsOrganized': _sportsOrganized,
         if (photoUrl != null) 'photoUrl': photoUrl,
       });
@@ -279,13 +299,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 20),
                 Align(
                     alignment: Alignment.centerLeft,
-                    child: _label('Sport')),
+                    child: _label(_role == 'coach'
+                        ? 'Sport(s) You Coach'
+                        : 'Sport(s) You Play')),
+                const SizedBox(height: 4),
+                if (_role == 'coach')
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                        'Scouting only shows athletes from these sports.',
+                        style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                  ),
                 const SizedBox(height: 8),
+                // Multi-select, matching registration. This used to be a
+                // single choice that saved `[_sport]`, so a coach of two
+                // sports silently lost one by editing anything on this page
+                // — and with scouting gated on this field, that would cut
+                // them off from half their athletes.
                 Wrap(
                   spacing: 8,
+                  runSpacing: 8,
                   children: _kSports
-                      .map((s) => _chip(s, _sport == s,
-                          () => setState(() => _sport = s)))
+                      .map((s) => _chip(
+                          s,
+                          _sports.contains(s),
+                          () => setState(() => _sports.contains(s)
+                              ? _sports.remove(s)
+                              : _sports.add(s))))
                       .toList(),
                 ),
                 const SizedBox(height: 20),
@@ -327,35 +367,39 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         .toList(),
                   ),
                 ],
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                      color: AppTheme.card,
-                      borderRadius: BorderRadius.circular(_kRadius),
-                      border: Border.all(color: AppTheme.border)),
-                  child: Row(children: [
-                    Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text('Open to Recruitment',
-                              style: TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700)),
-                          Text('Let coaches know you\'re available',
-                              style: TextStyle(
-                                  color: AppTheme.sub, fontSize: 11)),
-                        ])),
-                    Switch(
-                      value: _openToRecruitment,
-                      activeColor: AppTheme.accent,
-                      onChanged: (v) =>
-                          setState(() => _openToRecruitment = v),
-                    ),
-                  ]),
-                ),
+                // Athletes only — a coach or organizer is never the one being
+                // recruited, so the toggle would be meaningless to them.
+                if (_role == 'athlete') ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(_kRadius),
+                        border: Border.all(color: AppTheme.border)),
+                    child: Row(children: [
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text('Open to Recruitment',
+                                style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700)),
+                            Text('Let coaches know you\'re available',
+                                style: TextStyle(
+                                    color: AppTheme.sub, fontSize: 11)),
+                          ])),
+                      Switch(
+                        value: _openToRecruitment,
+                        activeColor: AppTheme.accent,
+                        onChanged: (v) =>
+                            setState(() => _openToRecruitment = v),
+                      ),
+                    ]),
+                  ),
+                ],
                 const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,

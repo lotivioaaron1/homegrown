@@ -142,7 +142,9 @@ class _GoogleProfileSetupScreenState
         'role':      _role,
         'barangay':  _selectedBarangay,
         'authProvider': 'google',
-        'profileImageUrl':
+        // Every avatar in the app reads 'photoUrl' (home, profile,
+        // leaderboard, scout, team). Don't invent a second field name here.
+        'photoUrl':
             FirebaseAuth.instance.currentUser?.photoURL ?? '',
         'updatedAt': FieldValue.serverTimestamp(),
       };

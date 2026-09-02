@@ -785,17 +785,17 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
         color: selected
-            ? (isWin ? const Color(0xFF0D2E20) : const Color(0xFF2A1010))
+            ? (isWin ? AppTheme.successSurface : AppTheme.errorSurface)
             : AppTheme.card,
         borderRadius: BorderRadius.circular(_kRadius),
         border: Border.all(
           color: selected
-              ? (isWin ? AppTheme.success : _kErrorRed)
+              ? (isWin ? AppTheme.successText : AppTheme.errorText)
               : AppTheme.border,
           width: selected ? 2 : 1.5)),
       child: Center(child: Text(label, style: TextStyle(
         color: selected
-            ? (isWin ? AppTheme.success : _kErrorRed)
+            ? (isWin ? AppTheme.successText : AppTheme.errorText)
             : AppTheme.muted,
         fontSize: 14, fontWeight: FontWeight.w700))),
     );

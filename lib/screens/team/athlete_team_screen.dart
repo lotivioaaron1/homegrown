@@ -9,6 +9,8 @@ import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
 import '../../utils/stat_scoring.dart';
+import '../../widgets/coach_profile_sheet.dart';
+import '../../widgets/member_profiles.dart';
 
 /// An athlete's read-only view of their own team: who their coach is and
 /// who their teammates are, with tap-through to each person's profile.
@@ -177,121 +179,12 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
     );
   }
 
-  void _showCoachProfile() {
-    final c = _coachProfile ?? {};
-    final name = c['fullName'] as String? ?? _coachName;
-    final level = c['coachingLevel'] as String? ?? '—';
-    final years = c['yearsOfExperience'] as String? ?? '—';
-    final org = c['teamOrganization'] as String? ?? '—';
-    final barangay = c['barangay'] as String? ?? '—';
-    final certifications = (c['certifications'] as String? ?? '').trim();
-    final bio = (c['coachingBio'] as String? ?? '').trim();
-    final sports = (c['primarySports'] as List?)
-        ?.map((e) => e.toString()).join(', ') ?? '—';
-    final photoUrl = c['photoUrl'] as String?;
-    final initials = name.trim().split(' ')
-        .where((p) => p.isNotEmpty).take(2)
-        .map((p) => p[0]).join().toUpperCase();
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.card,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        builder: (_, ctrl) => SingleChildScrollView(
-          controller: ctrl,
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4,
-                decoration: BoxDecoration(
-                    color: AppTheme.border, borderRadius: BorderRadius.circular(2)))),
-              const SizedBox(height: 20),
-              Center(child: Column(children: [
-                Container(
-                  width: 72, height: 72,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft, end: Alignment.bottomRight,
-                      colors: [AppTheme.accent, AppTheme.accent2]),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppTheme.accent, width: 2.5)),
-                  child: ClipOval(
-                    child: photoUrl != null && photoUrl.isNotEmpty
-                        ? Image.network(photoUrl, fit: BoxFit.cover, width: 72, height: 72,
-                            errorBuilder: (_, __, ___) => Center(child: Text(initials,
-                                style: const TextStyle(color: AppTheme.buttonFg,
-                                    fontSize: 22, fontWeight: FontWeight.w900))))
-                        : Center(child: Text(initials, style: const TextStyle(
-                            color: AppTheme.buttonFg, fontSize: 22, fontWeight: FontWeight.w900))),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(name, style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 3),
-                Text('$level Coach · $barangay',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 13)),
-              ])),
-              const SizedBox(height: 20),
-              Divider(color: AppTheme.border),
-              const SizedBox(height: 12),
-              _InfoRow(label: 'Coaching Level', value: level),
-              const SizedBox(height: 8),
-              _InfoRow(label: 'Experience', value: years),
-              const SizedBox(height: 8),
-              _InfoRow(label: 'Team / Org', value: org),
-              const SizedBox(height: 8),
-              _InfoRow(label: 'Sport(s)', value: sports),
-              if (certifications.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text('Certifications', style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: AppTheme.cardNested,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppTheme.border)),
-                  child: Text(certifications, style: TextStyle(
-                      color: AppTheme.sub, fontSize: 13, height: 1.5))),
-              ],
-              if (bio.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text('Bio', style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: AppTheme.cardNested,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppTheme.border)),
-                  child: Text(bio, style: TextStyle(
-                      color: AppTheme.sub, fontSize: 13, height: 1.5))),
-              ],
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity, height: 50,
-                child: OutlinedButton(
-                  onPressed: () => Get.back(),
-                  child: Text('Close', style: TextStyle(
-                      color: AppTheme.sub, fontSize: 14, fontWeight: FontWeight.w600)))),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  void _showCoachProfile() => showCoachProfileSheet(
+        context,
+        coachId: _coachId,
+        coach: _coachProfile,
+        fallbackName: _coachName,
+      );
 
   // ── Teammates ──────────────────────────────
 
@@ -305,13 +198,17 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
               child: CircularProgressIndicator(
                   color: AppTheme.accent, strokeWidth: 2)));
         }
-        final teammates = (snapshot.data?.docs ?? [])
-            .map((d) => TeamInvite.fromMap(d.id, d.data() as Map<String, dynamic>))
-            .where((m) => m.athleteId != _uid)
-            .toList()
+        final everyone = (snapshot.data?.docs ?? [])
+            .map((d) => TeamInvite.fromMap(d.id, d.data() as Map<String, dynamic>));
+        final self = everyone.where((m) => m.athleteId == _uid).firstOrNull;
+        final teammates = everyone.where((m) => m.athleteId != _uid).toList()
           ..sort((a, b) => (b.respondedAt ?? DateTime(0))
               .compareTo(a.respondedAt ?? DateTime(0)));
 
+        // Keyed off teammates, not the full roster: a solo athlete should see
+        // this message, not a lone card of themselves — it's the more useful
+        // content there. (The home screen's deck still shows coach + you in
+        // that case, which reads fine as a two-card deck.)
         if (teammates.isEmpty) {
           return _EmptyCard(
             icon: Icons.groups_outlined,
@@ -319,11 +216,42 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
             subtitle: "You're currently the only athlete on this team");
         }
 
-        return Column(children: teammates.map((m) => _TeammateCard(
-          invite: m,
-          relativeDate: _relativeDate,
-          onTap: () => _showAthleteProfile(m.athleteId, m.athleteName),
-        )).toList());
+        // Membership docs freeze the athlete's name/photo at invite time, so
+        // the roster reads the live user docs instead. The viewer's own uid
+        // is included so their card gets the same live-photo treatment.
+        return MemberProfilesBuilder(
+          uids: [
+            if (self != null) _uid,
+            ...teammates.map((m) => m.athleteId),
+          ],
+          builder: (context, profiles) {
+            final rows = <Widget>[];
+            if (self != null) {
+              final identity = resolveMemberIdentity(profiles[_uid],
+                  fallbackName: self.athleteName,
+                  fallbackPhotoUrl: self.athletePhotoUrl);
+              rows.add(_TeammateCard(
+                invite: self,
+                identity: identity,
+                isSelf: true,
+                relativeDate: _relativeDate,
+                onTap: () => Get.toNamed('/profile'),
+              ));
+            }
+            rows.addAll(teammates.map((m) {
+              final identity = resolveMemberIdentity(profiles[m.athleteId],
+                  fallbackName: m.athleteName,
+                  fallbackPhotoUrl: m.athletePhotoUrl);
+              return _TeammateCard(
+                invite: m,
+                identity: identity,
+                relativeDate: _relativeDate,
+                onTap: () => _showAthleteProfile(m.athleteId, identity.name),
+              );
+            }));
+            return Column(children: rows);
+          },
+        );
       },
     );
   }
@@ -349,8 +277,13 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
         ?.map((e) => e.toString()).join(', ') ?? '—';
     final pts = a['points'];
     final ptsStr = pts is num ? '${pts.toInt()}' : '0';
-    final photoUrl = a['photoUrl'] as String?;
-    final nameParts = athleteName.trim().split(' ');
+    // The doc was just fetched, so prefer its name over the one the caller
+    // passed in — that argument may have come from a stale membership doc.
+    final identity =
+        resolveMemberIdentity(a, fallbackName: athleteName);
+    final displayName = identity.name;
+    final photoUrl = identity.photoUrl;
+    final nameParts = displayName.trim().split(' ');
     final initials = nameParts
         .where((p) => p.isNotEmpty)
         .take(2)
@@ -403,7 +336,7 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
                             fontWeight: FontWeight.w900))),
                   )),
                 const SizedBox(height: 10),
-                Text(athleteName, style: TextStyle(
+                Text(displayName, style: TextStyle(
                     color: AppTheme.textPrimary, fontSize: 18,
                     fontWeight: FontWeight.w900)),
                 const SizedBox(height: 3),
@@ -514,17 +447,26 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
 
 class _TeammateCard extends StatelessWidget {
   final TeamInvite invite;
+  /// Live name/photo; `invite` still owns the membership facts (join date).
+  final MemberIdentity identity;
   final String Function(DateTime?) relativeDate;
   final VoidCallback onTap;
 
+  /// True for the viewer's own membership. Marked the same way
+  /// leaderboard_screen.dart marks the viewer in a list of people: name
+  /// tinted gold, plus a "YOU" pill next to it.
+  final bool isSelf;
+
   const _TeammateCard({
     required this.invite,
+    required this.identity,
     required this.relativeDate,
     required this.onTap,
+    this.isSelf = false,
   });
 
   String get _initials {
-    final parts = invite.athleteName.trim().split(' ')
+    final parts = identity.name.trim().split(' ')
         .where((p) => p.isNotEmpty).take(2);
     return parts.map((p) => p[0]).join().toUpperCase();
   }
@@ -551,9 +493,9 @@ class _TeammateCard extends StatelessWidget {
               colors: [AppTheme.accent, AppTheme.accent2]),
             shape: BoxShape.circle),
           child: ClipOval(
-            child: invite.athletePhotoUrl != null &&
-                    invite.athletePhotoUrl!.isNotEmpty
-                ? Image.network(invite.athletePhotoUrl!, fit: BoxFit.cover,
+            child: identity.photoUrl != null &&
+                    identity.photoUrl!.isNotEmpty
+                ? Image.network(identity.photoUrl!, fit: BoxFit.cover,
                     width: 42, height: 42,
                     errorBuilder: (_, __, ___) => Center(
                         child: Text(_initials, style: const TextStyle(
@@ -567,10 +509,26 @@ class _TeammateCard extends StatelessWidget {
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(invite.athleteName, style: TextStyle(
-                color: AppTheme.textPrimary, fontSize: 15,
-                fontWeight: FontWeight.w800),
-                overflow: TextOverflow.ellipsis),
+            Row(children: [
+              Flexible(child: Text(identity.name, style: TextStyle(
+                  color: isSelf ? AppTheme.accent : AppTheme.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800),
+                  overflow: TextOverflow.ellipsis)),
+              if (isSelf) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                      color: AppTheme.accent,
+                      borderRadius: BorderRadius.circular(4)),
+                  child: const Text('YOU', style: TextStyle(
+                      color: AppTheme.buttonFg, fontSize: 8,
+                      fontWeight: FontWeight.w800)),
+                ),
+              ],
+            ]),
             const SizedBox(height: 2),
             Text('Member since ${relativeDate(invite.respondedAt)}',
                 style: TextStyle(color: AppTheme.sub, fontSize: 12),

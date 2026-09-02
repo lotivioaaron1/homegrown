@@ -6,12 +6,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../../controllers/auth_controller.dart';
 import '../../models/app_notification.dart';
 import '../../models/team_invite.dart';
 import '../../services/notification_service.dart';
 import '../../services/team_service.dart';
+import '../../widgets/team_carousel.dart';
+import '../../widgets/skeleton.dart';
 import '../../utils/firestore_helpers.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -24,6 +27,49 @@ class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   bool _bannerDismissed = false;
+
+  /// Seeded from the cached user so an already-verified account never sees the
+  /// banner flash before [_refreshEmailVerified] lands, then kept accurate by
+  /// that refresh. Reading `currentUser.emailVerified` directly at build time
+  /// is what made the banner permanent: that property is only updated by a
+  /// `reload()`, so clicking the link in the email never reached the app.
+  bool _emailVerified =
+      FirebaseAuth.instance.currentUser?.emailVerified ?? false;
+
+  /// Per-account so a second user signing in on this device doesn't inherit
+  /// someone else's dismissal.
+  String get _bannerDismissedKey => 'email_banner_dismissed_$_uid';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBannerDismissed();
+    _refreshEmailVerified();
+  }
+
+  Future<void> _loadBannerDismissed() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() =>
+        _bannerDismissed = prefs.getBool(_bannerDismissedKey) ?? false);
+  }
+
+  Future<void> _refreshEmailVerified() async {
+    try {
+      final verified = await AuthController.to.checkEmailVerified();
+      if (!mounted) return;
+      setState(() => _emailVerified = verified);
+    } catch (_) {
+      // Offline, or the account was deleted/disabled while signed in. Leave
+      // the banner in whatever state the cached flag put it in.
+    }
+  }
+
+  Future<void> _dismissBanner() async {
+    setState(() => _bannerDismissed = true);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_bannerDismissedKey, true);
+  }
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -48,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Avatar menu ───────────────────────────
 
   void _showAvatarMenu(BuildContext context,
-      String firstName, String lastName, String role) {
+      String firstName, String lastName, String role, String? photoUrl) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.card,
@@ -62,6 +108,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 20),
           Row(children: [
+            // Mirrors the header avatar in _buildHeader — this sheet used to
+            // render initials unconditionally because it never received the
+            // photo URL, so the menu disagreed with the header above it.
             Container(
               width: 48, height: 48,
               decoration: BoxDecoration(
@@ -69,9 +118,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   begin: Alignment.topLeft, end: Alignment.bottomRight,
                   colors: [AppTheme.accent, AppTheme.accent2]),
                 borderRadius: BorderRadius.circular(14)),
-              child: Center(child: Text(_initials(firstName, lastName),
-                style: const TextStyle(color: AppTheme.buttonFg,
-                    fontSize: 16, fontWeight: FontWeight.w800))),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: photoUrl != null && photoUrl.isNotEmpty
+                    ? Image.network(photoUrl, fit: BoxFit.cover,
+                        width: 48, height: 48,
+                        errorBuilder: (_, __, ___) => Center(
+                            child: Text(_initials(firstName, lastName),
+                                style: const TextStyle(
+                                    color: AppTheme.buttonFg,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800))))
+                    : Center(child: Text(_initials(firstName, lastName),
+                        style: const TextStyle(color: AppTheme.buttonFg,
+                            fontSize: 16, fontWeight: FontWeight.w800))),
+              ),
             ),
             const SizedBox(width: 14),
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -91,15 +152,15 @@ class _HomeScreenState extends State<HomeScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
               decoration: BoxDecoration(
-                color: const Color(0xFF2A1A1A),
+                color: AppTheme.errorSurface,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: const Color(0xFFFF5C5C).withValues(alpha: 0.4))),
-              child: const Row(children: [
-                Icon(LucideIcons.logOut, color: Color(0xFFFF5C5C), size: 20),
-                SizedBox(width: 12),
+                    color: AppTheme.errorText.withValues(alpha: 0.4))),
+              child: Row(children: [
+                Icon(LucideIcons.logOut, color: AppTheme.errorText, size: 20),
+                const SizedBox(width: 12),
                 Text('Sign Out', style: TextStyle(
-                  color: Color(0xFFFF5C5C), fontSize: 15,
+                  color: AppTheme.errorText, fontSize: 15,
                   fontWeight: FontWeight.w600)),
               ]),
             ),
@@ -565,9 +626,14 @@ class _HomeScreenState extends State<HomeScreen> {
           .collection('users').doc(_uid).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(backgroundColor: AppTheme.bg,
-            body: Center(child: CircularProgressIndicator(
-                color: AppTheme.accent, strokeWidth: 2.5)));
+          // This is the first thing shown after the splash, so a spinner on
+          // an empty screen reads as a second loading screen. A skeleton
+          // shaped like the dashboard makes the handoff feel continuous and
+          // stops the layout jumping when the document arrives.
+          return Scaffold(
+            backgroundColor: AppTheme.bg,
+            body: const SafeArea(child: HomeSkeleton()),
+          );
         }
         final data      = snapshot.data?.data()
             as Map<String, dynamic>? ?? {};
@@ -603,7 +669,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (user == null || _bannerDismissed) return const SizedBox.shrink();
     final isGoogle = user.providerData
         .any((p) => p.providerId == 'google.com');
-    if (isGoogle || user.emailVerified) return const SizedBox.shrink();
+    if (isGoogle || _emailVerified) return const SizedBox.shrink();
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -655,7 +721,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 6),
         // Dismiss button
         GestureDetector(
-          onTap: () => setState(() => _bannerDismissed = true),
+          onTap: _dismissBanner,
           child: Icon(LucideIcons.x,
               color: AppTheme.muted, size: 18)),
       ]),
@@ -672,10 +738,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _buildHeroCard(data, role),
       if (role == 'athlete') ...[
         _buildSectionTitle('My Team'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _buildAthleteTeamSection(),
-        ),
+        // No horizontal padding here: the team deck runs to the screen edges
+        // so the cards either side of the focused one stay visible. It pads
+        // its own header and footer to the 20pt gutter.
+        _buildAthleteTeamSection(),
       ],
       // CHANGED: athlete's Features grid duplicated the bottom nav
       // tab-for-tab (Dashboard=Stats, Leaderboard=Discover, Find
@@ -695,10 +761,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildRecentActivity(data),
       ] else if (role == 'coach') ...[
         _buildSectionTitle('My Team'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _buildCoachTeamSection(data),
-        ),
+        _buildCoachTeamSection(data),
       ] else if (role == 'organizer') ...[
         _buildSectionTitle('Next Event'),
         Padding(
@@ -860,7 +923,8 @@ class _HomeScreenState extends State<HomeScreen> {
         // back to initials) instead of always being initials-only,
         // and instead of sitting on the far right.
         GestureDetector(
-          onTap: () => _showAvatarMenu(context, firstName, lastName, role),
+          onTap: () =>
+              _showAvatarMenu(context, firstName, lastName, role, photoUrl),
           child: Container(
             width: 44, height: 44,
             decoration: BoxDecoration(
@@ -1172,108 +1236,114 @@ class _HomeScreenState extends State<HomeScreen> {
           stream: TeamService.streamReceivedPending(_uid),
           builder: (context, pendingSnap) {
             final pendingDocs = pendingSnap.data?.docs ?? [];
+            // Only the deck runs full-bleed; the single-card states keep the
+            // 20pt gutter every other home section uses.
             if (teams.isNotEmpty) {
               return _buildOnTeamCard(teams, pendingDocs.length);
+            }
+            // Both streams start out empty, which is indistinguishable from
+            // "has no team" — without this an athlete who does have one is
+            // shown "No Team Yet" until Firestore answers.
+            if (teamsSnap.connectionState == ConnectionState.waiting ||
+                pendingSnap.connectionState == ConnectionState.waiting) {
+              return const TeamCarouselSkeleton();
             }
             if (pendingDocs.isNotEmpty) {
               final first = TeamInvite.fromMap(pendingDocs.first.id,
                   pendingDocs.first.data() as Map<String, dynamic>);
-              return _buildInvitedCard(pendingDocs.length, first);
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _buildInvitedCard(pendingDocs.length, first),
+              );
             }
-            return _buildNoTeamCard();
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: _buildNoTeamCard(),
+            );
           },
         );
       },
     );
   }
 
+  /// The athlete's team as a swipeable deck: their coach first, then every
+  /// teammate. Tapping any card expands the deck in place into the full
+  /// roster; the footer still routes to the dedicated team screen.
+  ///
+  /// The teammate count now comes off the same roster stream that feeds the
+  /// cards, rather than a separate `rosterCountFor` aggregate — one less read,
+  /// and it stays live when someone joins or leaves.
   Widget _buildOnTeamCard(List<TeamInvite> teams, int pendingCount) {
     final team = teams.first;
-    final initials = team.coachName.trim().split(' ')
-        .where((p) => p.isNotEmpty).take(2)
-        .map((p) => p[0]).join().toUpperCase();
 
-    return GestureDetector(
-      onTap: () {
-        if (teams.length == 1 && pendingCount == 0) {
-          Get.toNamed('/team/mine', arguments: {
-            'coachId': team.coachId,
-            'coachName': team.coachName,
-            'teamName': team.teamName,
-          });
-        } else {
-          Get.toNamed('/team/invites');
+    return StreamBuilder<QuerySnapshot>(
+      stream: TeamService.streamRoster(team.coachId),
+      builder: (context, rosterSnap) {
+        // The team name is already known here, so the placeholder keeps it and
+        // only the deck below is stubbed out.
+        if (rosterSnap.connectionState == ConnectionState.waiting) {
+          return TeamCarouselSkeleton(title: team.teamName);
         }
+        final everyone = (rosterSnap.data?.docs ?? [])
+            .map((d) =>
+                TeamInvite.fromMap(d.id, d.data() as Map<String, dynamic>));
+        final self = everyone.where((m) => m.athleteId == _uid).firstOrNull;
+        final teammates = everyone.where((m) => m.athleteId != _uid).toList()
+          ..sort((a, b) => (b.respondedAt ?? DateTime(0))
+              .compareTo(a.respondedAt ?? DateTime(0)));
+
+        return TeamCarouselLoader(
+          title: team.teamName,
+          countLabel: '${teammates.length} '
+              'teammate${teammates.length == 1 ? '' : 's'}',
+          seeds: [
+            TeamMemberSeed(
+              uid: team.coachId,
+              fallbackName: team.coachName,
+              fallbackSubtitle: 'Head Coach',
+              isCoach: true,
+            ),
+            // Right after the coach: the deck opens centred on the coach, so
+            // this is the peek card visible at rest, without swiping — the
+            // roster used to leave the viewer out of their own team entirely.
+            TeamMemberSeed(
+              uid: _uid,
+              isSelf: true,
+              fallbackName: self?.athleteName ?? 'You',
+              fallbackPhotoUrl: self?.athletePhotoUrl,
+              fallbackSubtitle: 'You',
+            ),
+            ...teammates.map((m) => TeamMemberSeed(
+                  uid: m.athleteId,
+                  fallbackName: m.athleteName,
+                  fallbackPhotoUrl: m.athletePhotoUrl,
+                  fallbackSubtitle: 'Teammate',
+                )),
+          ],
+          footer: GestureDetector(
+            onTap: () {
+              if (teams.length == 1 && pendingCount == 0) {
+                Get.toNamed('/team/mine', arguments: {
+                  'coachId': team.coachId,
+                  'coachName': team.coachName,
+                  'teamName': team.teamName,
+                });
+              } else {
+                Get.toNamed('/team/invites');
+              }
+            },
+            behavior: HitTestBehavior.opaque,
+            child: Row(children: [
+              Text('View Team', style: TextStyle(
+                  color: AppTheme.accent, fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.accent, size: 16),
+            ]),
+          ),
+        );
       },
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-            color: AppTheme.card,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.border)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Text(team.teamName, style: TextStyle(
-                color: AppTheme.textPrimary, fontSize: 15,
-                fontWeight: FontWeight.w800),
-                overflow: TextOverflow.ellipsis)),
-            const SizedBox(width: 8),
-            FutureBuilder<int>(
-              future: TeamService.rosterCountFor(team.coachId),
-              builder: (context, snap) {
-                final teammates = ((snap.data ?? 1) - 1).clamp(0, 999);
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                      color: AppTheme.accentSurface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.accent)),
-                  child: Text(
-                      '$teammates teammate${teammates == 1 ? '' : 's'}',
-                      style: TextStyle(color: AppTheme.accentText,
-                          fontSize: 11, fontWeight: FontWeight.w800)),
-                );
-              },
-            ),
-          ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Container(
-              width: 40, height: 40,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                    begin: Alignment.topLeft, end: Alignment.bottomRight,
-                    colors: [AppTheme.accent, AppTheme.accent2]),
-                shape: BoxShape.circle),
-              child: Center(child: Text(initials, style: const TextStyle(
-                  color: AppTheme.buttonFg, fontSize: 14,
-                  fontWeight: FontWeight.w800))),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(team.coachName, style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 14,
-                    fontWeight: FontWeight.w700),
-                    overflow: TextOverflow.ellipsis),
-                Text('Your Coach',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-              ],
-            )),
-          ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Text('View Team', style: TextStyle(
-                color: AppTheme.accent, fontSize: 13,
-                fontWeight: FontWeight.w700)),
-            const SizedBox(width: 4),
-            Icon(Icons.chevron_right_rounded,
-                color: AppTheme.accent, size: 16),
-          ]),
-        ]),
-      ),
     );
   }
 
@@ -1373,40 +1443,30 @@ class _HomeScreenState extends State<HomeScreen> {
             .toList();
         final isFull = roster.length >= TeamService.maxPlayers;
 
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-              color: AppTheme.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.border)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text(teamName, style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 15,
-                  fontWeight: FontWeight.w800),
-                  overflow: TextOverflow.ellipsis)),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                    color: isFull
-                        ? const Color(0xFFFF5C5C).withValues(alpha: 0.12)
-                        : AppTheme.accentSurface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: isFull
-                            ? const Color(0xFFFF5C5C)
-                            : AppTheme.accent)),
-                child: Text('${roster.length}/${TeamService.maxPlayers}', style: TextStyle(
-                    color: isFull
-                        ? const Color(0xFFFF5C5C)
-                        : AppTheme.accentText,
-                    fontSize: 12, fontWeight: FontWeight.w800)),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            if (roster.isEmpty)
-              Column(children: [
+        // Same trap as the athlete's section: a still-connecting stream looks
+        // exactly like an empty roster, so a coach who has players would be
+        // told they have none until Firestore answers.
+        if (rosterSnap.connectionState == ConnectionState.waiting) {
+          return TeamCarouselSkeleton(title: teamName);
+        }
+
+        // An empty roster keeps the compact prompt card — a lone "add player"
+        // tile floating in a 232pt deck reads as a layout bug, not an invite.
+        if (roster.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                  color: AppTheme.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.border)),
+              child: Column(children: [
+                Text(teamName, style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 15,
+                    fontWeight: FontWeight.w800),
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 12),
                 Icon(Icons.groups_outlined, color: AppTheme.muted, size: 28),
                 const SizedBox(height: 8),
                 Text('No athletes on your roster yet', style: TextStyle(
@@ -1419,84 +1479,58 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accent, fontSize: 12,
                       fontWeight: FontWeight.w700)),
                 ),
-              ])
-            else
-              SizedBox(
-                height: 40,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: roster.length > 6 ? 7 : roster.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, i) {
-                    if (roster.length > 6 && i == 6) {
-                      return Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                            color: AppTheme.cardNested,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: AppTheme.border)),
-                        child: Center(child: Text('+${roster.length - 6}',
-                            style: TextStyle(color: AppTheme.sub,
-                                fontSize: 11, fontWeight: FontWeight.w800))));
-                    }
-                    final m = roster[i];
-                    final initials = m.athleteName.trim().split(' ')
-                        .where((p) => p.isNotEmpty).take(2)
-                        .map((p) => p[0]).join().toUpperCase();
-                    return Container(
-                      width: 36, height: 36,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [AppTheme.accent, AppTheme.accent2]),
-                        shape: BoxShape.circle),
-                      child: ClipOval(
-                        child: m.athletePhotoUrl != null &&
-                                m.athletePhotoUrl!.isNotEmpty
-                            ? Image.network(m.athletePhotoUrl!,
-                                fit: BoxFit.cover, width: 36, height: 36,
-                                errorBuilder: (_, __, ___) => Center(
-                                    child: Text(initials, style: const TextStyle(
-                                        color: AppTheme.buttonFg, fontSize: 12,
-                                        fontWeight: FontWeight.w800))))
-                            : Center(child: Text(initials, style: const TextStyle(
-                                color: AppTheme.buttonFg, fontSize: 12,
-                                fontWeight: FontWeight.w800))),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            const SizedBox(height: 12),
-            StreamBuilder<QuerySnapshot>(
-              stream: TeamService.streamSentPending(_uid),
-              builder: (context, pendingSnap) {
-                final pending = pendingSnap.data?.docs.length ?? 0;
-                if (pending == 0) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(children: [
-                    Icon(LucideIcons.mail, color: AppTheme.muted, size: 14),
-                    const SizedBox(width: 6),
-                    Text('$pending pending invite${pending == 1 ? '' : 's'}',
-                        style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-                  ]),
-                );
-              },
-            ),
-            GestureDetector(
-              onTap: () => Get.toNamed('/team/roster'),
-              child: Row(children: [
-                Text('View Full Roster', style: TextStyle(
-                    color: AppTheme.accent, fontSize: 13,
-                    fontWeight: FontWeight.w700)),
-                const SizedBox(width: 4),
-                Icon(Icons.chevron_right_rounded,
-                    color: AppTheme.accent, size: 16),
               ]),
             ),
-          ]),
+          );
+        }
+
+        return TeamCarouselLoader(
+          title: teamName,
+          countLabel: '${roster.length}/${TeamService.maxPlayers}',
+          countIsWarning: isFull,
+          seeds: roster
+              .map((m) => TeamMemberSeed(
+                    uid: m.athleteId,
+                    fallbackName: m.athleteName,
+                    fallbackPhotoUrl: m.athletePhotoUrl,
+                  ))
+              .toList(),
+          // A full roster has nowhere to put another player, so the tile that
+          // would only lead to a "team is full" error is dropped instead.
+          onAddPlayer: isFull ? null : () => Get.toNamed('/scout'),
+          footer: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              StreamBuilder<QuerySnapshot>(
+                stream: TeamService.streamSentPending(_uid),
+                builder: (context, pendingSnap) {
+                  final pending = pendingSnap.data?.docs.length ?? 0;
+                  if (pending == 0) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(children: [
+                      Icon(LucideIcons.mail, color: AppTheme.muted, size: 14),
+                      const SizedBox(width: 6),
+                      Text('$pending pending invite${pending == 1 ? '' : 's'}',
+                          style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                    ]),
+                  );
+                },
+              ),
+              GestureDetector(
+                onTap: () => Get.toNamed('/team/roster'),
+                behavior: HitTestBehavior.opaque,
+                child: Row(children: [
+                  Text('View Full Roster', style: TextStyle(
+                      color: AppTheme.accent, fontSize: 13,
+                      fontWeight: FontWeight.w700)),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right_rounded,
+                      color: AppTheme.accent, size: 16),
+                ]),
+              ),
+            ],
+          ),
         );
       },
     );

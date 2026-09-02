@@ -36,6 +36,14 @@ dependencies:
   fl_chart: ^0.69.0
   cached_network_image: ^3.4.1
 
+  # Media
+  # video_compress transcodes highlight clips to ~720p before upload and also
+  # supplies duration metadata and the poster-frame thumbnail, so one package
+  # covers all three needs. video_player is the official flutter.dev plugin,
+  # used only for playback in the highlight viewer.
+  video_compress: ^3.1.4
+  video_player: ^2.9.2
+
   # Utils
   image_picker: ^1.1.2
   shared_preferences: ^2.3.2

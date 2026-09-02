@@ -339,12 +339,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       Container(
                         width: 88, height: 88,
                         decoration: BoxDecoration(
-                          color:  const Color(0xFF0D2E20),
+                          color:  AppTheme.successSurface,
                           shape:  BoxShape.circle,
-                          border: Border.all(color: AppTheme.success, width: 2)),
+                          border: Border.all(
+                              color: AppTheme.successText, width: 2)),
                         child: Center(
                             child: Icon(LucideIcons.checkCheck,
-                                color: AppTheme.success, size: 36)),
+                                color: AppTheme.successText, size: 36)),
                       ),
 
                       const SizedBox(height: 28),

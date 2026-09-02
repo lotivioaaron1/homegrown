@@ -1,16 +1,18 @@
 // lib/screens/profile/widgets/photo_grid.dart
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../theme/app_theme.dart';
 import '../../../models/media_item.dart';
 import 'empty_state.dart';
 
-/// Responsive photo grid. Shows [EmptyState] when [items] is empty.
-/// Phase 1: placeholder tiles only — no real image loading yet.
+/// Photo half of the portfolio. Purely presentational — [MediaSection] owns
+/// the stream and the quota, so this can be pumped in a test without Firebase.
 class PhotoGrid extends StatelessWidget {
   final List<MediaItem> items;
+  final void Function(MediaItem)? onTapItem;
 
-  const PhotoGrid({super.key, required this.items});
+  const PhotoGrid({super.key, required this.items, this.onTapItem});
 
   @override
   Widget build(BuildContext context) {
@@ -30,25 +32,45 @@ class PhotoGrid extends StatelessWidget {
         mainAxisSpacing: 8,
         crossAxisSpacing: 8,
       ),
-      itemBuilder: (context, i) => _PhotoTile(item: items[i]),
+      itemBuilder: (context, i) =>
+          _PhotoTile(item: items[i], onTap: onTapItem),
     );
   }
 }
 
 class _PhotoTile extends StatelessWidget {
   final MediaItem item;
-  const _PhotoTile({required this.item});
+  final void Function(MediaItem)? onTap;
+  const _PhotoTile({required this.item, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.cardNested,
+    return GestureDetector(
+      onTap: onTap == null ? null : () => onTap!(item),
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Center(
-        child: Icon(LucideIcons.image, color: AppTheme.muted, size: 22),
+        child: CachedNetworkImage(
+          imageUrl: item.thumbnailUrl,
+          fit: BoxFit.cover,
+          // The grid is 3-up on a phone, so a full-resolution decode would
+          // cost ~20x the pixels actually shown.
+          memCacheWidth: 300,
+          placeholder: (_, __) => Container(
+            color: AppTheme.cardNested,
+            alignment: Alignment.center,
+            child: const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                  color: AppTheme.accent, strokeWidth: 2),
+            ),
+          ),
+          errorWidget: (_, __, ___) => Container(
+            color: AppTheme.cardNested,
+            alignment: Alignment.center,
+            child: Icon(LucideIcons.imageOff, color: AppTheme.muted, size: 20),
+          ),
+        ),
       ),
     );
   }

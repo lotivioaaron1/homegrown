@@ -149,17 +149,17 @@ class _AthleteProfileContent extends StatelessWidget {
             Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                 decoration: BoxDecoration(
-                    color: isOpen ? const Color(0xFF0D2E20) : AppTheme.cardNested,
+                    color: isOpen ? AppTheme.successSurface : AppTheme.cardNested,
                     borderRadius: BorderRadius.circular(20),
-                    border:
-                        Border.all(color: isOpen ? AppTheme.success : AppTheme.border)),
+                    border: Border.all(
+                        color: isOpen ? AppTheme.successText : AppTheme.border)),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(isOpen ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                      color: isOpen ? AppTheme.success : AppTheme.muted, size: 14),
+                      color: isOpen ? AppTheme.successText : AppTheme.muted, size: 14),
                   const SizedBox(width: 6),
                   Text(isOpen ? 'Open to Recruitment' : 'Not Available',
                       style: TextStyle(
-                          color: isOpen ? AppTheme.success : AppTheme.muted,
+                          color: isOpen ? AppTheme.successText : AppTheme.muted,
                           fontSize: 11,
                           fontWeight: FontWeight.w700)),
                 ])),
@@ -282,9 +282,7 @@ class _SportAverages extends StatelessWidget {
   const _SportAverages({required this.sport, required this.games});
 
   String _format(String label, double value) {
-    final formatted = value == value.roundToDouble()
-        ? value.toInt().toString()
-        : value.toStringAsFixed(1);
+    final formatted = formatStatAverage(value);
     return label == 'Win Rate %' ? '$formatted%' : formatted;
   }
 

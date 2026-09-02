@@ -193,11 +193,11 @@ class SettingsScreen extends StatelessWidget {
               value: barangay),
           _infoRow(
               icon: isOpen ? LucideIcons.checkCircle : LucideIcons.xCircle,
-              iconBg: isOpen ? const Color(0xFF0D2E20) : AppTheme.cardNested,
-              iconColor: isOpen ? AppTheme.success : AppTheme.muted,
+              iconBg: isOpen ? AppTheme.successSurface : AppTheme.cardNested,
+              iconColor: isOpen ? AppTheme.successText : AppTheme.muted,
               label: 'Open to Recruitment',
               value: isOpen ? 'Yes' : 'No',
-              valueColor: isOpen ? AppTheme.success : AppTheme.muted,
+              valueColor: isOpen ? AppTheme.successText : AppTheme.muted,
               isLast: bio.isEmpty),
           if (bio.isNotEmpty) _bioRow(bio),
         ]),
@@ -248,14 +248,14 @@ class SettingsScreen extends StatelessWidget {
                           iconColor: AppTheme.accent,
                           label: 'Total Points',
                           value: '$pts pts',
-                          valueColor: AppTheme.accent),
+                          valueColor: AppTheme.accentText),
                       _infoRow(
                           icon: LucideIcons.trophy,
                           iconBg: AppTheme.accentSurface,
                           iconColor: AppTheme.accent,
                           label: 'City Rank',
                           value: rank,
-                          valueColor: AppTheme.accent),
+                          valueColor: AppTheme.accentText),
                       _infoRow(
                           icon: LucideIcons.gamepad2,
                           iconBg: AppTheme.cardNested,
@@ -361,7 +361,7 @@ class SettingsScreen extends StatelessWidget {
               iconColor: AppTheme.accent,
               label: 'Coaching Level',
               value: level,
-              valueColor: AppTheme.accent),
+              valueColor: AppTheme.accentText),
           _infoRow(
               icon: LucideIcons.clock,
               iconBg: AppTheme.cardNested,
@@ -435,7 +435,7 @@ class SettingsScreen extends StatelessWidget {
                   iconColor: AppTheme.accent,
                   label: 'Organization',
                   value: org,
-                  valueColor: AppTheme.accent),
+                  valueColor: AppTheme.accentText),
               _infoRow(
                   icon: LucideIcons.tag,
                   iconBg: AppTheme.cardNested,
@@ -447,7 +447,7 @@ class SettingsScreen extends StatelessWidget {
                   iconColor: AppTheme.accent,
                   label: 'Events Created',
                   value: '$eventCount events',
-                  valueColor: AppTheme.accent),
+                  valueColor: AppTheme.accentText),
               _infoRow(
                   icon: LucideIcons.volleyball,
                   iconBg: AppTheme.cardNested,
@@ -531,38 +531,37 @@ class SettingsScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-            color: const Color(0xFF2A1A1A),
+            color: AppTheme.errorSurface,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-                color: const Color(0xFFFF5C5C).withValues(alpha: 0.4))),
+            border:
+                Border.all(color: AppTheme.errorText.withValues(alpha: 0.4))),
         child: Row(children: [
           Container(
             width: 36,
             height: 36,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-                color: const Color(0xFF3A1A1A),
+                color: AppTheme.errorSurfaceStrong,
                 borderRadius: BorderRadius.circular(10)),
-            child: const Icon(LucideIcons.logOut,
-                color: Color(0xFFFF5C5C), size: 18),
+            child:
+                Icon(LucideIcons.logOut, color: AppTheme.errorText, size: 18),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Sign Out',
                     style: TextStyle(
-                        color: Color(0xFFFF5C5C),
+                        color: AppTheme.errorText,
                         fontSize: 14,
                         fontWeight: FontWeight.w700)),
                 Text('Return to login screen',
-                    style: TextStyle(color: Color(0xFF8888AA), fontSize: 11)),
+                    style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ],
             ),
           ),
-          const Icon(LucideIcons.chevronRight,
-              color: Color(0xFFFF5C5C), size: 20),
+          Icon(LucideIcons.chevronRight, color: AppTheme.errorText, size: 20),
         ]),
       ),
     );

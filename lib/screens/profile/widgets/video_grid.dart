@@ -1,16 +1,27 @@
 // lib/screens/profile/widgets/video_grid.dart
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../theme/app_theme.dart';
 import '../../../models/media_item.dart';
 import 'empty_state.dart';
 
-/// Responsive video grid. Shows [EmptyState] when [items] is empty.
-/// Phase 1: placeholder tiles only — no real video playback yet.
+/// Formats a clip length as `m:ss`. Shared with the highlight viewer so the
+/// grid badge and the player's scrub position never disagree on the format.
+String formatClipDuration(int? seconds) {
+  if (seconds == null) return '';
+  final m = seconds ~/ 60;
+  final s = seconds % 60;
+  return '$m:${s.toString().padLeft(2, '0')}';
+}
+
+/// Video half of the portfolio. Purely presentational — [MediaSection] owns
+/// the stream and the quota, so this can be pumped in a test without Firebase.
 class VideoGrid extends StatelessWidget {
   final List<MediaItem> items;
+  final void Function(MediaItem)? onTapItem;
 
-  const VideoGrid({super.key, required this.items});
+  const VideoGrid({super.key, required this.items, this.onTapItem});
 
   @override
   Widget build(BuildContext context) {
@@ -30,55 +41,83 @@ class VideoGrid extends StatelessWidget {
         crossAxisSpacing: 10,
         childAspectRatio: 1.3,
       ),
-      itemBuilder: (context, i) => _VideoTile(item: items[i]),
+      itemBuilder: (context, i) =>
+          _VideoTile(item: items[i], onTap: onTapItem),
     );
   }
 }
 
 class _VideoTile extends StatelessWidget {
   final MediaItem item;
-  const _VideoTile({required this.item});
-
-  String _formatDuration(int? seconds) {
-    if (seconds == null) return '';
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
+  final void Function(MediaItem)? onTap;
+  const _VideoTile({required this.item, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final duration = _formatDuration(item.durationSeconds);
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.cardNested,
+    final duration = formatClipDuration(item.durationSeconds);
+    return GestureDetector(
+      onTap: onTap == null ? null : () => onTap!(item),
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Stack(children: [
-        Center(
-          child: Icon(LucideIcons.playCircle, color: AppTheme.muted, size: 28),
-        ),
-        if (duration.isNotEmpty)
-          Positioned(
-            right: 6,
-            bottom: 6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppTheme.cardNested,
+            border: Border.all(color: AppTheme.border),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Stack(fit: StackFit.expand, children: [
+            CachedNetworkImage(
+              imageUrl: item.thumbnailUrl,
+              fit: BoxFit.cover,
+              memCacheWidth: 400,
+              placeholder: (_, __) => Container(color: AppTheme.cardNested),
+              // Thumbnail generation can fail on an unusual codec, in which
+              // case thumbnailUrl falls back to the video URL and will not
+              // decode as an image. A plain tile still reads as a video
+              // because the play badge below sits on top regardless.
+              errorWidget: (_, __, ___) =>
+                  Container(color: AppTheme.cardNested),
+            ),
+            // Scrim: keeps the white play glyph and duration legible over a
+            // bright frame.
+            DecoratedBox(
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                duration,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.15),
+                    Colors.black.withValues(alpha: 0.45),
+                  ],
+                ),
               ),
             ),
-          ),
-      ]),
+            const Center(
+              child: Icon(LucideIcons.playCircle, color: Colors.white, size: 34),
+            ),
+            if (duration.isNotEmpty)
+              Positioned(
+                right: 6,
+                bottom: 6,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    duration,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+          ]),
+        ),
+      ),
     );
   }
 }

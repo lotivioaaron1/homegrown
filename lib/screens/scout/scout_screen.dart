@@ -8,17 +8,22 @@ import '../../theme/app_theme.dart';
 import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/stat_scoring.dart';
+import '../../utils/sports.dart';
+import '../profile/edit_profile_screen.dart';
 
 // ─────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────
 
-const List<Map<String, String>> _kSports = [
-  {'label': 'All Sports', 'emoji': '🏅'},
-  {'label': 'Basketball',  'emoji': '🏀'},
-  {'label': 'Volleyball',  'emoji': '🏐'},
-  {'label': 'Badminton',   'emoji': '🏸'},
-];
+const String _kAllSports = 'All Sports';
+
+const Map<String, String> _kSportEmoji = {
+  _kAllSports:  '🏅',
+  'Basketball': '🏀',
+  'Volleyball': '🏐',
+  'Badminton':  '🏸',
+};
 
 // ─────────────────────────────────────────────
 // ScoutScreen
@@ -32,23 +37,82 @@ class ScoutScreen extends StatefulWidget {
 
 class _ScoutScreenState extends State<ScoutScreen> {
   final _searchCtrl      = TextEditingController();
-  String  _selectedSport = 'All Sports';
+  String  _selectedSport = _kAllSports;
   bool    _openOnly      = false;
   String  _searchQuery   = '';
+
+  // The signed-in coach's own doc. The athlete query is built from the
+  // sports they coach, so the list can't be shown until this has loaded.
   Map<String, dynamic>? _coachProfile;
+  bool   _loadingProfile = true;
+  Object? _profileError;
+
+  // ── Skill sort ────────────────────────────
+  // `null` keeps the default "most total points first" ordering. A skill is
+  // only meaningful inside one sport, so the selection is dropped whenever
+  // the sport tab changes.
+  String? _selectedSkill;
+
+  // Per-athlete averages for `_skillDataSport`, fetched once per sport so
+  // that flipping between that sport's skills costs nothing. The sport is
+  // tracked alongside the data so a stale map can never rank a list.
+  Map<String, AthleteSkillAverages> _skillData = {};
+  String? _skillDataSport;
+
+  // The sport whose fetch is in flight, so a second tap on the same sport
+  // doesn't duplicate the query and a slow earlier fetch can't overwrite a
+  // newer sport's data when the coach taps through the tabs quickly.
+  String? _loadingSport;
 
   @override
   void initState() {
     super.initState();
-    // Fetched once and cached — the coach's own name/team don't change
-    // mid-session, so there's no need to re-read on every profile-sheet open.
+    _loadCoachProfile();
+  }
+
+  /// Fetched once and cached — the coach's own name, team and coached sports
+  /// don't change mid-session, so there's no need to re-read on every
+  /// profile-sheet open. A failure here has to surface: without the coached
+  /// sports there is no athlete query to run, so silently swallowing it
+  /// would leave the screen spinning forever.
+  Future<void> _loadCoachProfile() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
-      FirebaseFirestore.instance.collection('users').doc(uid).get().then((doc) {
-        if (mounted) setState(() => _coachProfile = doc.data());
+    if (uid == null) {
+      if (mounted) setState(() => _loadingProfile = false);
+      return;
+    }
+    try {
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (!mounted) return;
+      setState(() {
+        _coachProfile   = doc.data();
+        _loadingProfile = false;
+        // A coach of a single sport has nothing to switch between, so open
+        // straight on that sport rather than a one-item "All Sports".
+        final sports = sportsOf(_coachProfile);
+        if (sports.length == 1) _selectedSport = sports.first;
+      });
+      if (_selectedSport != _kAllSports) _loadSkillAverages(_selectedSport);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _profileError   = e;
+        _loadingProfile = false;
       });
     }
   }
+
+  /// The sports this coach coaches, in the order they chose them at
+  /// registration. Empty for a profile that predates the field or was
+  /// hand-edited — handled explicitly rather than silently matching nobody.
+  List<String> get _coachSports => sportsOf(_coachProfile);
+
+  /// The sport tabs to offer. "All Sports" means "all of the sports I
+  /// coach", so it only earns a tab when there is more than one.
+  List<String> get _sportTabs => _coachSports.length > 1
+      ? [_kAllSports, ..._coachSports]
+      : _coachSports;
 
   @override
   void dispose() {
@@ -62,6 +126,87 @@ class _ScoutScreenState extends State<ScoutScreen> {
     return 0;
   }
 
+  // ── Skill sort ────────────────────────────
+
+  /// The skill currently ranking the list, or `null` for the default points
+  /// ordering. Also returns `null` while the chosen sport's averages are
+  /// still loading or failed to load, so the list falls back to points
+  /// rather than showing a ranking built on missing data.
+  ScoutSkill? get _activeSkill {
+    if (_selectedSkill == null || _skillDataSport != _selectedSport) {
+      return null;
+    }
+    return kScoutSkills[_selectedSport]
+        ?.where((s) => s.label == _selectedSkill)
+        .firstOrNull;
+  }
+
+  /// [athlete]'s per-game average for [skill], or 0 when they have no
+  /// recorded games for the sport.
+  double _skillValue(Map<String, dynamic> athlete, ScoutSkill skill) =>
+      _skillData[athlete['uid']]?.averages[skill.statKey] ?? 0;
+
+  void _selectSport(String label) {
+    if (label == _selectedSport) return;
+    setState(() {
+      _selectedSport = label;
+      // A basketball skill means nothing once the coach switches to
+      // volleyball, so the sort resets to points along with the sport.
+      _selectedSkill = null;
+    });
+    if (label != _kAllSports) _loadSkillAverages(label);
+  }
+
+  /// Fetches every stat line recorded for [sport] and reduces it to one
+  /// scouting line per athlete. `stats` is readable by any signed-in user
+  /// (see firestore.rules), and filtering on a single field needs no
+  /// composite index.
+  Future<void> _loadSkillAverages(String sport) async {
+    if (_skillDataSport == sport || _loadingSport == sport) return;
+    setState(() => _loadingSport = sport);
+
+    Map<String, AthleteSkillAverages>? loaded;
+    Object? failure;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('stats')
+          .where('sport', isEqualTo: sport)
+          .get();
+      loaded = skillAveragesByAthlete(sport, snap.docs.map((d) => d.data()));
+    } catch (e) {
+      failure = e;
+    }
+
+    if (!mounted) return;
+
+    // The coach may have moved to another sport while this was in flight;
+    // that sport's own fetch owns the result now, so this one is dropped.
+    final stale = sport != _selectedSport;
+    setState(() {
+      if (_loadingSport == sport) _loadingSport = null;
+      if (stale) return;
+      if (loaded != null) {
+        _skillData      = loaded;
+        _skillDataSport = sport;
+      } else {
+        // Losing the whole roster because an aggregate query failed would
+        // be worse than an unranked list, so fall back to the points sort
+        // and leave the athletes on screen.
+        _selectedSkill = null;
+      }
+    });
+
+    if (!stale && failure != null) {
+      Get.snackbar('Could not load skill stats', friendlyError(failure),
+          snackPosition:   SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.card,
+          colorText:       AppTheme.textPrimary,
+          margin:          const EdgeInsets.all(16),
+          borderRadius:    12,
+          duration:        const Duration(seconds: 3));
+    }
+  }
+
   // ── Build ─────────────────────────────────
 
   @override
@@ -72,6 +217,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
         _buildTopBar(),
         _buildSearchBar(),
         _buildSportTabs(),
+        _buildSkillChips(),
         _buildRecruitmentToggle(),
         Expanded(child: _buildAthleteList()),
       ])),
@@ -147,19 +293,27 @@ class _ScoutScreenState extends State<ScoutScreen> {
   );
 
   // ── Sport tabs ────────────────────────────
+  // Only the sports this coach coaches. A basketball coach has no business
+  // scouting — or inviting — a badminton player, so those athletes are never
+  // reachable from here rather than being shown and then refused.
 
-  Widget _buildSportTabs() => Padding(
+  Widget _buildSportTabs() {
+    final tabs = _sportTabs;
+    // Nothing to switch between for a single-sport coach; the header already
+    // names the sport via the count row's chip.
+    if (tabs.length < 2) return const SizedBox.shrink();
+
+    return Padding(
     padding: const EdgeInsets.only(top: 12),
     child: SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
-        children: _kSports.map((sport) {
-          final label = sport['label']!;
-          final emoji = sport['emoji']!;
+        children: tabs.map((label) {
+          final emoji = _kSportEmoji[label] ?? '🏅';
           final sel   = _selectedSport == label;
           return GestureDetector(
-            onTap: () => setState(() => _selectedSport = label),
+            onTap: () => _selectSport(label),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: const EdgeInsets.only(right: 8),
@@ -186,7 +340,74 @@ class _ScoutScreenState extends State<ScoutScreen> {
         }).toList(),
       ),
     ),
-  );
+    );
+  }
+
+  // ── Skill chips ───────────────────────────
+  // Ranks the list by one stat category — the thing a coach is actually
+  // shopping for ("who rebounds?") rather than the blended points total.
+  // Only shown once a sport is picked, since a skill has no meaning across
+  // sports: there is no rebounding in badminton.
+
+  Widget _buildSkillChips() {
+    final skills = kScoutSkills[_selectedSport];
+    if (skills == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: SizedBox(
+        height: 32,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(children: [
+            // Marks the row as a sort, distinguishing it from the sport
+            // filter tabs directly above it.
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _loadingSport == _selectedSport
+                  ? SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(
+                          color: AppTheme.muted, strokeWidth: 2))
+                  : Icon(Icons.swap_vert_rounded,
+                      color: AppTheme.muted, size: 18),
+            ),
+            _skillChip('Top Points', _selectedSkill == null,
+                () => setState(() => _selectedSkill = null)),
+            ...skills.map((s) => _skillChip(
+                  s.label,
+                  _selectedSkill == s.label,
+                  () {
+                    setState(() => _selectedSkill = s.label);
+                    _loadSkillAverages(_selectedSport);
+                  },
+                )),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _skillChip(String label, bool selected, VoidCallback onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.accentSurface : AppTheme.card,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? AppTheme.accent : AppTheme.border,
+              width: selected ? 2 : 1.5)),
+          child: Text(label, style: TextStyle(
+            color:      selected ? AppTheme.accentText : AppTheme.muted,
+            fontSize:   12,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+        ),
+      );
 
   // ── Recruitment toggle ────────────────────
 
@@ -200,19 +421,19 @@ class _ScoutScreenState extends State<ScoutScreen> {
             horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: _openOnly
-              ? const Color(0xFF0D2E20) : AppTheme.card,
+              ? AppTheme.successSurface : AppTheme.card,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: _openOnly ? AppTheme.success : AppTheme.border,
+            color: _openOnly ? AppTheme.successText : AppTheme.border,
             width: _openOnly ? 1.5 : 1)),
         child: Row(children: [
           Icon(Icons.verified_rounded,
-            color: _openOnly ? AppTheme.success : AppTheme.muted,
+            color: _openOnly ? AppTheme.successText : AppTheme.muted,
             size: 18),
           const SizedBox(width: 10),
           Text('Open to Recruitment Only',
             style: TextStyle(
-              color: _openOnly ? AppTheme.success : AppTheme.sub,
+              color: _openOnly ? AppTheme.successText : AppTheme.sub,
               fontSize: 13, fontWeight: FontWeight.w600)),
           const Spacer(),
           Switch(
@@ -231,14 +452,50 @@ class _ScoutScreenState extends State<ScoutScreen> {
   // ── Athlete list ──────────────────────────
 
   Widget _buildAthleteList() {
+    // The query is built from the coach's own sports, so it can't be run
+    // until their profile has loaded.
+    if (_loadingProfile) {
+      return const Center(child: CircularProgressIndicator(
+          color: AppTheme.accent, strokeWidth: 2.5));
+    }
+    if (_profileError != null) {
+      return _buildEmpty(
+        icon:     Icons.error_outline,
+        title:    'Could not load your profile',
+        subtitle: friendlyError(_profileError));
+    }
+
+    final coachSports = _coachSports;
+    if (coachSports.isEmpty) {
+      // A profile predating the coached-sports field, or one hand-edited in
+      // the console. Showing an empty athlete list would read as "there are
+      // no athletes"; say what's actually wrong and where to fix it.
+      return _buildEmpty(
+        icon:        Icons.sports_outlined,
+        title:       'Choose the sports you coach',
+        subtitle:    'Scouting shows athletes from the sports on your '
+                     'profile. Add at least one to start scouting.',
+        actionLabel: 'Edit Profile',
+        onAction:    () async {
+          await Get.to(() => const EditProfileScreen());
+          // Re-read the profile on the way back, or the sports they just
+          // chose wouldn't take effect until the screen was reopened.
+          if (!mounted) return;
+          setState(() => _loadingProfile = true);
+          await _loadCoachProfile();
+        });
+    }
+
     Query query = FirebaseFirestore.instance
         .collection('users')
         .where('role', isEqualTo: 'athlete');
 
-    if (_selectedSport != 'All Sports') {
-      query = query.where('primarySports',
-          arrayContains: _selectedSport);
-    }
+    // "All Sports" means all of the sports this coach coaches — never every
+    // sport in the app.
+    query = _selectedSport == _kAllSports
+        ? query.where('primarySports', arrayContainsAny: coachSports)
+        : query.where('primarySports', arrayContains: _selectedSport);
+
     if (_openOnly) {
       query = query.where('openToRecruitment', isEqualTo: true);
     }
@@ -270,9 +527,40 @@ class _ScoutScreenState extends State<ScoutScreen> {
           }).toList();
         }
 
-        // Sort by points descending
-        athletes.sort((a, b) =>
-            _toInt(b['points']).compareTo(_toInt(a['points'])));
+        // Rank by the selected skill, or by total points by default. When a
+        // skill is active the athletes who have never had stats recorded
+        // can't be ranked by it, so they're held back and appended under
+        // their own header rather than being dropped from the list.
+        final skill = _activeSkill;
+        final rows  = <_ScoutRow>[];
+        var rankedCount = athletes.length;
+
+        if (skill == null) {
+          athletes.sort((a, b) =>
+              _toInt(b['points']).compareTo(_toInt(a['points'])));
+          for (var i = 0; i < athletes.length; i++) {
+            rows.add(_ScoutRow.athlete(athletes[i], rank: i + 1));
+          }
+        } else {
+          final ranked   = <Map<String, dynamic>>[];
+          final unranked = <Map<String, dynamic>>[];
+          for (final a in athletes) {
+            (_skillData.containsKey(a['uid']) ? ranked : unranked).add(a);
+          }
+          ranked.sort((a, b) =>
+              _skillValue(b, skill).compareTo(_skillValue(a, skill)));
+          rankedCount = ranked.length;
+
+          for (var i = 0; i < ranked.length; i++) {
+            rows.add(_ScoutRow.athlete(ranked[i], rank: i + 1));
+          }
+          if (unranked.isNotEmpty) {
+            rows.add(_ScoutRow.header(unranked.length));
+            // No rank number for these — a "#14" beside someone the sort
+            // couldn't place would be a lie.
+            rows.addAll(unranked.map(_ScoutRow.athlete));
+          }
+        }
 
         if (athletes.isEmpty) {
           return _buildEmpty(
@@ -284,7 +572,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
                     : 'No athletes yet',
             subtitle: _searchQuery.isNotEmpty
                 ? 'Try a different name or filter'
-                : _selectedSport != 'All Sports'
+                : _selectedSport != _kAllSports
                     ? 'No $_selectedSport athletes registered'
                     : 'Athletes will appear here once registered');
         }
@@ -295,13 +583,15 @@ class _ScoutScreenState extends State<ScoutScreen> {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
             child: Row(children: [
               Text(
-                '${athletes.length} athlete${athletes.length == 1 ? '' : 's'} found',
+                skill != null
+                    ? '$rankedCount ranked by ${skill.label}'
+                    : '${athletes.length} athlete${athletes.length == 1 ? '' : 's'} found',
                 style: TextStyle(
                   color:      AppTheme.textPrimary,
                   fontSize:   12,
                   fontWeight: FontWeight.w700)),
               const Spacer(),
-              if (_selectedSport != 'All Sports')
+              if (_selectedSport != _kAllSports)
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 3),
@@ -322,18 +612,40 @@ class _ScoutScreenState extends State<ScoutScreen> {
               color:           AppTheme.accent,
               backgroundColor: AppTheme.card,
               onRefresh: () async {
-                setState(() {});
+                // Drop the cached averages so a pull-to-refresh picks up
+                // stats recorded since the sport was first opened.
+                final sport = _skillDataSport;
+                setState(() => _skillDataSport = null);
+                if (sport != null) await _loadSkillAverages(sport);
                 await Future.delayed(const Duration(milliseconds: 800));
               },
               child: ListView.builder(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                itemCount: athletes.length,
-                itemBuilder: (_, i) => _AthleteCard(
-                  athlete: athletes[i],
-                  rank:    i + 1,
-                  onTap:   () => _showProfile(athletes[i]),
-                ),
+                itemCount: rows.length,
+                itemBuilder: (_, i) {
+                  final row = rows[i];
+                  if (row.isHeader) {
+                    return _buildUnrankedHeader(row.unrankedCount!, skill!);
+                  }
+
+                  final athlete = row.athleteData!;
+                  // A ranked row shows the skill it was ranked by; an
+                  // unranked one falls back to the points figure.
+                  final ranking = row.rank == null ? null : skill;
+                  final line    = _skillData[athlete['uid']];
+
+                  return _AthleteCard(
+                    athlete:    athlete,
+                    rank:       row.rank,
+                    skill:      ranking,
+                    skillValue: ranking == null
+                        ? null
+                        : line?.averages[ranking.statKey],
+                    games:      ranking == null ? null : line?.games,
+                    onTap:      () => _showProfile(athlete),
+                  );
+                },
               ),
             ),
           ),
@@ -341,6 +653,27 @@ class _ScoutScreenState extends State<ScoutScreen> {
       },
     );
   }
+
+  // ── Unranked group header ─────────────────
+  // Athletes with no recorded games can't be placed in a skill ranking, but
+  // hiding them would make the roster look empty while the app is young —
+  // and they're exactly the unproven players a coach might want to look at.
+
+  Widget _buildUnrankedHeader(int count, ScoutSkill skill) => Padding(
+    padding: const EdgeInsets.fromLTRB(2, 14, 2, 8),
+    child: Row(children: [
+      Expanded(child: Divider(color: AppTheme.border)),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Text('No ${skill.label.toLowerCase()} stats yet · $count',
+          style: TextStyle(
+            color:      AppTheme.muted,
+            fontSize:   11,
+            fontWeight: FontWeight.w600)),
+      ),
+      Expanded(child: Divider(color: AppTheme.border)),
+    ]),
+  );
 
   // ── Profile bottom sheet ──────────────────
 
@@ -353,15 +686,15 @@ class _ScoutScreenState extends State<ScoutScreen> {
         final firstName = athlete['firstName'] as String? ?? '';
         final lastName = athlete['lastName'] as String? ?? '';
         return _buildInviteButton(athleteUid, '$firstName $lastName',
-            athlete['photoUrl'] as String?);
+            athlete['photoUrl'] as String?, sportsOf(athlete));
       },
     );
   }
 
   // ── Invite to Team button ─────────────────
 
-  Widget _buildInviteButton(
-      String athleteUid, String athleteName, String? athletePhotoUrl) {
+  Widget _buildInviteButton(String athleteUid, String athleteName,
+      String? athletePhotoUrl, List<String> athleteSports) {
     final coachUid = FirebaseAuth.instance.currentUser?.uid;
     if (coachUid == null || athleteUid.isEmpty) {
       return const SizedBox.shrink();
@@ -414,6 +747,8 @@ class _ScoutScreenState extends State<ScoutScreen> {
                     teamName: teamName,
                     athleteId: athleteUid,
                     athleteName: athleteName,
+                    coachSports: _coachSports,
+                    athleteSports: athleteSports,
                     athletePhotoUrl: athletePhotoUrl,
                   );
                   Get.snackbar('Invite Sent', 'Invite sent to $athleteName',
@@ -433,6 +768,18 @@ class _ScoutScreenState extends State<ScoutScreen> {
                       margin: const EdgeInsets.all(16),
                       borderRadius: 12,
                       duration: const Duration(seconds: 2));
+                } on SportMismatchException {
+                  // Scout shouldn't be able to surface this athlete at all,
+                  // so reaching here means the profile changed sports since
+                  // the list loaded.
+                  Get.snackbar('Different Sport',
+                      '$athleteName does not play a sport you coach.',
+                      snackPosition: SnackPosition.BOTTOM,
+                      backgroundColor: AppTheme.card,
+                      colorText: AppTheme.textPrimary,
+                      margin: const EdgeInsets.all(16),
+                      borderRadius: 12,
+                      duration: const Duration(seconds: 3));
                 }
               },
             );
@@ -468,6 +815,8 @@ class _ScoutScreenState extends State<ScoutScreen> {
     required IconData icon,
     required String   title,
     required String   subtitle,
+    String?           actionLabel,
+    VoidCallback?     onAction,
   }) =>
       Center(
         child: Padding(
@@ -491,9 +840,46 @@ class _ScoutScreenState extends State<ScoutScreen> {
             Text(subtitle, textAlign: TextAlign.center,
               style: TextStyle(
                   color: AppTheme.sub, fontSize: 13, height: 1.5)),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 180, height: 46,
+                child: ElevatedButton(
+                  onPressed: onAction,
+                  child: Text(actionLabel))),
+            ],
           ]),
         ),
       );
+}
+
+// ─────────────────────────────────────────────
+// Scout list row
+// ─────────────────────────────────────────────
+
+/// One row of the scout list: an athlete card, or the divider that separates
+/// the athletes a skill sort could rank from those with no games recorded.
+///
+/// The rows are built up front so the list builder can index them directly —
+/// the alternative, offsetting every index past the divider, is where
+/// off-by-one bugs live.
+class _ScoutRow {
+  final Map<String, dynamic>? athleteData;
+
+  /// The athlete's place in the ranking, or `null` if the sort couldn't
+  /// place them.
+  final int? rank;
+
+  /// How many athletes follow the divider. Non-null only on a divider row.
+  final int? unrankedCount;
+
+  const _ScoutRow.athlete(this.athleteData, {this.rank}) : unrankedCount = null;
+
+  const _ScoutRow.header(this.unrankedCount)
+      : athleteData = null,
+        rank        = null;
+
+  bool get isHeader => unrankedCount != null;
 }
 
 // ─────────────────────────────────────────────
@@ -502,13 +888,26 @@ class _ScoutScreenState extends State<ScoutScreen> {
 
 class _AthleteCard extends StatelessWidget {
   final Map<String, dynamic> athlete;
-  final int                  rank;
-  final VoidCallback          onTap;
+
+  /// `null` for an athlete the active skill sort couldn't place.
+  final int?        rank;
+  final VoidCallback onTap;
+
+  /// When a skill sort is active, the skill being ranked by along with this
+  /// athlete's per-game average and the number of games behind it. The card
+  /// shows those in place of the total-points figure, so the coach can see
+  /// the number the list is ordered by.
+  final ScoutSkill? skill;
+  final double?     skillValue;
+  final int?        games;
 
   const _AthleteCard({
     required this.athlete,
     required this.rank,
     required this.onTap,
+    this.skill,
+    this.skillValue,
+    this.games,
   });
 
   int _toInt(dynamic v) {
@@ -516,6 +915,8 @@ class _AthleteCard extends StatelessWidget {
     if (v is double) return v.toInt();
     return 0;
   }
+
+  bool get _isMedal => rank != null && rank! <= 3;
 
   Color get _rankColor {
     switch (rank) {
@@ -531,7 +932,7 @@ class _AthleteCard extends StatelessWidget {
       case 1:  return '🥇';
       case 2:  return '🥈';
       case 3:  return '🥉';
-      default: return '#$rank';
+      default: return rank == null ? '—' : '#$rank';
     }
   }
 
@@ -559,10 +960,10 @@ class _AthleteCard extends StatelessWidget {
           color: AppTheme.card,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: rank <= 3
+            color: _isMedal
                 ? _rankColor.withValues(alpha: 0.5)
                 : AppTheme.border,
-            width: rank <= 3 ? 1.5 : 1)),
+            width: _isMedal ? 1.5 : 1)),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(children: [
@@ -571,18 +972,21 @@ class _AthleteCard extends StatelessWidget {
               Container(
                 width: 32, height: 32,
                 decoration: BoxDecoration(
-                  color: rank <= 3
+                  color: _isMedal
                       ? _rankColor.withValues(alpha: 0.15)
                       : AppTheme.cardNested,
                   borderRadius: BorderRadius.circular(8),
-                  border: rank <= 3
+                  border: _isMedal
                       ? Border.all(color: _rankColor) : null),
-                child: Center(child: rank <= 3
+                child: Center(child: _isMedal
                     ? Text(_rankEmoji,
                         style: const TextStyle(fontSize: 14))
-                    : Text('#$rank', style: TextStyle(
-                        color: AppTheme.muted, fontSize: 11,
-                        fontWeight: FontWeight.w800)))),
+                    // A dash, not a number, for an athlete the sort
+                    // couldn't place.
+                    : Text(rank == null ? '—' : '#$rank',
+                        style: TextStyle(
+                          color: AppTheme.muted, fontSize: 11,
+                          fontWeight: FontWeight.w800)))),
               const SizedBox(width: 10),
 
               // Avatar
@@ -592,7 +996,7 @@ class _AthleteCard extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end:   Alignment.bottomRight,
-                    colors: rank <= 3
+                    colors: _isMedal
                         ? [_rankColor,
                            _rankColor.withValues(alpha: 0.7)]
                         : [AppTheme.cardNested,
@@ -605,13 +1009,13 @@ class _AthleteCard extends StatelessWidget {
                           width: 42, height: 42,
                           errorBuilder: (_, __, ___) => Center(
                               child: Text(initials, style: TextStyle(
-                                  color: rank <= 3
+                                  color: _isMedal
                                       ? AppTheme.buttonFg : AppTheme.muted,
                                   fontSize: 14,
                                   fontWeight: FontWeight.w800))))
                       : Center(child: Text(initials,
                           style: TextStyle(
-                              color: rank <= 3
+                              color: _isMedal
                                   ? AppTheme.buttonFg : AppTheme.muted,
                               fontSize: 14,
                               fontWeight: FontWeight.w800))),
@@ -636,17 +1040,35 @@ class _AthleteCard extends StatelessWidget {
 
               const SizedBox(width: 8),
 
-              // Points
+              // Headline figure — the skill being ranked by when a skill
+              // sort is on, otherwise the lifetime points total. The game
+              // count sits directly under the average, because "9.5
+              // rebounds" reads very differently over 2 games than over 20.
               Column(crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                Text('$pts', style: TextStyle(
-                  color:      AppTheme.accent,
-                  fontSize:   20,
-                  fontWeight: FontWeight.w900,
-                  height:     1)),
-                Text('pts', style: TextStyle(
-                    color: AppTheme.muted, fontSize: 10)),
-              ]),
+                children: skill != null && skillValue != null
+                  ? [
+                      Text(formatStatAverage(skillValue!),
+                        style: const TextStyle(
+                          color:      AppTheme.accent,
+                          fontSize:   20,
+                          fontWeight: FontWeight.w900,
+                          height:     1)),
+                      Text(skill!.unit, style: TextStyle(
+                          color: AppTheme.muted, fontSize: 10)),
+                      if (games != null)
+                        Text('$games game${games == 1 ? '' : 's'}',
+                          style: TextStyle(
+                              color: AppTheme.muted, fontSize: 9)),
+                    ]
+                  : [
+                      Text('$pts', style: const TextStyle(
+                        color:      AppTheme.accent,
+                        fontSize:   20,
+                        fontWeight: FontWeight.w900,
+                        height:     1)),
+                      Text('pts', style: TextStyle(
+                          color: AppTheme.muted, fontSize: 10)),
+                    ]),
             ]),
 
             const SizedBox(height: 10),
@@ -687,25 +1109,25 @@ class _AthleteCard extends StatelessWidget {
                     horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: isOpen
-                      ? const Color(0xFF0D2E20)
+                      ? AppTheme.successSurface
                       : AppTheme.cardNested,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isOpen
-                        ? AppTheme.success : AppTheme.border)),
+                        ? AppTheme.successText : AppTheme.border)),
                 child: Row(mainAxisSize: MainAxisSize.min,
                   children: [
                   Icon(isOpen
                       ? Icons.check_circle_rounded
                       : Icons.cancel_rounded,
                     color: isOpen
-                        ? AppTheme.success : AppTheme.muted,
+                        ? AppTheme.successText : AppTheme.muted,
                     size: 12),
                   const SizedBox(width: 4),
                   Text(isOpen ? 'Open' : 'Closed',
                     style: TextStyle(
                       color: isOpen
-                          ? AppTheme.success : AppTheme.muted,
+                          ? AppTheme.successText : AppTheme.muted,
                       fontSize:   10,
                       fontWeight: FontWeight.w700)),
                 ])),

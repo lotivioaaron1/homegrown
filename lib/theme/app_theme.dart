@@ -61,8 +61,12 @@ class AppTheme {
       : const Color(0xFF1A1A2E);
 
   /// Secondary / subtitle text
+  ///
+  /// The dark value used to be 0xFF8888AA — the exact same colour as [muted],
+  /// which collapsed the three text tiers into two in dark mode only. Light
+  /// mode always had the separation; dark mode now matches it.
   static Color get sub => _isDark
-      ? const Color(0xFF8888AA)
+      ? const Color(0xFFA0A0BE)
       : const Color(0xFF555566);
 
   /// Tertiary text — captions, hints, disabled states.
@@ -83,6 +87,41 @@ class AppTheme {
   static Color get accentText => _isDark
       ? const Color(0xFFFFB800)
       : const Color(0xFF996B00);
+
+  // ── Error / success surfaces ─────────────────────────────────────────────
+  //
+  // The app was built dark-first, so every red or green panel hardcoded a
+  // dark-only hex (0xFF2A1A1A, 0xFF0D2E20, …) and stayed dark on the light
+  // background. These follow the accentSurface/accentText precedent above:
+  // the dark values are the hexes that were already in use, so dark mode is
+  // unchanged; light mode finally has somewhere to switch to.
+
+  /// Error-tinted surface (destructive card, warning banner)
+  static Color get errorSurface => _isDark
+      ? const Color(0xFF2A1A1A)
+      : const Color(0xFFFDECEC);
+
+  /// Nested surface sitting *on* an [errorSurface] — e.g. an icon tile
+  static Color get errorSurfaceStrong => _isDark
+      ? const Color(0xFF3A1A1A)
+      : const Color(0xFFFAD9D9);
+
+  /// Error text/icon colour. [error] is the raw status red and fails contrast
+  /// on white (3.0:1) — use this for anything the user has to read.
+  static Color get errorText => _isDark
+      ? const Color(0xFFFF5C5C)
+      : const Color(0xFFB3261E);
+
+  /// Success-tinted surface (open-to-recruitment chip, confirmation panel)
+  static Color get successSurface => _isDark
+      ? const Color(0xFF0D2E20)
+      : const Color(0xFFE7F6EC);
+
+  /// Success text/icon colour. [success] is 2.3:1 on white — same caveat as
+  /// [errorText].
+  static Color get successText => _isDark
+      ? const Color(0xFF22C55E)
+      : const Color(0xFF15803D);
 
   /// Button foreground (always dark for gold buttons)
   static const Color buttonFg = Color(0xFF1A1100);

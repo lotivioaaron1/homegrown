@@ -1,12 +1,16 @@
 // lib/screens/auth/coach_register_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/profile_photo_picker.dart';
+import '../../services/storage_service.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
@@ -41,6 +45,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   final _teamOrgCtrl = TextEditingController();
 
   // Step 3
+  File? _profileImage;
   final _coachingBioCtrl   = TextEditingController();
   final _certificationsCtrl = TextEditingController();
 
@@ -50,6 +55,39 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       _passwordCtrl, _confirmCtrl, _teamOrgCtrl,
       _coachingBioCtrl, _certificationsCtrl]) { c.dispose(); }
     super.dispose();
+  }
+
+  // ── Profile photo ─────────────────────────
+
+  Future<void> _pickImage() async {
+    // maxWidth matters: without it a modern phone camera shot uploads at
+    // full resolution, which blows past the "max 5MB" the UI promises.
+    // Matches edit_profile_screen.dart's avatar picker.
+    final p = await ImagePicker().pickImage(
+        source: ImageSource.gallery, maxWidth: 1000, imageQuality: 80);
+    if (p != null && mounted) setState(() => _profileImage = File(p.path));
+  }
+
+  /// Uploads the avatar picked in step 3 and points the user's doc at it.
+  /// Must run *after* account creation: storage.rules requires
+  /// `request.auth.uid == uid`, which only holds once the new user is
+  /// signed in.
+  ///
+  /// Deliberately swallows its own failures rather than letting them reach
+  /// _onCreateAccount's catch. By this point the account already exists, so
+  /// bouncing the user back to the form is a dead end — their retry would
+  /// just fail with 'email-already-in-use'. A missing photo is recoverable
+  /// from Edit Profile; a stranded account is not.
+  Future<void> _uploadProfilePhoto(String uid) async {
+    if (_profileImage == null) return;
+    try {
+      final url = await StorageService.uploadProfilePhoto(uid, _profileImage!);
+      await FirebaseFirestore.instance
+          .collection('users').doc(uid).update({'photoUrl': url});
+    } catch (_) {
+      _snack('Photo not uploaded',
+          'Your account was created. You can add a photo from Edit Profile.');
+    }
   }
 
   // ── Barangay picker ───────────────────────
@@ -108,10 +146,13 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         'teamOrganization':  _teamOrgCtrl.text.trim(),
         'coachingBio':       _coachingBioCtrl.text.trim(),
         'certifications':    _certificationsCtrl.text.trim(),
-        'profileImageUrl':   '',
+        // Every avatar in the app reads 'photoUrl' (home, profile,
+        // leaderboard, scout, team). Don't invent a second field name here.
+        'photoUrl':          '',
         'createdAt':         FieldValue.serverTimestamp(),
       });
       await cred.user?.sendEmailVerification();
+      await _uploadProfilePhoto(cred.user!.uid);
       if (mounted) setState(() => _showSuccess = true);
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
@@ -358,7 +399,9 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '📋', title: 'Your Profile',
-            subtitle: 'Step 3 of 3 — Bio & certifications'),
+            subtitle: 'Step 3 of 3 — Photo, bio & certifications'),
+        const SizedBox(height: 24),
+        ProfilePhotoPicker(image: _profileImage, onTap: _pickImage),
         const SizedBox(height: 24),
         const _SectionLabel(label: 'Coaching Bio'),
         const SizedBox(height: 8),

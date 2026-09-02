@@ -186,18 +186,20 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A1A1A),
+        color: AppTheme.errorSurface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _kDanger.withValues(alpha: 0.4)),
+        border: Border.all(color: AppTheme.errorText.withValues(alpha: 0.4)),
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Icon(LucideIcons.triangleAlert, color: _kDanger, size: 20),
+        Icon(LucideIcons.triangleAlert, color: AppTheme.errorText, size: 20),
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('This cannot be undone',
+            Text('This cannot be undone',
                 style: TextStyle(
-                    color: _kDanger, fontSize: 14, fontWeight: FontWeight.w800)),
+                    color: AppTheme.errorText,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
             Text(
               'Deleting your account is permanent. There is no way to recover '
@@ -329,17 +331,17 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A1A1A),
+        color: AppTheme.errorSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _kDanger.withValues(alpha: 0.4)),
+        border: Border.all(color: AppTheme.errorText.withValues(alpha: 0.4)),
       ),
       child: Row(children: [
-        const Icon(LucideIcons.circleAlert, color: _kDanger, size: 16),
+        Icon(LucideIcons.circleAlert, color: AppTheme.errorText, size: 16),
         const SizedBox(width: 10),
         Expanded(
             child: Text(message,
-                style: const TextStyle(
-                    color: _kDanger, fontSize: 12.5, height: 1.4))),
+                style: TextStyle(
+                    color: AppTheme.errorText, fontSize: 12.5, height: 1.4))),
       ]),
     );
   }

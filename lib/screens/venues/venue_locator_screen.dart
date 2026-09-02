@@ -435,12 +435,12 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
             width: 38, height: 38,
             margin: const EdgeInsets.only(right: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF2A1A1A),
+              color: AppTheme.errorSurface,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                  color: AppTheme.error.withValues(alpha: 0.5))),
+                  color: AppTheme.errorText.withValues(alpha: 0.5))),
             child: Icon(Icons.route_rounded,
-                color: AppTheme.error, size: 20)),
+                color: AppTheme.errorText, size: 20)),
         ),
       GestureDetector(
         onTap: _loadEvents,

@@ -150,9 +150,21 @@ service cloud.firestore {
 
     // ── teamMemberships ────────────────────────────────
     match /teamMemberships/{membershipId} {
+      // A coach only recruits for the sports they coach — a basketball
+      // coach can't invite a badminton player. Both sides store a list
+      // (a coach may coach two sports, an athlete may play two), so the
+      // test is overlap, not equality. Scout won't surface a mismatched
+      // athlete and TeamService.sendInvite refuses one, but this is the
+      // boundary that actually holds outside the app.
+      //
+      // A user doc with no primarySports fails this and is denied, which
+      // is the safe direction: such a coach is told to set their sports
+      // rather than being quietly allowed to recruit anyone.
       allow create: if isSignedIn() &&
         request.resource.data.coachId == request.auth.uid &&
-        userData(request.auth.uid).role == 'coach';
+        userData(request.auth.uid).role == 'coach' &&
+        userData(request.auth.uid).primarySports
+          .hasAny(userData(request.resource.data.athleteId).primarySports);
 
       // acceptInvite only ever changes status/respondedAt.
       allow update: if isSignedIn() &&

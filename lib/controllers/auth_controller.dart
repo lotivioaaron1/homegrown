@@ -145,14 +145,27 @@ class AuthController extends GetxController {
           'lastName':        lastName,
           'email':           user.email ?? '',
           'role':            '',
-          'profileImageUrl': user.photoURL ?? '',
+          // Every avatar in the app reads 'photoUrl' (home, profile,
+          // leaderboard, scout, team). Don't invent a second field name here.
+          'photoUrl':        user.photoURL ?? '',
           'authProvider':    'google',
           'createdAt':       FieldValue.serverTimestamp(),
         });
         return null; // No role yet → caller routes to role selection
       }
 
-      final role = doc.data()?['role'] as String? ?? '';
+      // Self-heal accounts created before avatars were standardised on
+      // 'photoUrl': their Google picture went into 'profileImageUrl', which
+      // no screen ever read, so it silently never appeared. One write, on
+      // the first sign-in after this shipped. Email-registered accounts have
+      // nothing to migrate — their old field was always empty.
+      final data = doc.data() ?? {};
+      final legacyUrl = data['profileImageUrl'] as String? ?? '';
+      if ((data['photoUrl'] as String? ?? '').isEmpty && legacyUrl.isNotEmpty) {
+        await docRef.update({'photoUrl': legacyUrl});
+      }
+
+      final role = data['role'] as String? ?? '';
       return role.isEmpty ? null : role;
 
     } on FirebaseAuthException catch (e) {

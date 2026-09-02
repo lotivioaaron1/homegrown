@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/member_profiles.dart';
 import '../../utils/error_messages.dart';
 
 class MyTeamScreen extends StatefulWidget {
@@ -333,12 +334,24 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
           );
         }
 
-        return Column(children: members.map((m) => _RosterCard(
-          invite: m,
-          relativeDate: _relativeDate,
-          onRemove: () => _confirmRemove(m),
-          onTapAthlete: () => _showAthleteProfile(m.athleteId, m.athleteName),
-        )).toList());
+        // The membership doc's name/photo are invite-time copies, so the
+        // roster is rendered from the live user docs instead.
+        return MemberProfilesBuilder(
+          uids: members.map((m) => m.athleteId).toList(),
+          builder: (context, profiles) =>
+              Column(children: members.map((m) {
+                final identity = resolveMemberIdentity(profiles[m.athleteId],
+                    fallbackName: m.athleteName,
+                    fallbackPhotoUrl: m.athletePhotoUrl);
+                return _RosterCard(
+                  invite: m,
+                  identity: identity,
+                  relativeDate: _relativeDate,
+                  onRemove: () => _confirmRemove(m, identity.name),
+                  onTapAthlete: () => _showAthleteProfile(m.athleteId),
+                );
+              }).toList()),
+        );
       },
     );
   }
@@ -369,22 +382,29 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
           );
         }
 
-        return Column(children: invites.map((inv) => _PendingCard(
-          invite: inv,
-          relativeDate: _relativeDate,
-          onCancel: () => TeamService.cancelInvite(inv.id),
-        )).toList());
+        return MemberProfilesBuilder(
+          uids: invites.map((inv) => inv.athleteId).toList(),
+          builder: (context, profiles) =>
+              Column(children: invites.map((inv) => _PendingCard(
+                invite: inv,
+                identity: resolveMemberIdentity(profiles[inv.athleteId],
+                    fallbackName: inv.athleteName,
+                    fallbackPhotoUrl: inv.athletePhotoUrl),
+                relativeDate: _relativeDate,
+                onCancel: () => TeamService.cancelInvite(inv.id),
+              )).toList()),
+        );
       },
     );
   }
 
-  void _confirmRemove(TeamInvite invite) {
+  void _confirmRemove(TeamInvite invite, String athleteName) {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Remove ${invite.athleteName}?', style: TextStyle(
+        title: Text('Remove $athleteName?', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
         content: Text(
             "They'll need a new invite to rejoin ${invite.teamName}.",
@@ -413,7 +433,7 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
   // button (not relevant once they're already on the roster, since this
   // caller passes no trailingActionBuilder).
 
-  void _showAthleteProfile(String athleteId, String athleteName) {
+  void _showAthleteProfile(String athleteId) {
     showAthleteProfileSheet(context, athleteId: athleteId);
   }
 }
@@ -424,19 +444,23 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
 
 class _RosterCard extends StatelessWidget {
   final TeamInvite invite;
+  /// Live name/photo. The `invite` still supplies everything the membership
+  /// itself owns — the join date, the remove action — but not the identity.
+  final MemberIdentity identity;
   final String Function(DateTime?) relativeDate;
   final VoidCallback onRemove;
   final VoidCallback onTapAthlete;
 
   const _RosterCard({
     required this.invite,
+    required this.identity,
     required this.relativeDate,
     required this.onRemove,
     required this.onTapAthlete,
   });
 
   String get _initials {
-    final parts = invite.athleteName.trim().split(' ')
+    final parts = identity.name.trim().split(' ')
         .where((p) => p.isNotEmpty).take(2);
     return parts.map((p) => p[0]).join().toUpperCase();
   }
@@ -464,9 +488,9 @@ class _RosterCard extends StatelessWidget {
                 colors: [AppTheme.accent, AppTheme.accent2]),
               shape: BoxShape.circle),
             child: ClipOval(
-              child: invite.athletePhotoUrl != null &&
-                      invite.athletePhotoUrl!.isNotEmpty
-                  ? Image.network(invite.athletePhotoUrl!, fit: BoxFit.cover,
+              child: identity.photoUrl != null &&
+                      identity.photoUrl!.isNotEmpty
+                  ? Image.network(identity.photoUrl!, fit: BoxFit.cover,
                       width: 42, height: 42,
                       errorBuilder: (_, __, ___) => Center(
                           child: Text(_initials, style: const TextStyle(
@@ -480,7 +504,7 @@ class _RosterCard extends StatelessWidget {
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(invite.athleteName, style: TextStyle(
+              Text(identity.name, style: TextStyle(
                   color: AppTheme.textPrimary, fontSize: 15,
                   fontWeight: FontWeight.w800),
                   overflow: TextOverflow.ellipsis),
@@ -509,11 +533,13 @@ class _RosterCard extends StatelessWidget {
 
 class _PendingCard extends StatelessWidget {
   final TeamInvite invite;
+  final MemberIdentity identity;
   final String Function(DateTime?) relativeDate;
   final VoidCallback onCancel;
 
   const _PendingCard({
     required this.invite,
+    required this.identity,
     required this.relativeDate,
     required this.onCancel,
   });
@@ -529,7 +555,7 @@ class _PendingCard extends StatelessWidget {
     ),
     child: Row(children: [
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(invite.athleteName, style: TextStyle(
+        Text(identity.name, style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w800)),
         const SizedBox(height: 2),
         Text('Invited ${relativeDate(invite.createdAt)}',
