@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
+import '../../services/ranking_service.dart';
 
 class PerformanceDashboardScreen extends StatefulWidget {
   const PerformanceDashboardScreen({super.key});
@@ -33,6 +34,19 @@ class _PerformanceDashboardScreenState
     if (v is int) return v.toDouble();
     if (v is double) return v;
     return 0.0;
+  }
+
+  // Memoised so pull-to-refresh and rebuilds don't re-issue the rank
+  // aggregation. Keyed on points so a new score still refreshes it.
+  int? _cityRankPoints;
+  Future<int>? _cityRankResult;
+
+  Future<int> _cityRankFuture(int points) {
+    if (_cityRankResult == null || _cityRankPoints != points) {
+      _cityRankPoints = points;
+      _cityRankResult = RankingService.cityRank(points: points);
+    }
+    return _cityRankResult!;
   }
 
   @override
@@ -157,22 +171,10 @@ class _PerformanceDashboardScreenState
   // set apart, just by text color instead of a border.
 
   Widget _buildHeroRow(int totalPts, int games, int avg) {
-    return FutureBuilder<QuerySnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'athlete')
-          .get(),
+    return FutureBuilder<int>(
+      future: _cityRankFuture(totalPts),
       builder: (context, snap) {
-        String rank = '#—';
-        if (snap.hasData) {
-          final list = snap.data!.docs
-              .map((d) => d.data() as Map<String, dynamic>)
-              .toList()
-            ..sort((a, b) =>
-                _toInt(b['points']).compareTo(_toInt(a['points'])));
-          final idx = list.indexWhere((a) => a['uid'] == uid);
-          if (idx >= 0) rank = '#${idx + 1}';
-        }
+        final rank = snap.hasData ? '#${snap.data}' : '#—';
         return Row(children: [
           Expanded(child: _HeroCard(
               value: '$totalPts', label: 'Total Pts', isAccentText: true)),

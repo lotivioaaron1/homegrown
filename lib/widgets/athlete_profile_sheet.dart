@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import '../constants/query_limits.dart';
 import '../theme/app_theme.dart';
 import '../utils/stat_scoring.dart';
 
@@ -230,9 +231,14 @@ class _AthleteProfileContent extends StatelessWidget {
   Widget _buildStatAverages(String uid) {
     if (uid.isEmpty) return const SizedBox.shrink();
     return FutureBuilder<QuerySnapshot>(
+      // Averaged over the most recent games rather than every game ever
+      // recorded, so one prolific athlete can't turn opening a profile into an
+      // unbounded read. Deterministic because it is ordered, not arbitrary.
       future: FirebaseFirestore.instance
           .collection('stats')
           .where('athleteId', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .limit(kMaxListQuery)
           .get(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {

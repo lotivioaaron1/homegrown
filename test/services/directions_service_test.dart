@@ -28,6 +28,10 @@ String _okBody({
 ''';
 
 void main() {
+  // Routes are cached process-wide, and these tests reuse the same
+  // origin/destination pair with differing mock responses.
+  setUp(DirectionsService.clearCache);
+
   group('DirectionsService.fetchDrivingRoute', () {
     test('builds request URL with origin, destination, mode, and API key as query params', () async {
       Uri? capturedUrl;

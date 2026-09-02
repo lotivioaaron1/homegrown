@@ -189,10 +189,24 @@ service cloud.firestore {
       // Simplification: every real call site has writer != recipient
       // (coach->athlete invite, organizer->roster, etc.) and there are 6+
       // distinct relationships that would each need their own get()
-      // cross-check to validate properly. Worst-case abuse of an
-      // unrestricted create here is spam, not data corruption or identity
-      // fraud, so this is left open to any signed-in user.
-      allow create: if isSignedIn();
+      // cross-check to validate properly. Fully validating the *relationship*
+      // still isn't worth that complexity, so any signed-in user may still
+      // notify any other user.
+      //
+      // What is checked is authorship and shape: the notification must be
+      // attributed to the account actually writing it, and must be one of the
+      // types the app knows how to render. That removes forgery — nobody can
+      // send a notification that appears to come from someone else, or invent
+      // a type — and leaves only volume, which needs a server to solve
+      // properly. Keep this list in sync with NotificationService.kTypes.
+      allow create: if isSignedIn() &&
+        request.resource.data.fromUid == request.auth.uid &&
+        request.resource.data.userId is string &&
+        request.resource.data.type in [
+          'event_added', 'event_cancelled', 'event_updated',
+          'organizer_pending', 'organizer_status', 'stats_added',
+          'team_full', 'team_invite'
+        ];
 
       // Reading, marking read, and deleting are owner-only — closes a
       // real gap (today anyone could read/delete anyone's notifications).

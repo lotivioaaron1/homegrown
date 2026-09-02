@@ -25,6 +25,17 @@ const Map<String, String> _kSportEmoji = {
   'Badminton':  '🏸',
 };
 
+/// Hard ceiling on athlete documents read per scouting view. The ranking is
+/// joined against skill averages from the `stats` collection, so it can't be
+/// expressed as a Firestore `orderBy` and has to stay client-side; this bounds
+/// what that costs. Far above any realistic roster for one sport in Legazpi.
+const int _kMaxScoutedAthletes = 200;
+
+/// Hard ceiling on stat lines pulled in to compute skill averages. These are
+/// reduced to one line per athlete, so the cap only starts to matter once a
+/// sport has a very long recorded history.
+const int _kMaxSkillStatLines = 1000;
+
 // ─────────────────────────────────────────────
 // ScoutScreen
 // ─────────────────────────────────────────────
@@ -157,6 +168,36 @@ class _ScoutScreenState extends State<ScoutScreen> {
     if (label != _kAllSports) _loadSkillAverages(label);
   }
 
+  String? _streamedKey;
+  Stream<QuerySnapshot>? _athletesStream;
+
+  /// Held across rebuilds rather than rebuilt inside `build()`. A freshly
+  /// constructed `snapshots()` is a new stream identity, so StreamBuilder would
+  /// tear down its subscription and re-read every matching athlete each time
+  /// the coach toggles "open only" or types in the search box. Only a change to
+  /// the query itself should cost a new read.
+  Stream<QuerySnapshot> _athleteStream(List<String> coachSports) {
+    final key = '$_selectedSport|$_openOnly|${coachSports.join(',')}';
+    if (_athletesStream != null && _streamedKey == key) return _athletesStream!;
+
+    Query query = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'athlete');
+
+    // "All Sports" means all of the sports this coach coaches — never every
+    // sport in the app.
+    query = _selectedSport == _kAllSports
+        ? query.where('primarySports', arrayContainsAny: coachSports)
+        : query.where('primarySports', arrayContains: _selectedSport);
+
+    if (_openOnly) {
+      query = query.where('openToRecruitment', isEqualTo: true);
+    }
+
+    _streamedKey = key;
+    return _athletesStream = query.limit(_kMaxScoutedAthletes).snapshots();
+  }
+
   /// Fetches every stat line recorded for [sport] and reduces it to one
   /// scouting line per athlete. `stats` is readable by any signed-in user
   /// (see firestore.rules), and filtering on a single field needs no
@@ -171,6 +212,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
       final snap = await FirebaseFirestore.instance
           .collection('stats')
           .where('sport', isEqualTo: sport)
+          .limit(_kMaxSkillStatLines)
           .get();
       loaded = skillAveragesByAthlete(sport, snap.docs.map((d) => d.data()));
     } catch (e) {
@@ -486,22 +528,8 @@ class _ScoutScreenState extends State<ScoutScreen> {
         });
     }
 
-    Query query = FirebaseFirestore.instance
-        .collection('users')
-        .where('role', isEqualTo: 'athlete');
-
-    // "All Sports" means all of the sports this coach coaches — never every
-    // sport in the app.
-    query = _selectedSport == _kAllSports
-        ? query.where('primarySports', arrayContainsAny: coachSports)
-        : query.where('primarySports', arrayContains: _selectedSport);
-
-    if (_openOnly) {
-      query = query.where('openToRecruitment', isEqualTo: true);
-    }
-
     return StreamBuilder<QuerySnapshot>(
-      stream: query.snapshots(),
+      stream: _athleteStream(coachSports),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(child: CircularProgressIndicator(

@@ -1,8 +1,10 @@
 // lib/services/directions_service.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import '../constants/maps_config.dart';
+import 'api_cache.dart';
 
 /// Fetches driving routes from the Google Directions API. Kept
 /// separate from the venue locator screen so the request/response
@@ -12,11 +14,33 @@ class DirectionsService {
   static const _kBaseUrl =
       'https://maps.googleapis.com/maps/api/directions/json';
 
+  /// Tapping between venues in the locator re-requests the same routes, and
+  /// these calls omit `departure_time`, so the response carries no live traffic
+  /// that a short TTL would keep fresh anyway.
+  static final _cache =
+      ApiCache<DirectionsResult>(ttl: const Duration(minutes: 30));
+
+  @visibleForTesting
+  static void clearCache() => _cache.clear();
+
+  /// The origin is the device's own GPS fix, which jitters by a few metres
+  /// while standing still; rounding stops that jitter from re-billing an
+  /// otherwise identical route.
+  static String _cacheKey(LatLng origin, LatLng destination) =>
+      '${origin.latitude.toStringAsFixed(4)},'
+      '${origin.longitude.toStringAsFixed(4)}'
+      '->${destination.latitude.toStringAsFixed(4)},'
+      '${destination.longitude.toStringAsFixed(4)}';
+
   static Future<DirectionsResult> fetchDrivingRoute({
     required LatLng origin,
     required LatLng destination,
     http.Client? client,
   }) async {
+    final key = _cacheKey(origin, destination);
+    final cached = _cache.get(key);
+    if (cached != null) return cached;
+
     final httpClient = client ?? http.Client();
     final url = Uri.parse(_kBaseUrl).replace(queryParameters: {
       'origin': '${origin.latitude},${origin.longitude}',
@@ -52,11 +76,15 @@ class DirectionsService {
         (route['overview_polyline'] as Map<String, dynamic>)['points']
             as String;
 
-    return DirectionsResult(
+    final result = DirectionsResult(
       points: _decodePolyline(encoded),
       distanceText: (leg['distance'] as Map<String, dynamic>)['text'] as String,
       durationText: (leg['duration'] as Map<String, dynamic>)['text'] as String,
     );
+
+    // Every failure path above throws, so only a complete route is cached.
+    _cache.set(key, result);
+    return result;
   }
 
   static String _messageForStatus(String? status) {

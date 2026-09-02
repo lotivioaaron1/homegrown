@@ -1,5 +1,7 @@
 // lib/screens/home/home_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,15 +9,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../constants/query_limits.dart';
 import '../../theme/app_theme.dart';
 import '../../controllers/auth_controller.dart';
 import '../../models/app_notification.dart';
 import '../../models/team_invite.dart';
 import '../../services/notification_service.dart';
+import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/error_messages.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,6 +44,63 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Per-account so a second user signing in on this device doesn't inherit
   /// someone else's dismissal.
   String get _bannerDismissedKey => 'email_banner_dismissed_$_uid';
+
+  /// Seconds left before the banner's Resend button re-arms. Firebase throttles
+  /// verification sends server-side and starts returning `too-many-requests`,
+  /// so an uncooled button mostly generates errors the user can't see. Matches
+  /// the 30s cooldown on EmailVerificationScreen.
+  int _verifyCooldown = 0;
+  Timer? _verifyCooldownTimer;
+
+  Future<void> _resendVerification(User user) async {
+    if (_verifyCooldown > 0) return;
+    try {
+      await FirebaseAuth.instance.currentUser?.sendEmailVerification();
+      if (!mounted) return;
+      Get.snackbar('Email Sent ✉️',
+        'Verification link sent to ${user.email}',
+        snackPosition:   SnackPosition.BOTTOM,
+        backgroundColor: AppTheme.accentSurface,
+        colorText:       AppTheme.accentText,
+        margin:          const EdgeInsets.all(16),
+        borderRadius:    12);
+      _startVerifyCooldown();
+    } catch (e) {
+      if (!mounted) return;
+      // Previously swallowed with `catch (_) {}`, which left someone tapping a
+      // button that silently did nothing once Firebase started throttling.
+      Get.snackbar('Error', friendlyError(e),
+        snackPosition:   SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF2A1A1A),
+        colorText:       const Color(0xFFFF5C5C),
+        margin:          const EdgeInsets.all(16),
+        borderRadius:    12);
+      _startVerifyCooldown();
+    }
+  }
+
+  void _startVerifyCooldown() {
+    setState(() => _verifyCooldown = 30);
+    _verifyCooldownTimer?.cancel();
+    _verifyCooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      if (_verifyCooldown <= 1) {
+        t.cancel();
+        setState(() => _verifyCooldown = 0);
+      } else {
+        setState(() => _verifyCooldown--);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _verifyCooldownTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -89,6 +151,20 @@ class _HomeScreenState extends State<HomeScreen> {
     if (v is int)    return v;
     if (v is double) return v.toInt();
     return 0;
+  }
+
+  // Memoised so the hero card's rebuilds reuse one aggregation query instead of
+  // issuing a fresh one each time. Keyed on points, the only input the rank
+  // depends on, so earning points still refreshes it.
+  int? _cityRankPoints;
+  Future<int>? _cityRankResult;
+
+  Future<int> _cityRankFuture(int points) {
+    if (_cityRankResult == null || _cityRankPoints != points) {
+      _cityRankPoints = points;
+      _cityRankResult = RankingService.cityRank(points: points);
+    }
+    return _cityRankResult!;
   }
 
   // ── Avatar menu ───────────────────────────
@@ -352,15 +428,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ? FirebaseFirestore.instance
             .collection('events')
             .where('organizerId', isEqualTo: _uid)
+            .limit(kMaxListQuery)
             .snapshots()
         : role == 'athlete'
             ? FirebaseFirestore.instance
                 .collection('events')
                 .where('playerUids', arrayContains: _uid)
+                .limit(kMaxListQuery)
                 .snapshots()
             : FirebaseFirestore.instance
                 .collection('events')
                 .where('isPublic', isEqualTo: true)
+                .limit(kMaxListQuery)
                 .snapshots();
 
     showModalBottomSheet(
@@ -484,6 +563,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   .collection('stats')
                   .where('athleteId', isEqualTo: _uid)
                   .orderBy('createdAt', descending: true)
+                  .limit(kMaxListQuery)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -694,29 +774,26 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 8),
         // Resend button
         GestureDetector(
-          onTap: () async {
-            try {
-              await FirebaseAuth.instance.currentUser
-                  ?.sendEmailVerification();
-              Get.snackbar('Email Sent ✉️',
-                'Verification link sent to ${user.email}',
-                snackPosition:   SnackPosition.BOTTOM,
-                backgroundColor: AppTheme.accentSurface,
-                colorText:       AppTheme.accentText,
-                margin:          const EdgeInsets.all(16),
-                borderRadius:    12);
-            } catch (_) {}
-          },
+          onTap: _verifyCooldown > 0 ? null : () => _resendVerification(user),
           child: Container(
             padding: const EdgeInsets.symmetric(
                 horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: AppTheme.accentSurface,
+              color: _verifyCooldown > 0
+                  ? AppTheme.cardNested
+                  : AppTheme.accentSurface,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppTheme.accent)),
-            child: Text('Resend', style: TextStyle(
-              color: AppTheme.accentText, fontSize: 11,
-              fontWeight: FontWeight.w700))),
+              border: Border.all(color: _verifyCooldown > 0
+                  ? AppTheme.border
+                  : AppTheme.accent)),
+            child: Text(
+              _verifyCooldown > 0 ? '${_verifyCooldown}s' : 'Resend',
+              style: TextStyle(
+                color: _verifyCooldown > 0
+                    ? AppTheme.muted
+                    : AppTheme.accentText,
+                fontSize: 11,
+                fontWeight: FontWeight.w700))),
         ),
         const SizedBox(width: 6),
         // Dismiss button
@@ -1073,22 +1150,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         const Spacer(),
         // ── Real city rank ──
-        FutureBuilder<QuerySnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('users')
-              .where('role', isEqualTo: 'athlete')
-              .get(),
+        FutureBuilder<int>(
+          future: _cityRankFuture(points),
           builder: (context, snap) {
-            String rank = '#—';
-            if (snap.hasData) {
-              final list = snap.data!.docs
-                  .map((d) => d.data() as Map<String, dynamic>)
-                  .toList()
-                ..sort((a, b) =>
-                    _toInt(b['points']).compareTo(_toInt(a['points'])));
-              final idx = list.indexWhere((a) => a['uid'] == _uid);
-              if (idx >= 0) rank = '#${idx + 1}';
-            }
+            final rank = snap.hasData ? '#${snap.data}' : '#—';
             return Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 10),

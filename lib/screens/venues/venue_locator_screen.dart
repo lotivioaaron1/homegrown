@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../constants/query_limits.dart';
 import '../../services/directions_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
@@ -118,6 +119,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           .collection('events')
           .where('status',   isEqualTo: 'upcoming')
           .where('isPublic', isEqualTo: true)
+          .limit(kMaxMapQuery)
           .get();
       if (mounted) setState(() {
         _events    = snap.docs

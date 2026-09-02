@@ -155,7 +155,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             if (!sheetOpen) return;
             searchToken++;
             final token = searchToken;
-            if (q.trim().isEmpty) {
+            // A one- or two-character query matches half of Legazpi and still
+            // bills a full Text Search, so it's treated exactly like an empty
+            // box: reset to the prompt, send nothing.
+            if (q.trim().length < PlacesService.minQueryLength) {
               // Bumping the token above already discarded any in-flight
               // response, so this has to clear the spinner itself.
               if (ctx.mounted) {
@@ -191,6 +194,16 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             }
           }
 
+          // The single entry point for starting a search. Everything that can
+          // trigger one goes through here so nothing bypasses the debounce —
+          // the retry button used to call runSearch directly, turning a held
+          // tap into one billable request per tap.
+          void scheduleSearch(String q) {
+            debounce?.cancel();
+            debounce =
+                Timer(const Duration(milliseconds: 400), () => runSearch(q));
+          }
+
           Future<void> openMapPicker() async {
             final picked = await Navigator.push<Venue>(ctx,
                 MaterialPageRoute(builder: (_) => const VenueMapPickerScreen()));
@@ -219,7 +232,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               return Center(child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('Type to search for a venue',
+                  Text(
+                      'Type at least ${PlacesService.minQueryLength} letters to search',
                       style: TextStyle(
                           color: AppTheme.muted, fontSize: 13)),
                   const SizedBox(height: 12),
@@ -256,7 +270,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   ),
                   const SizedBox(height: 4),
                   TextButton(
-                    onPressed: () => runSearch(search.text),
+                    onPressed: () => scheduleSearch(search.text),
                     child: Text('Retry search',
                         style: TextStyle(color: AppTheme.accent)),
                   ),
@@ -305,11 +319,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   controller: search,
                   autofocus: true,
                   style: TextStyle(color: AppTheme.textPrimary),
-                  onChanged: (q) {
-                    debounce?.cancel();
-                    debounce = Timer(
-                        const Duration(milliseconds: 400), () => runSearch(q));
-                  },
+                  onChanged: scheduleSearch,
                   decoration: InputDecoration(
                     hintText: 'Search venue...',
                     hintStyle: TextStyle(color: AppTheme.muted),

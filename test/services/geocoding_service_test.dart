@@ -8,6 +8,10 @@ import 'package:homegrown/services/geocoding_service.dart';
 const _point = LatLng(13.144195, 123.746363);
 
 void main() {
+  // Every test here reverse-geocodes the same point with a different mock
+  // response, so the process-wide address cache has to be reset between them.
+  setUp(GeocodingService.clearCache);
+
   group('GeocodingService.reverseGeocode', () {
     test('sends the tapped point as the latlng query param', () async {
       Uri? capturedUrl;
@@ -55,6 +59,68 @@ void main() {
       final address = await GeocodingService.reverseGeocode(_point, client: client);
 
       expect(address, isNull);
+    });
+  });
+
+  group('GeocodingService caching', () {
+    const okBody =
+        '{"status": "OK", "results": [{"formatted_address": "Legazpi Port District"}]}';
+
+    test('serves a repeated point from cache without a second request', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response(okBody, 200);
+      });
+
+      await GeocodingService.reverseGeocode(_point, client: client);
+      final second = await GeocodingService.reverseGeocode(_point, client: client);
+
+      expect(requestCount, 1);
+      expect(second, 'Legazpi Port District');
+    });
+
+    test('treats points within ~11m of each other as the same tap', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response(okBody, 200);
+      });
+
+      await GeocodingService.reverseGeocode(_point, client: client);
+      // Differs only in the 5th decimal place — finer than a fingertip.
+      await GeocodingService.reverseGeocode(
+          const LatLng(13.144192, 123.746361), client: client);
+
+      expect(requestCount, 1);
+    });
+
+    test('treats a meaningfully different point as a separate request', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response(okBody, 200);
+      });
+
+      await GeocodingService.reverseGeocode(_point, client: client);
+      await GeocodingService.reverseGeocode(
+          const LatLng(13.1500, 123.7500), client: client);
+
+      expect(requestCount, 2);
+    });
+
+    test('does not cache a failed lookup', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response('Server error', 500);
+      });
+
+      await GeocodingService.reverseGeocode(_point, client: client);
+      await GeocodingService.reverseGeocode(_point, client: client);
+
+      expect(requestCount, 2,
+          reason: 'a transient failure must not stand in for the real address');
     });
   });
 }

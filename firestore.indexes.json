@@ -1,0 +1,60 @@
+{
+  "indexes": [
+    {
+      "//": "RankingService.cityRank: equality on role plus a range on points. A range filter alongside an equality filter always needs a composite index — this is the one the aggregation introduced.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "points", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "Leaderboard filtered to one sport, and Scout's default view.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "primarySports", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "//": "Scout with the 'open to recruitment only' toggle on.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "primarySports", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "openToRecruitment", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "Recent activity feed and the per-athlete stat averages, which now order by recency before applying their limit.",
+      "collectionGroup": "stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "athleteId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "Venue locator: upcoming public events.",
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "isPublic", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "Unread-notification lookups for the badge and 'mark all read'.",
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

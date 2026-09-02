@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/venue.dart';
 import '../constants/maps_config.dart';
+import 'api_cache.dart';
 
 /// Searches for real-world venues via Google's Places API (New) Text
 /// Search, replacing the old hand-typed `kLegazpiVenues` catalog with
@@ -15,10 +16,29 @@ class PlacesService {
   static const _kBiasCenterLng = 123.7438;
   static const _kBiasRadiusMeters = 15000.0;
 
+  /// Shortest query worth sending. One or two characters match half the city
+  /// while still costing a full Text Search, so callers should treat anything
+  /// shorter as "keep typing" rather than firing a request.
+  static const int minQueryLength = 3;
+
+  /// Text Search is the priciest Maps SKU in this app, and clearing then
+  /// retyping a venue name is ordinary behaviour, so recent queries are worth
+  /// remembering. Venues don't move; half an hour is conservative.
+  static final _cache = ApiCache<List<Venue>>(ttl: const Duration(minutes: 30));
+
+  @visibleForTesting
+  static void clearCache() => _cache.clear();
+
   static Future<List<Venue>> searchVenues(
     String query, {
     http.Client? client,
   }) async {
+    // Case and stray whitespace don't change what Google returns, so they
+    // shouldn't cause a second charge.
+    final cacheKey = query.trim().toLowerCase();
+    final cached = _cache.get(cacheKey);
+    if (cached != null) return cached;
+
     final httpClient = client ?? http.Client();
     final res = await httpClient
         .post(
@@ -50,12 +70,18 @@ class PlacesService {
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final places = data['places'] as List?;
-    if (places == null) return [];
+    // Note this is reached only on HTTP 200 — the throw above means a failed
+    // request is never cached, so one network blip can't wedge venue search
+    // into looking broken for the rest of the TTL.
+    if (places == null) {
+      _cache.set(cacheKey, const []);
+      return [];
+    }
 
     // A place with no usable name or coordinates can't be shown as a
     // search result or used as a directions destination — drop it
     // rather than inventing a placeholder name or a (0, 0) pin.
-    return places
+    final venues = places
         .map((p) {
           final place = p as Map<String, dynamic>;
           final displayName = place['displayName'] as Map<String, dynamic>?;
@@ -76,6 +102,9 @@ class PlacesService {
         })
         .whereType<Venue>()
         .toList();
+
+    _cache.set(cacheKey, venues);
+    return venues;
   }
 
   /// Places API (New) returns a `google.rpc.Status`-shaped error body —

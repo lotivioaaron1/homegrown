@@ -327,13 +327,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
-                  FutureBuilder<QuerySnapshot>(
+                  FutureBuilder<AggregateQuerySnapshot>(
+                    // Only the number is shown, so a count aggregation costs
+                    // one read instead of one per event created.
                     future: FirebaseFirestore.instance
                         .collection('events')
                         .where('organizerId', isEqualTo: _uid)
+                        .count()
                         .get(),
                     builder: (context, eventsSnap) {
-                      final count = eventsSnap.data?.docs.length;
+                      final count = eventsSnap.data?.count;
                       return _credentialBox(
                           'Events Created', count == null ? '—' : '$count');
                     },

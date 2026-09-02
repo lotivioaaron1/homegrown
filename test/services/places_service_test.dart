@@ -7,6 +7,12 @@ import 'package:homegrown/constants/maps_config.dart';
 import 'package:homegrown/services/places_service.dart';
 
 void main() {
+  // PlacesService caches successful searches in a process-wide static, and
+  // several tests below deliberately reuse the same query string with different
+  // mock responses. Without this reset the second one would silently read the
+  // first one's cached result instead of exercising its own mock.
+  setUp(PlacesService.clearCache);
+
   group('PlacesService.searchVenues', () {
     test('sends the query with Legazpi City appended and a 15km location bias around city center', () async {
       Map<String, dynamic>? capturedBody;
@@ -139,6 +145,77 @@ void main() {
 
       expect(results, hasLength(1));
       expect(results.single.name, 'Named Court');
+    });
+  });
+
+  group('PlacesService caching', () {
+    test('serves a repeated query from cache without a second request', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response(jsonEncode({
+          'places': [
+            {
+              'displayName': {'text': 'Astrodome', 'languageCode': 'en'},
+              'formattedAddress': 'Legazpi City, Albay, Philippines',
+              'location': {'latitude': 13.14, 'longitude': 123.74},
+              'primaryType': 'stadium',
+            },
+          ],
+        }), 200);
+      });
+
+      final first = await PlacesService.searchVenues('Astrodome', client: client);
+      final second = await PlacesService.searchVenues('Astrodome', client: client);
+
+      expect(requestCount, 1);
+      expect(second.single.name, first.single.name);
+    });
+
+    test('ignores case and surrounding whitespace when matching', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response('{"places": []}', 200);
+      });
+
+      await PlacesService.searchVenues('Astrodome', client: client);
+      await PlacesService.searchVenues('  astrodome ', client: client);
+
+      expect(requestCount, 1);
+    });
+
+    test('does not cache a failed request', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response('Server error', 500);
+      });
+
+      await expectLater(
+        () => PlacesService.searchVenues('Astrodome', client: client),
+        throwsA(isA<PlacesException>()),
+      );
+      await expectLater(
+        () => PlacesService.searchVenues('Astrodome', client: client),
+        throwsA(isA<PlacesException>()),
+      );
+
+      expect(requestCount, 2,
+          reason: 'a transient failure must not suppress the retry');
+    });
+
+    test('treats a different query as a separate request', () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        return http.Response('{"places": []}', 200);
+      });
+
+      await PlacesService.searchVenues('Astrodome', client: client);
+      await PlacesService.searchVenues('Ibalong Centrum', client: client);
+
+      expect(requestCount, 2);
     });
   });
 }

@@ -8,21 +8,55 @@ import '../../constants/app_links.dart';
 import '../../theme/app_theme.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/theme_controller.dart';
+import '../../services/ranking_service.dart';
 import '../profile/edit_profile_screen.dart';
 
 /// Everything that used to sit on the profile screen: Edit Profile,
 /// role-specific details, Performance, Best Game, Dark Mode, and Sign Out.
 /// Firestore queries are the same ones the old profile used — this is a
 /// relocation, not new logic.
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+// Stateful only so the two aggregation queries below can be memoised. The outer
+// StreamBuilder rebuilds this screen on every write to the user's document, and
+// a Future built inline in build() is a *new* Future each time — which re-issues
+// the query and flickers the value back to its placeholder.
+class _SettingsScreenState extends State<SettingsScreen> {
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   int _toInt(dynamic v) {
     if (v is int) return v;
     if (v is double) return v.toInt();
     return 0;
+  }
+
+  int? _cityRankPoints;
+  Future<int>? _cityRankResult;
+
+  Future<int> _cityRankFuture(int points) {
+    if (_cityRankResult == null || _cityRankPoints != points) {
+      _cityRankPoints = points;
+      _cityRankResult = RankingService.cityRank(points: points);
+    }
+    return _cityRankResult!;
+  }
+
+  Future<int>? _gamesPlayedResult;
+
+  /// Only the number of games is shown, so a count aggregation replaces
+  /// downloading every stats document to call `.length` on the list.
+  Future<int> _gamesPlayedFuture() {
+    return _gamesPlayedResult ??= FirebaseFirestore.instance
+        .collection('stats')
+        .where('athleteId', isEqualTo: _uid)
+        .count()
+        .get()
+        .then((snap) => snap.count ?? 0);
   }
 
   @override
@@ -208,29 +242,14 @@ class SettingsScreen extends StatelessWidget {
   // ── Performance ────────────────────────────────────────────────────────
   Widget _buildStatsSection(Map<String, dynamic> data) {
     final pts = _toInt(data['points']);
-    return FutureBuilder<QuerySnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'athlete')
-          .get(),
+    return FutureBuilder<int>(
+      future: _cityRankFuture(pts),
       builder: (context, rankSnap) {
-        String rank = '#—';
-        if (rankSnap.hasData) {
-          final list = rankSnap.data!.docs
-              .map((d) => d.data() as Map<String, dynamic>)
-              .toList()
-            ..sort((a, b) =>
-                _toInt(b['points']).compareTo(_toInt(a['points'])));
-          final idx = list.indexWhere((a) => a['uid'] == _uid);
-          if (idx >= 0) rank = '#${idx + 1}';
-        }
-        return FutureBuilder<QuerySnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('stats')
-              .where('athleteId', isEqualTo: _uid)
-              .get(),
+        final rank = rankSnap.hasData ? '#${rankSnap.data}' : '#—';
+        return FutureBuilder<int>(
+          future: _gamesPlayedFuture(),
           builder: (context, snap) {
-            final games = snap.data?.docs.length ?? 0;
+            final games = snap.data ?? 0;
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

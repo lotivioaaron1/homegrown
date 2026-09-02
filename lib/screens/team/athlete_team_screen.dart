@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import '../../constants/query_limits.dart';
 import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
@@ -399,9 +400,14 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
   Widget _buildStatAverages(String athleteUid) {
     if (athleteUid.isEmpty) return const SizedBox.shrink();
     return FutureBuilder<QuerySnapshot>(
+      // Averaged over the most recent games rather than every game ever
+      // recorded, so one prolific athlete can't turn opening a profile into an
+      // unbounded read. Deterministic because it is ordered, not arbitrary.
       future: FirebaseFirestore.instance
           .collection('stats')
           .where('athleteId', isEqualTo: athleteUid)
+          .orderBy('createdAt', descending: true)
+          .limit(kMaxListQuery)
           .get(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {

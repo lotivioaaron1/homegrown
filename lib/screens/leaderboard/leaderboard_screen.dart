@@ -13,6 +13,20 @@ import '../../utils/error_messages.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
 
+/// Hard ceiling on how many athlete documents one leaderboard view will read.
+///
+/// The ranking can't be pushed into the query: the "All" view sorts on `points`,
+/// but a sport filter sorts on `ratings.<sport>` and treats a missing rating as
+/// [kStartingRating]. Firestore's `orderBy` drops documents that lack the field
+/// entirely, so ordering server-side would silently hide every athlete who has
+/// never been rated in that sport. Ranking therefore stays client-side, and this
+/// bounds what it costs.
+///
+/// Legazpi has nowhere near this many registered athletes, so in practice the
+/// cap never binds and the ranking is exact. Past it, the board becomes "top
+/// 200-ish" rather than wrong — an acceptable trade for a bounded bill.
+const int _kMaxRankedAthletes = 200;
+
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
 
@@ -23,6 +37,31 @@ class LeaderboardScreen extends StatefulWidget {
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   String _filter = 'All';
+
+  String? _streamedFilter;
+  Stream<QuerySnapshot>? _athletesStream;
+
+  /// Held across rebuilds rather than rebuilt inside `build()`. A freshly
+  /// constructed `snapshots()` is a new stream identity, so StreamBuilder would
+  /// tear down its subscription and re-read the whole result set on every
+  /// filter tap and every pull-to-refresh. Only a filter change should cost a
+  /// new query.
+  Stream<QuerySnapshot> _athleteStream() {
+    if (_athletesStream != null && _streamedFilter == _filter) {
+      return _athletesStream!;
+    }
+
+    Query query = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'athlete');
+
+    if (_filter != 'All') {
+      query = query.where('primarySports', arrayContains: _filter);
+    }
+
+    _streamedFilter = _filter;
+    return _athletesStream = query.limit(_kMaxRankedAthletes).snapshots();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -97,16 +136,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   Widget _buildList() {
-    Query query = FirebaseFirestore.instance
-        .collection('users')
-        .where('role', isEqualTo: 'athlete');
-
-    if (_filter != 'All') {
-      query = query.where('primarySports', arrayContains: _filter);
-    }
-
     return StreamBuilder<QuerySnapshot>(
-      stream: query.snapshots(),
+      stream: _athleteStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(

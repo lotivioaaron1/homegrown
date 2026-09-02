@@ -58,7 +58,8 @@ String? _messageFromKnownException(Object error) {
   if (name == 'PlacesException' ||
       name == 'BarangayException' ||
       name == 'GeocodingException' ||
-      name == 'DirectionsException') {
+      name == 'DirectionsException' ||
+      name == 'StorageException') {
     final text = error.toString();
     // Strip the "TypeName: " prefix these add in toString().
     final colon = text.indexOf(': ');

@@ -1,5 +1,7 @@
 // lib/screens/events/venue_map_picker_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../models/venue.dart';
@@ -23,6 +25,11 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
   bool _isResolving = false;
   int _requestToken = 0;
 
+  // Reverse geocoding bills per request, and adjusting a pin means several taps
+  // in a row. The token below discards the stale *response*, but the request
+  // has already been paid for by then — only this timer stops it being sent.
+  Timer? _geocodeDebounce;
+
   // The organizer-typed venue name. Informal barangay courts are
   // exactly the venues Google doesn't index, so they need a real
   // human-readable name rather than a street address or raw coords.
@@ -31,6 +38,7 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
 
   @override
   void dispose() {
+    _geocodeDebounce?.cancel();
     _nameCtrl.dispose();
     super.dispose();
   }
@@ -43,15 +51,24 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
     _nameCtrl.text = _prefilledName;
   }
 
-  Future<void> _onTap(LatLng point) async {
+  /// Moves the pin immediately — dropping it should feel instant — but holds
+  /// the billable address lookup back until the taps stop.
+  void _onTap(LatLng point) {
     _requestToken++;
-    final currentToken = _requestToken;
 
     setState(() {
       _tapped = point;
       _address = null;
       _isResolving = true;
     });
+
+    _geocodeDebounce?.cancel();
+    _geocodeDebounce = Timer(
+        const Duration(milliseconds: 500), () => _resolveAddress(point));
+  }
+
+  Future<void> _resolveAddress(LatLng point) async {
+    final currentToken = _requestToken;
     try {
       final address = await GeocodingService.reverseGeocode(point);
       if (!mounted || _requestToken != currentToken) return;
