@@ -58,9 +58,41 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+
+# Regenerate the Android launcher icons with:
+#   dart run flutter_launcher_icons
+#
+# Sources live in assets/launcher_icon/ rather than assets/images/, which is
+# declared above and so ships inside the APK — these are build-time inputs and
+# have no business being bundled at runtime. Both are derived from
+# assets/images/homegrown_icon.png; regenerate them from that master if the
+# logo changes (see the comment in android/app/src/main/res for the geometry).
+#
+# The background is white because the wordmark's counters — the H's crossbar
+# gaps and the G's bowl — are transparency, not white fill. On brand gold the
+# gold G's counter would fill gold and the letter would close into a blob; on
+# near-black the near-black H would disappear. White is the only flat ground
+# where both letters keep their shape, and it matches wordmark_on_light.png.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  # Legacy square icon for API 24–25, which predate adaptive icons. The white
+  # ground is baked in, since a transparent legacy icon renders as a hole.
+  image_path: "assets/launcher_icon/legacy.png"
+  adaptive_icon_background: "#FFFFFF"
+  # The mark is scaled to 50% of the 108dp layer so the whole 1.617:1 lockup
+  # inscribes in the 66dp safe circle. At the default size it overflowed the
+  # 72dp viewport and lost the speed lines and the right edge of the G to the
+  # mask on round launchers.
+  adaptive_icon_foreground: "assets/launcher_icon/foreground.png"
+  # Android 13+ themed icons tint the alpha channel of this layer, so the same
+  # transparent foreground doubles as the monochrome silhouette.
+  adaptive_icon_monochrome: "assets/launcher_icon/foreground.png"
+  min_sdk_android: 24
