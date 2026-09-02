@@ -4,9 +4,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme/app_theme.dart';
 
-enum UserSport { basketball, volleyball, badminton }
-
-// ── Sport intro panel data (NEW) ──────────────────────────────────
+// ── Sport intro panel data ────────────────────────────────────────
 // Drop your photos in at these paths. Until they exist, each panel
 // falls back to a themed gradient + icon so nothing breaks.
 class _SportPanelData {
@@ -55,13 +53,17 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
 
-  // CHANGED: was 2 (Features, Sport Selection). Now 5 — 3 sport intro
-  // panels prepended ahead of your original 2 pages.
+  // Three full-bleed sport intro panels, then the Features page.
+  //
+  // A "What sport do you play?" page used to follow Features. It saved the
+  // answer to SharedPreferences and nothing ever read it, so registration
+  // asked for the sport again anyway — and because this runs before the
+  // role picker, it asked coaches and organizers a question meant for
+  // athletes. The role-specific registration screens own the question now.
   static final int _sportPanelCount = _sportPanels.length; // 3
-  static final int _totalPages = _sportPanelCount + 2; // 5
+  static final int _totalPages = _sportPanelCount + 1; // 4
 
   int _currentPage = 0;
-  UserSport? _selectedSport;
 
   bool get _onSportPanel => _currentPage < _sportPanelCount;
 
@@ -84,24 +86,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  void _onSkip() {
-    _pageController.animateToPage(
-      _totalPages - 1,
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeInOut,
-    );
-  }
-
   Future<void> _onGetStarted() async {
-    if (_selectedSport != null) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_sport', _selectedSport!.name);
-    }
+    final prefs = await SharedPreferences.getInstance();
+    // splash_screen.dart reads this to send a returning user who has logged
+    // out straight to /login instead of the first-run CTA. It reads the flag
+    // but nothing used to write it, so every returning user was treated as
+    // brand new.
+    await prefs.setBool('onboarding_complete', true);
     Get.offAllNamed('/register');
   }
-
-  String get _buttonLabel =>
-      _currentPage == _totalPages - 2 ? 'Continue' : 'Get Started';
 
   @override
   void dispose() {
@@ -128,17 +121,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   onAdvance: () => _goToPage(i + 1),
                 ),
               const _FeaturesPage(),
-              _SportSelectionPage(
-                selectedSport: _selectedSport,
-                onSportSelected: (s) => setState(() => _selectedSport = s),
-              ),
             ],
           ),
 
-          // Small progress dots over the sport panels themselves,
-          // matching the reference's per-panel indicator. Hidden once
-          // we reach the Features/Sport-selection pages, which use
-          // the original bottom _DotIndicator instead.
+          // Small progress dots over the sport panels themselves, matching
+          // the reference's per-panel indicator. Hidden on the Features
+          // page, which is the last page and carries the CTA instead.
           if (_onSportPanel)
             Positioned(
               left: 0,
@@ -150,47 +138,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
 
-          // Original bottom controls: dot indicator + Continue/Get
-          // Started button + Skip. Unchanged from your version, just
-          // now only shown for the Features/Sport-selection pages.
+          // The CTA for the Features page. It used to sit under a dot
+          // indicator and a Skip link, both of which only made sense while a
+          // sport-selection page followed: Features is now the last page, so
+          // the indicator would show a single dot and Skip could never
+          // render (it was hidden on the last page).
           if (!_onSportPanel)
             SafeArea(
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _DotIndicator(
-                        total: _totalPages - _sportPanelCount,
-                        current: _currentPage - _sportPanelCount,
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: _onContinue,
-                          child: Text(_buttonLabel),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      if (_currentPage < _totalPages - 1)
-                        GestureDetector(
-                          onTap: _onSkip,
-                          child: Text(
-                            'Skip',
-                            style: TextStyle(
-                              color: AppTheme.sub,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        )
-                      else
-                        const SizedBox(height: 20),
-                    ],
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: ElevatedButton(
+                      onPressed: _onContinue,
+                      child: const Text('Get Started'),
+                    ),
                   ),
                 ),
               ),
@@ -510,200 +475,6 @@ class _FeatureCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _SportSelectionPage extends StatelessWidget {
-  final UserSport? selectedSport;
-  final ValueChanged<UserSport> onSportSelected;
-  const _SportSelectionPage({
-    required this.selectedSport,
-    required this.onSportSelected,
-  });
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 40, 24, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(
-              'What sport do\nyou play?',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                height: 1.2,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Select your primary sport to personalize your experience.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppTheme.sub,
-                fontSize: 14,
-                height: 1.6,
-              ),
-            ),
-            const SizedBox(height: 36),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 14,
-              crossAxisSpacing: 14,
-              childAspectRatio: 1.05,
-              children: [
-                _SportCard(
-                  emoji: '🏀',
-                  label: 'Basketball',
-                  sport: UserSport.basketball,
-                  isSelected: selectedSport == UserSport.basketball,
-                  onTap: () => onSportSelected(UserSport.basketball),
-                ),
-                _SportCard(
-                  emoji: '🏐',
-                  label: 'Volleyball',
-                  sport: UserSport.volleyball,
-                  isSelected: selectedSport == UserSport.volleyball,
-                  onTap: () => onSportSelected(UserSport.volleyball),
-                ),
-                _SportCard(
-                  emoji: '🏸',
-                  label: 'Badminton',
-                  sport: UserSport.badminton,
-                  isSelected: selectedSport == UserSport.badminton,
-                  onTap: () => onSportSelected(UserSport.badminton),
-                ),
-                const _SportCardDisabled(),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SportCard extends StatelessWidget {
-  final String emoji;
-  final String label;
-  final UserSport sport;
-  final bool isSelected;
-  final VoidCallback onTap;
-  const _SportCard({
-    required this.emoji,
-    required this.label,
-    required this.sport,
-    required this.isSelected,
-    required this.onTap,
-  });
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.accentSurface : AppTheme.card,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isSelected ? AppTheme.accent : AppTheme.border,
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 38)),
-            const SizedBox(height: 10),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? AppTheme.accentText : AppTheme.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Tap to Select',
-              style: TextStyle(
-                color: isSelected
-                    ? AppTheme.accent.withValues(alpha: 0.7)
-                    : AppTheme.muted,
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SportCardDisabled extends StatelessWidget {
-  const _SportCardDisabled();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.card.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.border.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text('⏳', style: TextStyle(fontSize: 38)),
-          const SizedBox(height: 10),
-          Text(
-            'More Soon',
-            style: TextStyle(
-              color: AppTheme.muted,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            'Coming soon',
-            style: TextStyle(color: AppTheme.muted, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DotIndicator extends StatelessWidget {
-  final int total;
-  final int current;
-  const _DotIndicator({required this.total, required this.current});
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(total, (i) {
-        final bool active = i == current;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: active ? 24 : 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: active ? AppTheme.accent : AppTheme.border,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        );
-      }),
     );
   }
 }
