@@ -237,6 +237,12 @@ class _OrganizerRegisterScreenState
         _buildProgressBar(),
         Expanded(child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
+          // Pin steps to the top — see coach_register_screen.dart for why
+          // the default centred layout made short steps float mid-screen.
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...previous, if (current != null) current],
+          ),
           transitionBuilder: (child, anim) => SlideTransition(
             position: Tween<Offset>(
                 begin: const Offset(0.08, 0),

@@ -193,6 +193,15 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         _buildProgressBar(),
         Expanded(child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
+          // Pin steps to the top. AnimatedSwitcher's default layout stacks
+          // its children centred, and a SingleChildScrollView shrink-wraps
+          // under a Stack's loose constraints — so a short step floated in
+          // the middle of the screen while a long one sat at the top, and
+          // the header jumped between steps.
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...previous, if (current != null) current],
+          ),
           transitionBuilder: (child, anim) => SlideTransition(
             position: Tween<Offset>(
                 begin: const Offset(0.08, 0), end: Offset.zero).animate(anim),
