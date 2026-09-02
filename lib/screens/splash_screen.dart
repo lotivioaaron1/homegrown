@@ -78,8 +78,17 @@ class _SplashScreenState extends State<SplashScreen>
   // ── Auth check ────────────────────────────────
   Future<void> _checkAuthState() async {
     if (!mounted) return;
+    final prefs = await SharedPreferences.getInstance();
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
+      // Having signed in on this device is what makes someone a returning
+      // user, so that is when onboarding counts as done. Recording it when
+      // the intro merely finished stranded anyone who watched it and then
+      // abandoned registration: the CTA below is the only route to
+      // /onboarding, so they were sent to /login from then on and never saw
+      // the intro again.
+      await prefs.setBool('onboarding_complete', true);
+      if (!mounted) return;
       // A super-admin lands on the approval queue instead of the normal
       // role-based home screen — see admin_review_screen.dart. There's no
       // in-app way to become admin; this only ever matches an account
@@ -94,7 +103,6 @@ class _SplashScreenState extends State<SplashScreen>
       return;
     }
     // Not logged in — check if onboarding was done
-    final prefs = await SharedPreferences.getInstance();
     final onboardingDone = prefs.getBool('onboarding_complete') ?? false;
     if (!mounted) return;
     if (onboardingDone) {

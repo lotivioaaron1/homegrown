@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:iconsax/iconsax.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme/app_theme.dart';
 
 // ── Sport intro panel data ────────────────────────────────────────
@@ -86,15 +85,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  Future<void> _onGetStarted() async {
-    final prefs = await SharedPreferences.getInstance();
-    // splash_screen.dart reads this to send a returning user who has logged
-    // out straight to /login instead of the first-run CTA. It reads the flag
-    // but nothing used to write it, so every returning user was treated as
-    // brand new.
-    await prefs.setBool('onboarding_complete', true);
-    Get.offAllNamed('/register');
-  }
+  // Deliberately records nothing. splash_screen.dart marks onboarding done
+  // once it finds a signed-in user, because the splash's CTA is the only
+  // route to this screen: setting the flag here stranded anyone who watched
+  // the intro and then abandoned registration, since they were sent to the
+  // login screen from then on and could never reach the intro again.
+  void _onGetStarted() => Get.offAllNamed('/register');
 
   @override
   void dispose() {

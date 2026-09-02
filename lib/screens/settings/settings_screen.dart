@@ -1,6 +1,8 @@
 // lib/screens/settings/settings_screen.dart
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -535,9 +537,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               sub: 'What we collect, and how to delete it',
               trailing: Icon(LucideIcons.externalLink,
                   color: AppTheme.muted, size: 16),
-              isLast: true,
+              isLast: !kDebugMode,
             ),
           ),
+          // The splash CTA is the only route to /onboarding, and it stops
+          // appearing once you have signed in — so checking the intro
+          // otherwise means wiping app data. Debug builds only; this is a
+          // development affordance, not a feature.
+          if (kDebugMode)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _replayOnboarding,
+              child: _settingsRow(
+                icon: LucideIcons.rotateCcw,
+                label: 'View intro again',
+                sub: 'Debug only — replays the onboarding panels',
+                trailing:
+                    Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 16),
+                isLast: true,
+              ),
+            ),
         ]),
       ),
     ]);
@@ -600,6 +619,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         duration: const Duration(seconds: 5),
       );
     }
+  }
+
+  /// Clears the "onboarding done" flag and reopens the intro. Debug builds
+  /// only — the alternative while developing is wiping the app's data.
+  ///
+  /// Pushed rather than replaced so backing out returns here. Note that the
+  /// intro's own Get Started still routes on to /register, which is a little
+  /// odd when you are already signed in; acceptable for a debug shortcut.
+  Future<void> _replayOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('onboarding_complete');
+    Get.toNamed('/onboarding');
   }
 
   // ── Delete account ─────────────────────────────────────────────────────

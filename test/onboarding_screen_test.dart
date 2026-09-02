@@ -70,8 +70,13 @@ void main() {
     expect(find.text('Skip'), findsNothing);
   });
 
-  testWidgets('records onboarding_complete so the splash can skip the CTA',
-      (tester) async {
+  // Onboarding deliberately records nothing. splash_screen.dart sets
+  // onboarding_complete once it finds a signed-in user instead, because the
+  // splash CTA is the only route to this screen: marking it done here meant
+  // anyone who watched the intro and then abandoned registration was sent to
+  // the login screen from then on and could never reach the intro again.
+  // Don't "fix" this back to isTrue.
+  testWidgets('does not mark onboarding complete on its own', (tester) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
     await _pageToEnd(tester);
@@ -80,9 +85,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool('onboarding_complete'), isTrue,
-        reason: 'splash_screen.dart reads this to route a returning '
-            'logged-out user to /login instead of the first-run CTA');
+    expect(prefs.getBool('onboarding_complete'), isNull);
   });
 
   // Guards against the dead write coming back rather than proving the page
