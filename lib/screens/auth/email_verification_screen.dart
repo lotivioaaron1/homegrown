@@ -81,7 +81,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       await FirebaseAuth.instance.currentUser?.sendEmailVerification();
       Get.snackbar(
         'Email Sent ✉️',
-        'A new verification link was sent to $_email',
+        'A new link was sent to $_email — check your spam folder too',
         snackPosition:   SnackPosition.BOTTOM,
         backgroundColor: AppTheme.accentSurface,
         colorText:       AppTheme.accentText,
@@ -197,9 +197,18 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                               Icon(LucideIcons.info,
                                   color: AppTheme.muted, size: 18),
                               const SizedBox(width: 10),
+                              // Firebase sends these from a firebaseapp.com
+                              // address the project does not own, which Gmail
+                              // routinely files as spam. Until a verified
+                              // sender domain is configured, saying so up front
+                              // is the difference between a 10-second detour
+                              // and someone concluding the app is broken.
                               Expanded(child: Text(
                                 "Click the link in your email, then return here. "
-                                "This screen will update automatically once verified.",
+                                "This screen will update automatically once verified.\n\n"
+                                "Not in your inbox? Check your spam or junk "
+                                "folder — and mark it 'not spam' so future "
+                                "emails arrive normally.",
                                 style: TextStyle(
                                     color: AppTheme.sub, fontSize: 12, height: 1.5))),
                             ]),
