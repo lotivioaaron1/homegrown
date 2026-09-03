@@ -71,6 +71,12 @@ class AccountDeletionService {
     onProgress?.call('Deleting your activity');
     await _deleteSubcollection(uid, 'media');
     await _deleteSubcollection(uid, 'ratingHistory');
+    // Contact details (email, phone). Overwriting the parent document in
+    // _tombstone does not touch its subcollections, so without this the one
+    // place personal data still lives would survive the deletion that exists
+    // to remove it. Must run while the user is still signed in — the rule on
+    // users/{uid}/private only permits the owner to write there.
+    await _deleteSubcollection(uid, 'private');
     await _deleteQuery(_db.collection('notifications').where('userId', isEqualTo: uid));
     await _deleteQuery(
         _db.collection('teamMemberships').where('athleteId', isEqualTo: uid));
