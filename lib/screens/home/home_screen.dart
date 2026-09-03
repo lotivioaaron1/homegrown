@@ -8,7 +8,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../constants/query_limits.dart';
 import '../../theme/app_theme.dart';
 import '../../controllers/auth_controller.dart';
@@ -20,7 +19,6 @@ import '../../services/team_service.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../utils/firestore_helpers.dart';
-import '../../utils/error_messages.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,107 +29,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-  bool _bannerDismissed = false;
-
-  /// Seeded from the cached user so an already-verified account never sees the
-  /// banner flash before [_refreshEmailVerified] lands, then kept accurate by
-  /// that refresh. Reading `currentUser.emailVerified` directly at build time
-  /// is what made the banner permanent: that property is only updated by a
-  /// `reload()`, so clicking the link in the email never reached the app.
-  bool _emailVerified =
-      FirebaseAuth.instance.currentUser?.emailVerified ?? false;
-
-  /// Per-account so a second user signing in on this device doesn't inherit
-  /// someone else's dismissal.
-  String get _bannerDismissedKey => 'email_banner_dismissed_$_uid';
-
-  /// Seconds left before the banner's Resend button re-arms. Firebase throttles
-  /// verification sends server-side and starts returning `too-many-requests`,
-  /// so an uncooled button mostly generates errors the user can't see. Matches
-  /// the 30s cooldown on EmailVerificationScreen.
-  int _verifyCooldown = 0;
-  Timer? _verifyCooldownTimer;
-
-  Future<void> _resendVerification(User user) async {
-    if (_verifyCooldown > 0) return;
-    try {
-      await FirebaseAuth.instance.currentUser?.sendEmailVerification();
-      if (!mounted) return;
-      Get.snackbar('Email Sent ✉️',
-        'Verification link sent to ${user.email}',
-        snackPosition:   SnackPosition.BOTTOM,
-        backgroundColor: AppTheme.accentSurface,
-        colorText:       AppTheme.accentText,
-        margin:          const EdgeInsets.all(16),
-        borderRadius:    12);
-      _startVerifyCooldown();
-    } catch (e) {
-      if (!mounted) return;
-      // Previously swallowed with `catch (_) {}`, which left someone tapping a
-      // button that silently did nothing once Firebase started throttling.
-      Get.snackbar('Error', friendlyError(e),
-        snackPosition:   SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF2A1A1A),
-        colorText:       const Color(0xFFFF5C5C),
-        margin:          const EdgeInsets.all(16),
-        borderRadius:    12);
-      _startVerifyCooldown();
-    }
-  }
-
-  void _startVerifyCooldown() {
-    setState(() => _verifyCooldown = 30);
-    _verifyCooldownTimer?.cancel();
-    _verifyCooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      if (_verifyCooldown <= 1) {
-        t.cancel();
-        setState(() => _verifyCooldown = 0);
-      } else {
-        setState(() => _verifyCooldown--);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _verifyCooldownTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBannerDismissed();
-    _refreshEmailVerified();
-  }
-
-  Future<void> _loadBannerDismissed() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() =>
-        _bannerDismissed = prefs.getBool(_bannerDismissedKey) ?? false);
-  }
-
-  Future<void> _refreshEmailVerified() async {
-    try {
-      final verified = await AuthController.to.checkEmailVerified();
-      if (!mounted) return;
-      setState(() => _emailVerified = verified);
-    } catch (_) {
-      // Offline, or the account was deleted/disabled while signed in. Leave
-      // the banner in whatever state the cached flag put it in.
-    }
-  }
-
-  Future<void> _dismissBanner() async {
-    setState(() => _bannerDismissed = true);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_bannerDismissedKey, true);
-  }
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -724,8 +621,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return Scaffold(
           backgroundColor: AppTheme.bg,
           body: SafeArea(child: Column(children: [
-            // ── Verification banner ───────────
-            _buildVerificationBanner(),
             Expanded(child: RefreshIndicator(
               color:        AppTheme.accent,
               backgroundColor: AppTheme.card,
@@ -740,68 +635,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ])),
         );
       },
-    );
-  }
-
-  Widget _buildVerificationBanner() {
-    final user = FirebaseAuth.instance.currentUser;
-    // Don't show for Google users or verified users or if dismissed
-    if (user == null || _bannerDismissed) return const SizedBox.shrink();
-    final isGoogle = user.providerData
-        .any((p) => p.providerId == 'google.com');
-    if (isGoogle || _emailVerified) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1200),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: AppTheme.accent.withValues(alpha: 0.6))),
-      child: Row(children: [
-        const Text('✉️', style: TextStyle(fontSize: 16)),
-        const SizedBox(width: 10),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Verify your email', style: TextStyle(
-              color: AppTheme.accentText, fontSize: 12,
-              fontWeight: FontWeight.w700)),
-            Text('Check your inbox and click the link we sent.',
-              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
-          ])),
-        const SizedBox(width: 8),
-        // Resend button
-        GestureDetector(
-          onTap: _verifyCooldown > 0 ? null : () => _resendVerification(user),
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: _verifyCooldown > 0
-                  ? AppTheme.cardNested
-                  : AppTheme.accentSurface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: _verifyCooldown > 0
-                  ? AppTheme.border
-                  : AppTheme.accent)),
-            child: Text(
-              _verifyCooldown > 0 ? '${_verifyCooldown}s' : 'Resend',
-              style: TextStyle(
-                color: _verifyCooldown > 0
-                    ? AppTheme.muted
-                    : AppTheme.accentText,
-                fontSize: 11,
-                fontWeight: FontWeight.w700))),
-        ),
-        const SizedBox(width: 6),
-        // Dismiss button
-        GestureDetector(
-          onTap: _dismissBanner,
-          child: Icon(LucideIcons.x,
-              color: AppTheme.muted, size: 18)),
-      ]),
     );
   }
 

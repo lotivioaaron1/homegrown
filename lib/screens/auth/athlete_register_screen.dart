@@ -12,7 +12,9 @@ import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/profile_photo_picker.dart';
 import '../../widgets/fill_viewport_scroll.dart';
+import '../../services/contact_service.dart';
 import '../../services/storage_service.dart';
+import '../../utils/auth_routing.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
@@ -108,7 +110,6 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
         'firstName':         _firstNameCtrl.text.trim(),
         'lastName':          _lastNameCtrl.text.trim(),
         'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'email':             _emailCtrl.text.trim(),
         'role':              'athlete',
         'barangay':          _selectedBarangay,
         'primarySports':     _selectedSports,
@@ -125,6 +126,10 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
         'points':            0,
         'createdAt':         FieldValue.serverTimestamp(),
       });
+      // Email is kept off the publicly-readable profile doc — see
+      // ContactService.
+      await ContactService.write(
+          uid: cred.user!.uid, email: _emailCtrl.text.trim());
       // Send verification email right after account creation
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
@@ -522,8 +527,12 @@ class _SuccessView extends StatelessWidget {
                   fontSize: 13, fontWeight: FontWeight.w600)),
           ])),
         const Spacer(),
-        _PrimaryButton(label: 'Go to Home',
-            onTap: () => Get.offAllNamed('/home')),
+        // A freshly registered account has not verified its email yet, so it
+        // goes to the verification screen, not home — that screen polls and
+        // forwards to /home itself once the link is clicked. Routing straight
+        // to /home here would walk right past the gate in landingRoute.
+        _PrimaryButton(label: 'Continue',
+            onTap: () => Get.offAllNamed(kRouteVerifyEmail)),
         const SizedBox(height: 40),
       ]),
     )),

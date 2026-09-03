@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import '../../services/contact_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/fill_viewport_scroll.dart';
@@ -136,7 +137,6 @@ class _GoogleProfileSetupScreenState
     try {
       Map<String, dynamic> data = {
         'uid':       _uid,
-        'email':     _email,
         'firstName': _firstName,
         'lastName':  _lastName,
         'fullName':  _displayName,
@@ -182,6 +182,9 @@ class _GoogleProfileSetupScreenState
 
       await FirebaseFirestore.instance
           .collection('users').doc(_uid).update(data);
+      // Email is kept off the publicly-readable profile doc — see
+      // ContactService.
+      await ContactService.write(uid: _uid, email: _email);
 
       Get.offAllNamed('/home');
     } catch (e) {

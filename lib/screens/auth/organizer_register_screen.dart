@@ -11,7 +11,9 @@ import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/profile_photo_picker.dart';
 import '../../widgets/fill_viewport_scroll.dart';
+import '../../services/contact_service.dart';
 import '../../services/notification_service.dart';
+import '../../utils/auth_routing.dart';
 import '../../services/storage_service.dart';
 import '../../utils/error_messages.dart';
 
@@ -155,8 +157,6 @@ class _OrganizerRegisterScreenState
         'firstName':       _firstNameCtrl.text.trim(),
         'lastName':        _lastNameCtrl.text.trim(),
         'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'email':           _emailCtrl.text.trim(),
-        'phoneNumber':     _phoneCtrl.text.trim(),
         'role':            'organizer',
         // An organizer can't create/publish events until a super-admin
         // approves this — see firestore.rules and admin_review_screen.dart.
@@ -172,6 +172,14 @@ class _OrganizerRegisterScreenState
         'photoUrl':        '',
         'createdAt':       FieldValue.serverTimestamp(),
       });
+      // Email and phone are kept off the publicly-readable profile doc; the
+      // super-admin reads them from users/{uid}/private when reviewing this
+      // application — see ContactService and admin_review_screen.dart.
+      await ContactService.write(
+        uid: cred.user!.uid,
+        email: _emailCtrl.text.trim(),
+        phoneNumber: _phoneCtrl.text.trim(),
+      );
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
 
@@ -610,7 +618,9 @@ class _SuccessView extends StatelessWidget {
               color: AppTheme.sub, fontSize: 15, height: 1.6)),
         const Spacer(),
         _PrimaryButton(label: 'Go to Home',
-            onTap: () => Get.offAllNamed('/home')),
+            // See athlete_register_screen.dart — a new account must clear the
+            // verification gate before it can reach /home.
+            onTap: () => Get.offAllNamed(kRouteVerifyEmail)),
         const SizedBox(height: 40),
       ]),
     )),

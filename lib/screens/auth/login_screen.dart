@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../controllers/auth_controller.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/auth_routing.dart';
 import '../../widgets/homegrown_wordmark.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -58,10 +59,17 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       return;
     }
-    // Existing user with role → go straight home, unless they're the
-    // super-admin (see auth_controller.dart's signInWithEmail for why this
-    // check has to live at every sign-in entry point, not just splash).
-    Get.offAllNamed(role == 'admin' ? '/admin' : '/home');
+    // Existing user with a role. Routed through the same landingRoute as
+    // splash and email sign-in so the admin branch cannot drift between the
+    // three entry points. A Google account holds no password credential, so
+    // the verification gate correctly does not apply to it.
+    final user = _auth.firebaseUser.value;
+    Get.offAllNamed(landingRoute(
+      role: role,
+      emailVerified: user?.emailVerified ?? true,
+      hasPasswordProvider: hasPasswordProvider(
+          user?.providerData.map((p) => p.providerId) ?? const []),
+    ));
   }
 
   // ── Build ─────────────────────────────────────

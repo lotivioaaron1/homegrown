@@ -11,7 +11,9 @@ import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/profile_photo_picker.dart';
 import '../../widgets/fill_viewport_scroll.dart';
+import '../../services/contact_service.dart';
 import '../../services/storage_service.dart';
+import '../../utils/auth_routing.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
@@ -138,7 +140,6 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         'firstName':         _firstNameCtrl.text.trim(),
         'lastName':          _lastNameCtrl.text.trim(),
         'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'email':             _emailCtrl.text.trim(),
         'role':              'coach',
         'barangay':          _selectedBarangay,
         'primarySports':     _selectedSports,
@@ -152,6 +153,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         'photoUrl':          '',
         'createdAt':         FieldValue.serverTimestamp(),
       });
+      // Email is kept off the publicly-readable profile doc — see
+      // ContactService.
+      await ContactService.write(
+          uid: cred.user!.uid, email: _emailCtrl.text.trim());
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
       if (mounted) setState(() => _showSuccess = true);
@@ -505,7 +510,9 @@ class _SuccessView extends StatelessWidget {
           style: TextStyle(color: AppTheme.sub, fontSize: 15, height: 1.6)),
         const Spacer(),
         _PrimaryButton(label: 'Go to Home',
-            onTap: () => Get.offAllNamed('/home')),
+            // See athlete_register_screen.dart — a new account must clear the
+            // verification gate before it can reach /home.
+            onTap: () => Get.offAllNamed(kRouteVerifyEmail)),
         const SizedBox(height: 40),
       ]),
     )),

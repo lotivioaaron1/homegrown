@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../controllers/auth_controller.dart';
+import '../../services/contact_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
@@ -75,10 +76,17 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                     final doc = docs[i];
                     final u = doc.data() as Map<String, dynamic>;
                     return _OrganizerCard(
+                      // Keyed so the per-card contact fetch survives an
+                      // unrelated snapshot tick instead of restarting.
+                      key: ValueKey(doc.id),
                       uid: doc.id,
                       name: u['fullName'] as String? ?? '',
-                      email: u['email'] as String? ?? '',
-                      phoneNumber: u['phoneNumber'] as String? ?? '',
+                      // Contact details now live in users/{uid}/private and are
+                      // fetched by the card. The whole profile map is handed
+                      // over so ContactService can fall back to the old
+                      // top-level fields for organizers who registered before
+                      // the split — see ContactService.read.
+                      legacyProfile: u,
                       organization: u['organization'] as String? ?? '',
                       sportsOrganized:
                           (u['sportsOrganized'] as List?)?.cast<String>() ?? [],
@@ -153,24 +161,37 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
   }
 }
 
-class _OrganizerCard extends StatelessWidget {
+class _OrganizerCard extends StatefulWidget {
   final String uid;
   final String name;
-  final String email;
-  final String phoneNumber;
+  final Map<String, dynamic> legacyProfile;
   final String organization;
   final List<String> sportsOrganized;
   final bool isApproved;
 
   const _OrganizerCard({
+    super.key,
     required this.uid,
     required this.name,
-    required this.email,
-    required this.phoneNumber,
+    required this.legacyProfile,
     required this.organization,
     required this.sportsOrganized,
     required this.isApproved,
   });
+
+  @override
+  State<_OrganizerCard> createState() => _OrganizerCardState();
+}
+
+class _OrganizerCardState extends State<_OrganizerCard> {
+  /// Held in state rather than built in `build` so the read happens once per
+  /// card, not on every tick of the enclosing users snapshot.
+  late final Future<ContactDetails> _contact = ContactService.read(
+    widget.uid,
+    legacyProfile: widget.legacyProfile,
+  );
+
+  String get uid => widget.uid;
 
   Future<void> _decide(String status) async {
     await FirebaseFirestore.instance.collection('users').doc(uid)
@@ -231,32 +252,52 @@ class _OrganizerCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(name.isNotEmpty ? name : 'Unnamed organizer',
+        Text(widget.name.isNotEmpty ? widget.name : 'Unnamed organizer',
             style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 14,
                 fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
-        Text(email, style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-        if (phoneNumber.isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Row(children: [
-            Icon(Icons.phone_outlined, color: AppTheme.sub, size: 12),
-            const SizedBox(width: 4),
-            Text(phoneNumber, style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-          ]),
-        ],
-        if (organization.isNotEmpty) ...[
+        FutureBuilder<ContactDetails>(
+          future: _contact,
+          builder: (context, snap) {
+            // Reserve the email line's height while loading so approving a
+            // queue of organizers doesn't make the cards jump as each
+            // resolves.
+            final contact = snap.data;
+            if (contact == null) {
+              return Text(
+                  snap.hasError ? 'Contact details unavailable' : '…',
+                  style: TextStyle(color: AppTheme.muted, fontSize: 12));
+            }
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(contact.email,
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                  if (contact.phoneNumber.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Row(children: [
+                      Icon(Icons.phone_outlined, color: AppTheme.sub, size: 12),
+                      const SizedBox(width: 4),
+                      Text(contact.phoneNumber,
+                          style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                    ]),
+                  ],
+                ]);
+          },
+        ),
+        if (widget.organization.isNotEmpty) ...[
           const SizedBox(height: 6),
-          Text(organization,
+          Text(widget.organization,
               style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         ],
-        if (sportsOrganized.isNotEmpty) ...[
+        if (widget.sportsOrganized.isNotEmpty) ...[
           const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: sportsOrganized
+            children: widget.sportsOrganized
                 .map((s) => Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
@@ -274,7 +315,7 @@ class _OrganizerCard extends StatelessWidget {
         const SizedBox(height: 10),
         _VerificationDoc(uid: uid),
         const SizedBox(height: 12),
-        if (isApproved)
+        if (widget.isApproved)
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(

@@ -74,7 +74,31 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['organizerStatus']);
 
+      // The profile document stays readable by any signed-in account, because
+      // leaderboards, Scout, rosters and profile sheets all legitimately show
+      // a stranger's name, role, sport and barangay. Contact details are the
+      // part that must not be readable that way, and Firestore read rules are
+      // document-level — there is no way to serve some fields and withhold
+      // others — so email and phoneNumber live in the private subcollection
+      // below instead of here. Anything added to this document is world-
+      // readable to the signed-in population; put it in private/ if it isn't
+      // meant to be.
       allow read: if isSignedIn();
+
+      // ── users/{uid}/private ────────────────────
+      // Contact details (email, phoneNumber). Readable only by the owner and
+      // by the super-admin, who needs an applicant's email and phone to vet
+      // an organizer application — see admin_review_screen.dart.
+      match /private/{docId} {
+        // isSignedIn() first so request.auth.uid is never dereferenced on an
+        // unauthenticated request — same guard shape as the cross-user update
+        // rules above.
+        allow read: if isSignedIn() &&
+          (isSelf(uid) || isAdmin(request.auth.uid));
+        // Only ever written by its owner, at registration and profile edit.
+        // The admin reviews these, never edits them.
+        allow write: if isSelf(uid);
+      }
 
       match /media/{mediaId} {
         allow read: if isSignedIn();

@@ -8,6 +8,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// that reads it.
 Timestamp? asTimestamp(dynamic value) => value is Timestamp ? value : null;
 
+/// The same guard for string fields. `as String? ?? ''` looks equivalent but
+/// throws on a non-string rather than falling back, which turns one malformed
+/// document into a failure of whatever list is rendering it.
+String asString(dynamic value) => value is String ? value : '';
+
 /// A game with no eventDate is still being scheduled, so it's treated as
 /// upcoming rather than disappearing from every list by default. This is
 /// the single source of truth for "is this game done" — the `status` field

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
+import '../utils/auth_routing.dart';
 import '../widgets/homegrown_wordmark.dart';
 
 /// Deliberately a single dark scene in both themes.
@@ -89,17 +90,30 @@ class _SplashScreenState extends State<SplashScreen>
       // the intro again.
       await prefs.setBool('onboarding_complete', true);
       if (!mounted) return;
-      // A super-admin lands on the approval queue instead of the normal
-      // role-based home screen — see admin_review_screen.dart. There's no
-      // in-app way to become admin; this only ever matches an account
-      // hand-flipped to role:'admin' directly in Firestore.
-      final doc = await FirebaseFirestore.instance
-          .collection('users').doc(user.uid).get();
-      if (doc.data()?['role'] == 'admin') {
-        Get.offAllNamed('/admin');
-      } else {
-        Get.offAllNamed('/home');
+      // Where a returning user lands — the super-admin's approval queue, the
+      // verification screen, or home — is decided by landingRoute so this
+      // cold-start path and AuthController's direct sign-in cannot disagree.
+      //
+      // reload() refreshes the cached emailVerified flag: someone who verified
+      // in their browser since the last launch would otherwise be bounced back
+      // to the verification screen on a stale token.
+      try {
+        await user.reload();
+      } catch (_) {
+        // Offline or the account was disabled — fall through with the cached
+        // flag rather than blocking the launch on a network round trip.
       }
+      if (!mounted) return;
+      final refreshed = FirebaseAuth.instance.currentUser ?? user;
+      final doc = await FirebaseFirestore.instance
+          .collection('users').doc(refreshed.uid).get();
+      if (!mounted) return;
+      Get.offAllNamed(landingRoute(
+        role: doc.data()?['role'] as String? ?? '',
+        emailVerified: refreshed.emailVerified,
+        hasPasswordProvider: hasPasswordProvider(
+            refreshed.providerData.map((p) => p.providerId)),
+      ));
       return;
     }
     // Not logged in — check if onboarding was done

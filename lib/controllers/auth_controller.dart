@@ -6,6 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../services/auth_service.dart';
+import '../services/contact_service.dart';
+import '../utils/auth_routing.dart';
 
 class AuthController extends GetxController {
   static AuthController get to => Get.find();
@@ -38,18 +40,22 @@ class AuthController extends GetxController {
       errorMessage.value = '';
 
       final credential = await _authService.signInWithEmail(email, password);
+      final user = credential.user!;
 
-      // A super-admin lands on the approval queue instead of the normal
-      // role-based home screen — mirrors splash_screen.dart's cold-start
-      // check, needed here too since a direct sign-in never passes through
-      // splash. Always allow login otherwise — unverified users see a
-      // soft reminder banner on the home screen instead of being blocked.
-      final doc = await _firestore.collection('users').doc(credential.user!.uid).get();
-      if (doc.data()?['role'] == 'admin') {
-        Get.offAllNamed('/admin');
-      } else {
-        Get.offAllNamed('/home');
-      }
+      // Sign-in still succeeds, but an unverified password account gets no
+      // further than the verification screen. This is an in-app gate, not a
+      // security boundary — a script holding the same credentials bypasses it
+      // entirely. What actually protects contact details is that they no
+      // longer live on the readable user doc (see ContactService and the
+      // users/{uid}/private rule). See landingRoute for why admins and Google
+      // accounts are treated differently.
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      Get.offAllNamed(landingRoute(
+        role: doc.data()?['role'] as String? ?? '',
+        emailVerified: user.emailVerified,
+        hasPasswordProvider:
+            hasPasswordProvider(user.providerData.map((p) => p.providerId)),
+      ));
 
     } on FirebaseAuthException catch (e) {
       errorMessage.value = _mapFirebaseError(e.code);
@@ -83,10 +89,12 @@ class AuthController extends GetxController {
         'uid':       uid,
         'firstName': firstName,
         'lastName':  lastName,
-        'email':     email,
         'role':      role,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // Email lives in users/{uid}/private, not on the profile doc every
+      // signed-in account can read — see ContactService.
+      await ContactService.write(uid: uid, email: email);
 
       // Send verification email right after account creation
       await credential.user?.sendEmailVerification();
@@ -143,7 +151,6 @@ class AuthController extends GetxController {
           'uid':             user.uid,
           'firstName':       firstName,
           'lastName':        lastName,
-          'email':           user.email ?? '',
           'role':            '',
           // Every avatar in the app reads 'photoUrl' (home, profile,
           // leaderboard, scout, team). Don't invent a second field name here.
@@ -151,6 +158,7 @@ class AuthController extends GetxController {
           'authProvider':    'google',
           'createdAt':       FieldValue.serverTimestamp(),
         });
+        await ContactService.write(uid: user.uid, email: user.email ?? '');
         return null; // No role yet → caller routes to role selection
       }
 
