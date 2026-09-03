@@ -14,6 +14,7 @@ import '../../widgets/fill_viewport_scroll.dart';
 import '../../services/contact_service.dart';
 import '../../services/storage_service.dart';
 import '../../utils/auth_routing.dart';
+import '../../utils/registration_rollback.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
@@ -134,29 +135,37 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         email:    _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      await FirebaseFirestore.instance
-          .collection('users').doc(cred.user!.uid).set({
-        'uid':               cred.user!.uid,
-        'firstName':         _firstNameCtrl.text.trim(),
-        'lastName':          _lastNameCtrl.text.trim(),
-        'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'role':              'coach',
-        'barangay':          _selectedBarangay,
-        'primarySports':     _selectedSports,
-        'coachingLevel':     _coachingLevel,
-        'yearsOfExperience': _yearsOfExperience,
-        'teamOrganization':  _teamOrgCtrl.text.trim(),
-        'coachingBio':       _coachingBioCtrl.text.trim(),
-        'certifications':    _certificationsCtrl.text.trim(),
-        // Every avatar in the app reads 'photoUrl' (home, profile,
-        // leaderboard, scout, team). Don't invent a second field name here.
-        'photoUrl':          '',
-        'createdAt':         FieldValue.serverTimestamp(),
-      });
-      // Email is kept off the publicly-readable profile doc — see
-      // ContactService.
-      await ContactService.write(
-          uid: cred.user!.uid, email: _emailCtrl.text.trim());
+      // See athlete_register_screen.dart — both writes are required, so a
+      // failure has to take the Auth account with it rather than strand the
+      // email address.
+      await withRegistrationRollback(
+        deleteAccount: () => cred.user!.delete(),
+        writes: () async {
+          await FirebaseFirestore.instance
+              .collection('users').doc(cred.user!.uid).set({
+            'uid':               cred.user!.uid,
+            'firstName':         _firstNameCtrl.text.trim(),
+            'lastName':          _lastNameCtrl.text.trim(),
+            'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+            'role':              'coach',
+            'barangay':          _selectedBarangay,
+            'primarySports':     _selectedSports,
+            'coachingLevel':     _coachingLevel,
+            'yearsOfExperience': _yearsOfExperience,
+            'teamOrganization':  _teamOrgCtrl.text.trim(),
+            'coachingBio':       _coachingBioCtrl.text.trim(),
+            'certifications':    _certificationsCtrl.text.trim(),
+            // Every avatar in the app reads 'photoUrl' (home, profile,
+            // leaderboard, scout, team). Don't invent a second field name here.
+            'photoUrl':          '',
+            'createdAt':         FieldValue.serverTimestamp(),
+          });
+          // Email is kept off the publicly-readable profile doc — see
+          // ContactService.
+          await ContactService.write(
+              uid: cred.user!.uid, email: _emailCtrl.text.trim());
+        },
+      );
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
       if (mounted) setState(() => _showSuccess = true);

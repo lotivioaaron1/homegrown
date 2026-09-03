@@ -14,6 +14,7 @@ import '../../widgets/fill_viewport_scroll.dart';
 import '../../services/contact_service.dart';
 import '../../services/notification_service.dart';
 import '../../utils/auth_routing.dart';
+import '../../utils/registration_rollback.dart';
 import '../../services/storage_service.dart';
 import '../../utils/error_messages.dart';
 
@@ -151,34 +152,42 @@ class _OrganizerRegisterScreenState
         email:    _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      await FirebaseFirestore.instance
-          .collection('users').doc(cred.user!.uid).set({
-        'uid':             cred.user!.uid,
-        'firstName':       _firstNameCtrl.text.trim(),
-        'lastName':        _lastNameCtrl.text.trim(),
-        'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'role':            'organizer',
-        // An organizer can't create/publish events until a super-admin
-        // approves this — see firestore.rules and admin_review_screen.dart.
-        'organizerStatus': 'pending',
-        'barangay':        _selectedBarangay,
-        'organization':    _organizationCtrl.text.trim(),
-        'organizationType': _organizationType,
-        'sportsOrganized': _sportsOrganized,
-        'bio':             _bioCtrl.text.trim(),
-        'certifications':  _certificationsCtrl.text.trim(),
-        // Every avatar in the app reads 'photoUrl' (home, profile,
-        // leaderboard, scout, team). Don't invent a second field name here.
-        'photoUrl':        '',
-        'createdAt':       FieldValue.serverTimestamp(),
-      });
-      // Email and phone are kept off the publicly-readable profile doc; the
-      // super-admin reads them from users/{uid}/private when reviewing this
-      // application — see ContactService and admin_review_screen.dart.
-      await ContactService.write(
-        uid: cred.user!.uid,
-        email: _emailCtrl.text.trim(),
-        phoneNumber: _phoneCtrl.text.trim(),
+      // See athlete_register_screen.dart — both writes are required, so a
+      // failure has to take the Auth account with it rather than strand the
+      // email address.
+      await withRegistrationRollback(
+        deleteAccount: () => cred.user!.delete(),
+        writes: () async {
+          await FirebaseFirestore.instance
+              .collection('users').doc(cred.user!.uid).set({
+            'uid':             cred.user!.uid,
+            'firstName':       _firstNameCtrl.text.trim(),
+            'lastName':        _lastNameCtrl.text.trim(),
+            'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+            'role':            'organizer',
+            // An organizer can't create/publish events until a super-admin
+            // approves this — see firestore.rules and admin_review_screen.dart.
+            'organizerStatus': 'pending',
+            'barangay':        _selectedBarangay,
+            'organization':    _organizationCtrl.text.trim(),
+            'organizationType': _organizationType,
+            'sportsOrganized': _sportsOrganized,
+            'bio':             _bioCtrl.text.trim(),
+            'certifications':  _certificationsCtrl.text.trim(),
+            // Every avatar in the app reads 'photoUrl' (home, profile,
+            // leaderboard, scout, team). Don't invent a second field name here.
+            'photoUrl':        '',
+            'createdAt':       FieldValue.serverTimestamp(),
+          });
+          // Email and phone are kept off the publicly-readable profile doc;
+          // the super-admin reads them from users/{uid}/private when reviewing
+          // this application — see ContactService and admin_review_screen.dart.
+          await ContactService.write(
+            uid: cred.user!.uid,
+            email: _emailCtrl.text.trim(),
+            phoneNumber: _phoneCtrl.text.trim(),
+          );
+        },
       );
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);

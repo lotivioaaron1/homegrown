@@ -15,6 +15,7 @@ import '../../widgets/fill_viewport_scroll.dart';
 import '../../services/contact_service.dart';
 import '../../services/storage_service.dart';
 import '../../utils/auth_routing.dart';
+import '../../utils/registration_rollback.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
@@ -104,32 +105,41 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      await FirebaseFirestore.instance
-          .collection('users').doc(cred.user!.uid).set({
-        'uid':               cred.user!.uid,
-        'firstName':         _firstNameCtrl.text.trim(),
-        'lastName':          _lastNameCtrl.text.trim(),
-        'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'role':              'athlete',
-        'barangay':          _selectedBarangay,
-        'primarySports':     _selectedSports,
-        'position':          _positionCtrl.text.trim(),
-        'yearsOfPlaying':    _yearsOfPlaying,
-        'heightCm':          _heightCtrl.text.trim(),
-        'weightKg':          _weightCtrl.text.trim(),
-        'bio':               _bioCtrl.text.trim(),
-        'isPublic':          _isPublic,
-        'openToRecruitment': _openToRecruitment,
-        // Every avatar in the app reads 'photoUrl' (home, profile,
-        // leaderboard, scout, team). Don't invent a second field name here.
-        'photoUrl':          '',
-        'points':            0,
-        'createdAt':         FieldValue.serverTimestamp(),
-      });
-      // Email is kept off the publicly-readable profile doc — see
-      // ContactService.
-      await ContactService.write(
-          uid: cred.user!.uid, email: _emailCtrl.text.trim());
+      // Both writes are required for a usable account, so a failure in either
+      // has to take the Auth account with it — otherwise the email is stranded
+      // and every retry hits 'email-already-in-use'. See
+      // utils/registration_rollback.dart.
+      await withRegistrationRollback(
+        deleteAccount: () => cred.user!.delete(),
+        writes: () async {
+          await FirebaseFirestore.instance
+              .collection('users').doc(cred.user!.uid).set({
+            'uid':               cred.user!.uid,
+            'firstName':         _firstNameCtrl.text.trim(),
+            'lastName':          _lastNameCtrl.text.trim(),
+            'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+            'role':              'athlete',
+            'barangay':          _selectedBarangay,
+            'primarySports':     _selectedSports,
+            'position':          _positionCtrl.text.trim(),
+            'yearsOfPlaying':    _yearsOfPlaying,
+            'heightCm':          _heightCtrl.text.trim(),
+            'weightKg':          _weightCtrl.text.trim(),
+            'bio':               _bioCtrl.text.trim(),
+            'isPublic':          _isPublic,
+            'openToRecruitment': _openToRecruitment,
+            // Every avatar in the app reads 'photoUrl' (home, profile,
+            // leaderboard, scout, team). Don't invent a second field name here.
+            'photoUrl':          '',
+            'points':            0,
+            'createdAt':         FieldValue.serverTimestamp(),
+          });
+          // Email is kept off the publicly-readable profile doc — see
+          // ContactService.
+          await ContactService.write(
+              uid: cred.user!.uid, email: _emailCtrl.text.trim());
+        },
+      );
       // Send verification email right after account creation
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
