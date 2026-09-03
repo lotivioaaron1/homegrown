@@ -32,7 +32,12 @@
  * homegrown-app-b71d1.
  */
 
-const admin = require("firebase-admin");
+// firebase-admin 13+ dropped the old `admin.auth()` / `admin.credential`
+// namespace in favour of these subpath exports. Importing the root package and
+// reaching for .credential fails with an unhelpful "cannot read properties of
+// undefined" before any of your arguments are even parsed.
+const {initializeApp, applicationDefault} = require("firebase-admin/app");
+const {getAuth} = require("firebase-admin/auth");
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
@@ -69,7 +74,8 @@ if (beforeRaw) {
   }
 }
 
-admin.initializeApp({credential: admin.credential.applicationDefault()});
+initializeApp({credential: applicationDefault()});
+const auth = getAuth();
 
 async function main() {
   console.log(apply ?
@@ -85,7 +91,7 @@ async function main() {
   let outsideFilter = 0;
 
   do {
-    const page = await admin.auth().listUsers(1000, pageToken);
+    const page = await auth.listUsers(1000, pageToken);
     for (const user of page.users) {
       if (user.emailVerified) {
         alreadyVerified++;
@@ -110,7 +116,7 @@ async function main() {
       console.log(
           `  ${apply ? "verifying" : "would verify"}: ${user.email} ` +
           `(created ${created.toISOString().slice(0, 10)})`);
-      if (apply) await admin.auth().updateUser(user.uid, {emailVerified: true});
+      if (apply) await auth.updateUser(user.uid, {emailVerified: true});
       flipped++;
     }
     pageToken = page.pageToken;

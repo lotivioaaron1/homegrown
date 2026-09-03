@@ -31,7 +31,10 @@
  * forbids one user writing another user's private subcollection.
  */
 
-const admin = require("firebase-admin");
+// firebase-admin 13+ dropped the old `admin.firestore()` / `admin.credential`
+// namespace in favour of these subpath exports.
+const {initializeApp, applicationDefault} = require("firebase-admin/app");
+const {getFirestore, FieldValue} = require("firebase-admin/firestore");
 
 const apply = process.argv.includes("--apply");
 const deleteLegacy = process.argv.includes("--delete-legacy");
@@ -41,8 +44,8 @@ if (deleteLegacy && !apply) {
   process.exit(1);
 }
 
-admin.initializeApp({credential: admin.credential.applicationDefault()});
-const db = admin.firestore();
+initializeApp({credential: applicationDefault()});
+const db = getFirestore();
 
 // Firestore caps a batch at 500 writes; deleting legacy fields costs a second
 // write per user, so stay well under it.
@@ -90,7 +93,7 @@ async function main() {
       batch.set(contactRef, {
         email,
         phoneNumber: phone,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
       pending++;
       backfilled++;
@@ -98,8 +101,8 @@ async function main() {
 
     if (deleteLegacy) {
       batch.update(doc.ref, {
-        email: admin.firestore.FieldValue.delete(),
-        phoneNumber: admin.firestore.FieldValue.delete(),
+        email: FieldValue.delete(),
+        phoneNumber: FieldValue.delete(),
       });
       pending++;
       cleared++;
