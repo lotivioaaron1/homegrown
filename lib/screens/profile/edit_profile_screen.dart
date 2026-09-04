@@ -132,9 +132,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         // showing whoever you used to be.
         'fullName': '${_firstNameCtrl.text.trim()} '
             '${_lastNameCtrl.text.trim()}'.trim(),
-        'position': _positionCtrl.text.trim(),
-        'heightCm': _heightCtrl.text.trim(),
-        'weightKg': _weightCtrl.text.trim(),
+        // Athlete-only, like openToRecruitment below: coaches and organizers
+        // never see these fields, so saving their profile shouldn't stamp
+        // three blank athlete values onto their document.
+        if (_role == 'athlete') ...{
+          'position': _positionCtrl.text.trim(),
+          'heightCm': _heightCtrl.text.trim(),
+          'weightKg': _weightCtrl.text.trim(),
+        },
         'bio': _bioCtrl.text.trim(),
         'barangay': _barangay ?? '',
         _experienceField: _experience,
@@ -240,30 +245,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 8),
                 _field(_lastNameCtrl, 'e.g. Doe'),
                 const SizedBox(height: 14),
-                _label('Position'),
-                const SizedBox(height: 8),
-                _field(_positionCtrl, 'e.g. Setter'),
-                const SizedBox(height: 14),
-                Row(children: [
-                  Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _label('Height (cm)'),
-                        const SizedBox(height: 8),
-                        _field(_heightCtrl, '175',
-                            keyboardType: TextInputType.number),
-                      ])),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _label('Weight (kg)'),
-                        const SizedBox(height: 8),
-                        _field(_weightCtrl, '70',
-                            keyboardType: TextInputType.number),
-                      ])),
-                ]),
-                const SizedBox(height: 14),
+                // Athletes only. A coach has no playing position, height or
+                // weight — only athlete registration collects these, and only
+                // the athlete section of Settings displays them.
+                if (_role == 'athlete') ...[
+                  _label('Position'),
+                  const SizedBox(height: 8),
+                  _field(_positionCtrl, 'e.g. Setter'),
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Height (cm)'),
+                          const SizedBox(height: 8),
+                          _field(_heightCtrl, '175',
+                              keyboardType: TextInputType.number),
+                        ])),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Weight (kg)'),
+                          const SizedBox(height: 8),
+                          _field(_weightCtrl, '70',
+                              keyboardType: TextInputType.number),
+                        ])),
+                  ]),
+                  const SizedBox(height: 14),
+                ],
                 _label('Barangay'),
                 const SizedBox(height: 8),
                 _buildBarangayPicker(),
