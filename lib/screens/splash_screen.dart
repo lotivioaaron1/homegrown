@@ -1,4 +1,5 @@
 // lib/screens/splash_screen.dart
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,20 +10,19 @@ import '../utils/auth_routing.dart';
 import '../utils/onboarding_flag.dart';
 import '../widgets/fill_viewport_scroll.dart';
 import '../widgets/homegrown_wordmark.dart';
-import '../widgets/orbit_mark.dart';
 
 /// Deliberately a single dark scene in both themes.
 ///
-/// A splash is a held moment, not a screen you work in. Keeping it fixed also
-/// removes a flash: the app used to build in light theme and then snap to the
-/// saved one, which was most visible here. main() now resolves the theme
-/// before the first frame, and this screen simply commits to its own palette.
+/// A splash is a held moment, not a screen you work in, and a photographic
+/// background only holds up against dark type. Keeping it fixed also removes a
+/// flash: the app used to build in light theme and then snap to the saved one,
+/// which was most visible here. main() now resolves the theme before the first
+/// frame, and this screen simply commits to its own palette.
 ///
-/// The photograph that used to sit behind all this is gone. It needed a heavy
-/// four-stop scrim to keep the lockup readable, and the two spent the whole
-/// animation fighting each other — the hoop read louder than the brand. A
-/// still gradient ground gives the mark somewhere quiet to land, and drops a
-/// 312 KB image decode out of the launch path.
+/// A version of this screen briefly replaced the photograph with a flat
+/// gradient and put the wordmark inside an orbiting ring. It is back to the
+/// photograph by preference — the argument for the gradient was that the scrim
+/// and the picture fought each other, and that was not the trade wanted.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -33,6 +33,8 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animController;
+  late Animation<double> _scrimAnim;
+  late Animation<double> _markAnim;
   late Animation<double> _fadeAnim;
   late Animation<double> _riseAnim;
 
@@ -57,22 +59,34 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
+    // Lands a little before _kMinHold so the screen settles for a beat before
+    // routing rather than cutting away on the animation's last frame. The
+    // original ran 1800ms against a flat 2500ms delay, which gave it the same
+    // pause by accident.
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1500),
     );
 
-    // The supporting lines follow the mark up rather than arriving with it,
-    // so the eye lands on the identity first. OrbitMark owns the mark's own
-    // entrance; this controller only drives the type beneath it.
+    // The scene darkens first so the mark has something to sit against.
+    _scrimAnim = CurvedAnimation(
+      parent: _animController,
+      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
+    );
+    // Then the wordmark rises into it.
+    _markAnim = CurvedAnimation(
+      parent: _animController,
+      curve: const Interval(0.10, 0.70, curve: Curves.easeOutCubic),
+    );
+    // Tagline and verse follow it up, so the eye lands on the identity first.
     _fadeAnim = CurvedAnimation(
       parent: _animController,
-      curve: const Interval(0.42, 1.0, curve: Curves.easeOut),
+      curve: const Interval(0.45, 1.0, curve: Curves.easeOut),
     );
-    _riseAnim = Tween<double>(begin: 16, end: 0).animate(
+    _riseAnim = Tween<double>(begin: 20, end: 0).animate(
       CurvedAnimation(
         parent: _animController,
-        curve: const Interval(0.42, 1.0, curve: Curves.easeOutCubic),
+        curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
       ),
     );
   }
@@ -209,36 +223,50 @@ class _SplashScreenState extends State<SplashScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFF07070C),
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            // A warm lift at the bottom only, so the ground has somewhere to
-            // go without ever competing with the gold in the mark.
-            stops: [0.0, 0.55, 1.0],
-            colors: [
-              Color(0xFF07070C),
-              Color(0xFF0C0B14),
-              Color(0xFF16100A),
-            ],
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          _background(),
+          _scrim(),
+          SafeArea(
+            // Scrolls rather than overflows once the lockup outgrows the
+            // viewport, which it does at the largest system text sizes. The
+            // Spacers still do their job while it fits — that is the whole
+            // reason this widget exists rather than a plain scroll view.
+            child: FillViewportScroll(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                children: [
+                  const Spacer(flex: 3),
+                  _identity(compact),
+                  const Spacer(flex: 4),
+                  _actions(),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
           ),
-        ),
-        child: SafeArea(
-          // Scrolls rather than overflows once the lockup outgrows the
-          // viewport, which it does at the largest system text sizes. The
-          // Spacers still do their job while it fits — that is the whole
-          // reason this widget exists rather than a plain scroll view.
-          child: FillViewportScroll(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Column(
-              children: [
-                const Spacer(flex: 3),
-                _identity(compact),
-                const Spacer(flex: 4),
-                _actions(),
-                const SizedBox(height: 40),
-              ],
+        ],
+      ),
+    );
+  }
+
+  Widget _background() {
+    return ImageFiltered(
+      imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+      child: Image.asset(
+        'assets/images/ring.jpg',
+        fit: BoxFit.cover,
+        color: Colors.black.withValues(alpha: 0.12),
+        colorBlendMode: BlendMode.darken,
+        // Falls back to a plain dark gradient if the asset is missing so
+        // layout never breaks.
+        errorBuilder: (context, error, stackTrace) => const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF07070C), Color(0xFF1A1200)],
             ),
           ),
         ),
@@ -246,88 +274,114 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  /// Mark, wordmark, tagline and dedication as one stacked lockup.
-  ///
-  /// The tagline used to be 38px/w900 across two lines, which made it — not
-  /// the brand — the loudest thing on screen. With the mark now animating it
-  /// is set quiet and on one line, so there is exactly one thing to look at.
-  Widget _identity(bool compact) {
-    return Column(
-      children: [
-        // The wordmark rides inside the ring, so the lockup is the real logo
-        // rather than a stand-in shape. It only appears once on the screen
-        // now — repeating it below the ring would be the same artwork twice.
-        //
-        // Sized off its diagonal, not its width. The artwork is 3.24:1, so a
-        // width W needs roughly 1.05·W of circle for its corners to stay
-        // inside the dashes; the ring itself is inset by the orbiting icon,
-        // which is why the numbers are not simply half the size.
-        //
-        // Still the swap point for new artwork — OrbitMark takes whatever
-        // sits at the centre, so this one line is the whole change.
-        OrbitMark(
-          size: compact ? 160 : 196,
-          child: HomegrownWordmark(
-              width: compact ? 114 : 140, onDark: true),
-        ),
-
-        SizedBox(height: compact ? 22 : 30),
-
-        AnimatedBuilder(
-          animation: _animController,
-          builder: (context, child) => Opacity(
-            opacity: _fadeAnim.value,
-            child: Transform.translate(
-              offset: Offset(0, _riseAnim.value),
-              child: child,
-            ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                'Every Game Counts.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _inkSoft,
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.2,
-                ),
-              ),
-              SizedBox(height: compact ? 22 : 30),
-              // The verse is a dedication, not a headline — narrower and
-              // quieter than everything above it.
-              SizedBox(
-                width: 240,
-                child: Column(
-                  children: [
-                    Text(
-                      'I can do all things through Christ who strengthens me.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.dancingScript(
-                        color: _inkSoft,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        height: 1.45,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'PHILIPPIANS 4:13',
-                      style: TextStyle(
-                        color: _inkFaint,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 2.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+  Widget _scrim() {
+    return AnimatedBuilder(
+      animation: _scrimAnim,
+      builder: (context, child) => DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            // Weighted toward the middle, where the wordmark and tagline sit.
+            // A lighter scrim left the photograph competing with the lockup
+            // — the hoop read louder than the brand.
+            stops: const [0.0, 0.38, 0.72, 1.0],
+            colors: [
+              Color.lerp(Colors.transparent, const Color(0xCC07070C),
+                  _scrimAnim.value)!,
+              Color.lerp(Colors.transparent, const Color(0xE60A0910),
+                  _scrimAnim.value)!,
+              Color.lerp(Colors.transparent, const Color(0xD90C0B14),
+                  _scrimAnim.value)!,
+              Color.lerp(Colors.transparent, const Color(0xF01A1200),
+                  _scrimAnim.value)!,
             ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+
+  /// Wordmark, tagline and dedication as one stacked lockup.
+  ///
+  /// The app name is the hero and the tagline carries the screen. Both can be
+  /// large because the artwork is wide and short — it takes horizontal space,
+  /// the tagline takes vertical, so they occupy different room instead of
+  /// competing for the same.
+  Widget _identity(bool compact) {
+    return AnimatedBuilder(
+      animation: _animController,
+      builder: (context, child) {
+        return Column(
+          children: [
+            // The wordmark rises and settles first, then the supporting lines
+            // follow. Always the on-dark variant — this scene is dark in both
+            // themes, so the light-background artwork would put black letters
+            // on a dark photograph.
+            Opacity(
+              opacity: _markAnim.value,
+              child: Transform.translate(
+                offset: Offset(0, (1 - _markAnim.value) * 16),
+                child:
+                    HomegrownWordmark(width: compact ? 172 : 200, onDark: true),
+              ),
+            ),
+            SizedBox(height: compact ? 12 : 16),
+            Opacity(
+              opacity: _fadeAnim.value,
+              child: Transform.translate(
+                offset: Offset(0, _riseAnim.value),
+                child: child,
+              ),
+            ),
+          ],
+        );
+      },
+      child: Column(
+        children: [
+          Text(
+            'Every Game\nCounts.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: compact ? 32 : 38,
+              fontWeight: FontWeight.w900,
+              height: 1.14,
+              letterSpacing: -1.0,
+            ),
+          ),
+          SizedBox(height: compact ? 22 : 28),
+          // The verse is a dedication, not a headline — narrower and
+          // quieter than everything above it.
+          SizedBox(
+            width: 240,
+            child: Column(
+              children: [
+                Text(
+                  'I can do all things through Christ who strengthens me.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dancingScript(
+                    color: _inkSoft,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'PHILIPPIANS 4:13',
+                  style: TextStyle(
+                    color: _inkFaint,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
