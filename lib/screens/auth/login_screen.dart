@@ -32,6 +32,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
 
+  /// Why the last attempt failed, or empty.
+  ///
+  /// Copied out of AuthController.errorMessage rather than observed through
+  /// it. AuthController is a global singleton from main.dart's initialBinding,
+  /// so its errorMessage outlives this screen twice over: a stale failure would
+  /// still be on the banner the next time /login opened, and clearing it from
+  /// initState assigned to an Rx during the build phase, which marked a live
+  /// Obx dirty mid-build and put up a red screen. Local state has neither
+  /// problem — it is created and destroyed with the screen.
+  String _error = '';
+
   static const _kRadius       = 16.0;
   static const _kSheetRadius  = 28.0;
   static const _kErrorRed     = Color(0xFFFF5C5C);
@@ -53,10 +64,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _onSignIn() async {
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _error = '');
     await _auth.signInWithEmail(
       _emailController.text.trim(),
       _passwordController.text.trim(),
     );
+    // On success the controller has already routed away, so this screen is
+    // gone and errorMessage is empty either way.
+    if (!mounted) return;
+    setState(() => _error = _auth.errorMessage.value);
   }
 
   void _onForgotPassword() => Get.toNamed('/forgot-password');
@@ -64,13 +80,20 @@ class _LoginScreenState extends State<LoginScreen> {
   void _onSignUp() => Get.offNamed('/register');
 
   Future<void> _onGoogleSignIn() async {
+    setState(() => _error = '');
     final role = await _auth.signInWithGoogle();
+    if (!mounted) return;
     if (role == null) {
       // New Google user — no role yet → go to profile setup
       final user = _auth.firebaseUser.value;
       if (user != null) {
         Get.offAllNamed('/google-profile-setup');
+        return;
       }
+      // Still signed out, so the attempt failed or the picker was dismissed.
+      // errorMessage is empty for a dismissal, which collapses the banner —
+      // backing out of the picker is not a failure worth reporting.
+      setState(() => _error = _auth.errorMessage.value);
       return;
     }
     // Existing user with a role. Routed through the same landingRoute as
@@ -277,6 +300,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
 
+                // ── Failure message ───────────
+                // Inline rather than in a snackbar. The message this most
+                // often carries — that the account may be a Google one — is
+                // two clauses long and points at a button further down the
+                // sheet, and a snackbar takes it away after three seconds,
+                // usually before the user has finished reading it.
+                if (_error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _ErrorBanner(message: _error),
+                  ),
+
                 const SizedBox(height: 14),
 
                 // ── Sign In button ────────────
@@ -428,6 +463,55 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: radius,
           borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),
       errorStyle: const TextStyle(color: _kErrorRed, fontSize: 12),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Failure banner
+// ─────────────────────────────────────────────
+
+/// The reason a sign-in attempt failed, held on the sheet until the next one.
+///
+/// Private because it has a single caller. Colours come from the semantic
+/// getters rather than the file-local `_kErrorRed`, which is a fixed value
+/// tuned for a hairline field border and is too hot to sit behind a block of
+/// body text in light mode.
+class _ErrorBanner extends StatelessWidget {
+  final String message;
+
+  const _ErrorBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.errorSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.errorText.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(LucideIcons.circleAlert, color: AppTheme.errorText, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              // Announced on its own, because it appears without focus moving
+              // and a screen reader would otherwise never reach it.
+              semanticsLabel: message,
+              style: TextStyle(
+                color: AppTheme.errorText,
+                fontSize: 13,
+                height: 1.45,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

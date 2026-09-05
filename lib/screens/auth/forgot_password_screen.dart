@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_messages.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -40,9 +41,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       await FirebaseAuth.instance.sendPasswordResetEmail(
         email: _emailCtrl.text.trim(),
       );
-      setState(() { _emailSent = true; });
-      _startCooldown();
+      _showSent();
     } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        _showSent();
+        return;
+      }
       _snack('Error', _mapError(e.code), isError: true);
     } catch (e) {
       _snack('Error', 'Something went wrong. Please try again.',
@@ -63,10 +67,34 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _snack('Email Sent ✉️',
           'A new reset link was sent to ${_emailCtrl.text.trim()}');
     } on FirebaseAuthException catch (e) {
+      // Same reasoning as _sendReset: never confirm or deny that the address
+      // has an account. Restart the cooldown so repeated taps cannot be timed
+      // to tell the two outcomes apart either.
+      if (e.code == 'user-not-found') {
+        _startCooldown();
+        _snack('Email Sent ✉️',
+            'A new reset link was sent to ${_emailCtrl.text.trim()}');
+        return;
+      }
       _snack('Error', _mapError(e.code), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Show the "check your email" confirmation.
+  ///
+  /// Reached both on a real send and on `user-not-found`. A Google-only
+  /// account holds no password credential to reset, so Firebase may refuse
+  /// outright — and the old "No account found with this email." was then a
+  /// flat lie, since the account plainly exists and signs in through
+  /// "Continue with Google" every day. It was also an enumeration oracle for
+  /// addresses that genuinely have no account. Both cases now land here, and
+  /// the card explains the Google one so nobody sits waiting on mail that
+  /// cannot arrive.
+  void _showSent() {
+    setState(() => _emailSent = true);
+    _startCooldown();
   }
 
   void _startCooldown() {
@@ -79,18 +107,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
   }
 
-  String _mapError(String code) {
-    switch (code) {
-      case 'user-not-found':
-        return 'No account found with this email.';
-      case 'invalid-email':
-        return 'Please enter a valid email address.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please try again later.';
-      default:
-        return 'Failed to send reset email. Please try again.';
-    }
-  }
+  /// `user-not-found` never reaches here — both callers treat it as a send.
+  String _mapError(String code) =>
+      authErrorMessage(code) ?? 'Failed to send reset email. Please try again.';
 
   void _snack(String t, String m, {bool isError = false}) {
     Get.snackbar(t, m,
@@ -400,6 +419,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             // key stands in for "get a new password".
                             icon:  LucideIcons.keyRound,
                             text:  'Create a new password and sign in',
+                          ),
+                          SizedBox(height: 12),
+                          // Last, because it applies to a minority of users
+                          // and the three steps above are the common path.
+                          // It has to be here at all because this card is
+                          // now also what a Google-only account sees: no
+                          // reset mail is coming for one, and without this
+                          // they would keep refreshing an inbox for it.
+                          _InfoRow(
+                            icon:  LucideIcons.info,
+                            text:  'Signed up with Google? No email will '
+                                   'arrive — go back and use Continue with '
+                                   'Google.',
                           ),
                         ]),
                       ),

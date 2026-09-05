@@ -27,7 +27,7 @@ String friendlyError(Object? error, {String? fallback}) {
   if (message != null) return message;
 
   if (error is FirebaseAuthException) {
-    return _authMessage(error.code) ?? generic;
+    return authErrorMessage(error.code) ?? generic;
   }
 
   if (error is FirebaseException) {
@@ -68,16 +68,53 @@ String? _messageFromKnownException(Object error) {
   return null;
 }
 
-String? _authMessage(String code) {
+/// The message for a `FirebaseAuthException.code`, or null if the code is not
+/// one we have copy for — callers supply their own fallback for that.
+///
+/// Public and shared because five places were maintaining their own copy of
+/// this switch: this file, AuthController, and each of the three role register
+/// screens. They had already drifted, and a wording fix applied to one of them
+/// would silently miss the other four.
+///
+/// Every branch is deliberately vague about *whether an account exists*.
+/// Firebase's email enumeration protection — on by default for projects created
+/// after Sept 2023, including this one — exists precisely so a sign-in attempt
+/// cannot be used to probe which addresses are registered, and a message saying
+/// "no account found" hands that straight back.
+String? authErrorMessage(String code) {
   switch (code) {
-    case 'user-not-found':
-      return 'No account found with this email.';
+    // One branch, three codes, on purpose.
+    //
+    // With enumeration protection on, Firebase collapses "no such user" and
+    // "wrong password" into `invalid-credential` and the other two never fire;
+    // if it is ever turned off they start firing again, and three different
+    // messages would then reveal which of the two happened. Answering all three
+    // identically keeps that closed either way.
+    //
+    // Google is named because the most common way to land here is not a typo at
+    // all: an account created through "Continue with Google" holds only the
+    // google.com provider, so no password is stored for it anywhere and no
+    // typed password can ever succeed. The old wording ("Invalid credentials.
+    // Please try again.") sent those users round a loop of retyping a password
+    // that could not work. We cannot detect the provider and say so outright —
+    // fetchSignInMethodsForEmail is deprecated and returns an empty list under
+    // enumeration protection — so it is offered as a possibility, which is both
+    // honest and leaks nothing.
+    case 'invalid-credential':
     case 'wrong-password':
-      return 'Incorrect password. Please try again.';
+    case 'user-not-found':
+      return 'Wrong email or password. If you signed up with Google, '
+          'use Continue with Google below.';
+
     case 'invalid-email':
       return 'Please enter a valid email address.';
+
+    // The same root cause seen from the register screens: a Google user trying
+    // to create an email account on the address they already hold.
     case 'email-already-in-use':
-      return 'An account already exists with this email.';
+      return 'An account already exists with this email. Try signing in, '
+          'or use Continue with Google.';
+
     case 'weak-password':
       return 'Password is too weak. Use at least 8 characters.';
     case 'user-disabled':
@@ -86,8 +123,6 @@ String? _authMessage(String code) {
       return 'Too many attempts. Please try again later.';
     case 'network-request-failed':
       return 'Network error. Check your connection.';
-    case 'invalid-credential':
-      return 'Invalid credentials. Please try again.';
     case 'account-exists-with-different-credential':
       return 'An account already exists with a different sign-in method.';
     case 'requires-recent-login':

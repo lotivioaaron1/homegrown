@@ -184,14 +184,11 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
       duration: const Duration(seconds: 3));
   }
 
-  String _mapError(String code) {
-    switch (code) {
-      case 'email-already-in-use': return 'An account already exists with this email.';
-      case 'weak-password':        return 'Password is too weak.';
-      case 'invalid-email':        return 'Please enter a valid email.';
-      default:                     return 'Registration failed. Please try again.';
-    }
-  }
+  /// Shared with the other two role registrations and with sign-in, so that a
+  /// wording change lands everywhere at once — these four screens each used to
+  /// carry their own copy of this switch and had already drifted apart.
+  String _mapError(String code) =>
+      authErrorMessage(code) ?? 'Registration failed. Please try again.';
 
   @override
   Widget build(BuildContext context) {

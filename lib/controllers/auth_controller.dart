@@ -8,6 +8,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../services/auth_service.dart';
 import '../services/contact_service.dart';
 import '../utils/auth_routing.dart';
+import '../utils/error_messages.dart';
 import '../utils/onboarding_flag.dart';
 
 class AuthController extends GetxController {
@@ -65,11 +66,14 @@ class AuthController extends GetxController {
       ));
 
     } on FirebaseAuthException catch (e) {
-      errorMessage.value = _mapFirebaseError(e.code);
-      _showErrorSnackbar(errorMessage.value);
+      // No snackbar on this path. LoginScreen renders errorMessage inline and
+      // keeps it on screen; a snackbar would say the same thing twice and then
+      // take the half of it that matters — the pointer to Google Sign-In —
+      // away again after three seconds.
+      errorMessage.value = authErrorMessage(e.code) ??
+          'Something went wrong. Please try again.';
     } catch (_) {
       errorMessage.value = 'Something went wrong. Please try again.';
-      _showErrorSnackbar(errorMessage.value);
     } finally {
       isLoading.value = false;
     }
@@ -112,11 +116,12 @@ class AuthController extends GetxController {
       await credential.user?.sendEmailVerification();
 
     } on FirebaseAuthException catch (e) {
-      errorMessage.value = _mapFirebaseError(e.code);
-      _showErrorSnackbar(errorMessage.value);
+      errorMessage.value =
+          authErrorMessage(e.code) ?? 'Registration failed. Please try again.';
+      _showErrorSnackbar('Registration Failed', errorMessage.value);
     } catch (_) {
       errorMessage.value = 'Registration failed. Please try again.';
-      _showErrorSnackbar(errorMessage.value);
+      _showErrorSnackbar('Registration Failed', errorMessage.value);
     } finally {
       isLoading.value = false;
     }
@@ -195,8 +200,11 @@ class AuthController extends GetxController {
       return role.isEmpty ? null : role;
 
     } on FirebaseAuthException catch (e) {
-      errorMessage.value = _mapFirebaseError(e.code);
-      _showErrorSnackbar(errorMessage.value);
+      // Like signInWithEmail, this reports through errorMessage alone: its only
+      // caller is LoginScreen, which renders that inline, and a snackbar on top
+      // would duplicate the banner.
+      errorMessage.value = authErrorMessage(e.code) ??
+          'Something went wrong. Please try again.';
       return null;
     } catch (e, st) {
       // debugPrint is stripped in release builds; print() is not, and would
@@ -208,7 +216,6 @@ class AuthController extends GetxController {
       // PlatformException. Don't put that in front of the user.
       errorMessage.value =
           "Couldn't sign in with Google. Check your connection and try again.";
-      _showErrorSnackbar(errorMessage.value);
       return null;
     } finally {
       isGoogleLoading.value = false;
@@ -235,38 +242,14 @@ class AuthController extends GetxController {
     Get.offAllNamed('/splash');
   }
 
-  // ── Error mapping ─────────────────────────────
+  // ── Error reporting ───────────────────────────
+  // Code-to-message mapping lives in utils/error_messages.dart, shared with the
+  // three role register screens and forgot-password. See the note on
+  // authErrorMessage for why several codes deliberately share one message.
 
-  String _mapFirebaseError(String code) {
-    switch (code) {
-      case 'user-not-found':
-        return 'No account found with this email.';
-      case 'wrong-password':
-        return 'Incorrect password. Please try again.';
-      case 'invalid-email':
-        return 'Please enter a valid email address.';
-      case 'email-already-in-use':
-        return 'An account already exists with this email.';
-      case 'weak-password':
-        return 'Password is too weak. Use at least 8 characters.';
-      case 'user-disabled':
-        return 'This account has been disabled.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please try again later.';
-      case 'network-request-failed':
-        return 'Network error. Check your connection.';
-      case 'invalid-credential':
-        return 'Invalid credentials. Please try again.';
-      case 'account-exists-with-different-credential':
-        return 'An account already exists with a different sign-in method.';
-      default:
-        return 'Something went wrong. Please try again.';
-    }
-  }
-
-  void _showErrorSnackbar(String message) {
+  void _showErrorSnackbar(String title, String message) {
     Get.snackbar(
-      'Sign In Failed',
+      title,
       message,
       snackPosition:   SnackPosition.BOTTOM,
       backgroundColor: const Color(0xFF2A1A1A),

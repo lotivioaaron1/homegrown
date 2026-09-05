@@ -187,14 +187,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       duration: const Duration(seconds: 3));
   }
 
-  String _mapError(String code) {
-    switch (code) {
-      case 'email-already-in-use': return 'An account already exists with this email.';
-      case 'weak-password':        return 'Password is too weak.';
-      case 'invalid-email':        return 'Please enter a valid email.';
-      default:                     return 'Registration failed. Please try again.';
-    }
-  }
+  /// See athlete_register_screen.dart — one shared mapping across all three
+  /// role registrations and sign-in.
+  String _mapError(String code) =>
+      authErrorMessage(code) ?? 'Registration failed. Please try again.';
 
   @override
   Widget build(BuildContext context) {
