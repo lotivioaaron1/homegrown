@@ -120,6 +120,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ],
           ),
 
+          // Skip, so wanting an account does not cost four pages of pitch.
+          //
+          // Shown on the sport panels only. Features is the last page and
+          // already carries a Get Started to the same destination, so a Skip
+          // beside it would be two controls doing one job — which is roughly
+          // how the original one came to be deleted: it was hidden on the
+          // last page, and once the sport-selection page went away Features
+          // became last and it could never render at all.
+          if (_onSportPanel)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 12,
+              child: _SkipButton(onTap: _onGetStarted),
+            ),
+
           // Small progress dots over the sport panels themselves, matching
           // the reference's per-panel indicator. Hidden on the Features
           // page, which is the last page and carries the CTA instead.
@@ -157,6 +172,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Skip, sitting on top of a photograph.
+///
+/// It carries its own dark pill rather than plain white text. The sport
+/// panels' scrim is fully transparent at the top and only starts darkening
+/// at 45% down, so a bare label would sit on whatever each photograph
+/// happens to be doing up there — light studio backdrop on one, a subject on
+/// the next. The pill gives it a consistent ground on all three.
+///
+/// Padded rather than fixed-size so the box grows with the system text
+/// setting instead of clipping, while still clearing the 48dp tap target at
+/// the default size.
+class _SkipButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _SkipButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.38),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: const Text(
+          'Skip',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }

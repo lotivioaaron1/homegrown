@@ -66,8 +66,79 @@ void main() {
     // page exists — the sport page it replaced also ended with a CTA.
     expect(find.text('Performance Dashboard'), findsOneWidget);
     expect(find.text('Get Started'), findsOneWidget);
-    // Skip only ever made sense while a page followed Features.
+    // Features carries its own Get Started to the same destination, so a
+    // second control beside it would be two CTAs doing one job.
     expect(find.text('Skip'), findsNothing);
+  });
+
+  // Skip exists so someone who wants an account does not have to sit through
+  // a four-page pitch to reach one. It briefly did not exist at all: it was
+  // hidden on the last page, and when the sport-selection page was removed,
+  // Features became last and Skip could never render, so it was deleted as
+  // dead code rather than as a decision.
+  group('Skip', () {
+    testWidgets('is offered on the sport panels', (tester) async {
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Skip'), findsOneWidget);
+    });
+
+    testWidgets('stays available across every sport panel', (tester) async {
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+
+      // Two swipes leaves us on the third and last sport panel. Skip has to
+      // survive the whole run of them, not just the first.
+      for (var i = 0; i < 2; i++) {
+        await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
+        await tester.pumpAndSettle();
+      }
+
+      expect(find.text('Basketball'), findsNothing); // still the intro
+      expect(find.text('Skip'), findsOneWidget);
+    });
+
+    testWidgets('goes straight to registration', (tester) async {
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Skip'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('register screen'), findsOneWidget);
+    });
+
+    // Same rule as finishing the intro normally: watching or skipping the
+    // pitch is not what makes someone a returning user, signing in is. If
+    // Skip recorded it, anyone who skipped and then abandoned registration
+    // would be sent to /login from then on and could never see the intro.
+    testWidgets('does not mark onboarding complete', (tester) async {
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Skip'));
+      await tester.pumpAndSettle();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('onboarding_complete'), isNull);
+    });
+
+    // A 14px label is not a tap target. Android wants 48dp.
+    testWidgets('has a tappable hit area', (tester) async {
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+
+      final size = tester.getSize(
+        find.ancestor(
+          of: find.text('Skip'),
+          matching: find.byType(GestureDetector),
+        ).first,
+      );
+
+      expect(size.height, greaterThanOrEqualTo(48.0));
+      expect(size.width, greaterThanOrEqualTo(48.0));
+    });
   });
 
   // Onboarding deliberately records nothing. splash_screen.dart sets
