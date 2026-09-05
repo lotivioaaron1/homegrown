@@ -3,82 +3,122 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/auth_hero.dart';
+import '../../widgets/fill_viewport_scroll.dart';
 
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
+
+  /// Volleyball rather than the basketball frame login uses, so the two
+  /// screens read as siblings instead of the same screen twice. Chosen over
+  /// badminton on composition: the ball, both hands and the net's top rail sit
+  /// in the upper sixth of the frame, which is all a short wide band shows.
+  static const _kHeroAsset = 'assets/images/onboard_volleyball.jpg';
+
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final heroHeight =
+        (size.height * (size.height < 700 ? 0.17 : 0.22)).clamp(120.0, 200.0);
+
     return Scaffold(
       backgroundColor: AppTheme.bg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: 56),
-              Text(
-                'Where do you fit in?',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.4,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Athletes compete. Coaches scout.\nOrganizers run the show.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppTheme.sub, fontSize: 14, height: 1.5),
-              ),
-              const SizedBox(height: 36),
-              _RoleCard(
-                icon: LucideIcons.zap,
-                iconColor: const Color(0xFFFF8A34),
-                label: 'Athlete',
-                description: 'Track stats, earn points,\nget discovered by coaches',
-                onTap: () => Get.toNamed('/register/athlete'),
-              ),
-              const SizedBox(height: 14),
-              _RoleCard(
-                icon: LucideIcons.binoculars,
-                iconColor: const Color(0xFF4AB3FF),
-                label: 'Coach',
-                description: 'Scout talent, manage your\nroster and team lineup',
-                onTap: () => Get.toNamed('/register/coach'),
-              ),
-              const SizedBox(height: 14),
-              _RoleCard(
-                icon: LucideIcons.calendarDays,
-                iconColor: const Color(0xFF5FE0A0),
-                label: 'Organizer',
-                description: 'Create events, manage\ntournaments and venues',
-                onTap: () => Get.toNamed('/register/organizer'),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => Get.offNamed('/login'),
-                child: RichText(
-                  text: TextSpan(
-                    text: 'Already have an account?  ',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 14),
-                    children: const [
-                      TextSpan(
-                        text: 'Sign In',
-                        style: TextStyle(
-                          color: AppTheme.accent,
-                          fontWeight: FontWeight.w700,
+      // The photograph runs full-bleed under the status bar, so the SafeArea
+      // moves below it — the cards still need their inset, the image does not.
+      body: Column(
+        children: [
+          AuthHero(
+            asset: _kHeroAsset,
+            height: heroHeight,
+            // Top-aligned, not centred. On a 1334x2000 source shown in a band
+            // this wide, the visible window is about a third of the scaled
+            // height; taking it from the top lands on the ball and the hands,
+            // while centring it lands on the player's back.
+            alignment: Alignment.topCenter,
+          ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              // Scrolls rather than overflows. Three cards, a two-line
+              // subtitle and a header do fit on a normal phone, but they do
+              // not on a 375x667 one — measured, not guessed — and they would
+              // not at the largest system text size either. The Spacer still
+              // pushes the sign-in link down whenever there is room.
+              child: FillViewportScroll(
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 28),
+                    Text(
+                      'Where do you fit in?',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Athletes compete. Coaches scout.\nOrganizers run the show.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: AppTheme.sub, fontSize: 14, height: 1.5),
+                    ),
+                    const SizedBox(height: 36),
+                    _RoleCard(
+                      icon: LucideIcons.zap,
+                      iconColor: const Color(0xFFFF8A34),
+                      label: 'Athlete',
+                      description:
+                          'Track stats, earn points,\nget discovered by coaches',
+                      onTap: () => Get.toNamed('/register/athlete'),
+                    ),
+                    const SizedBox(height: 14),
+                    _RoleCard(
+                      icon: LucideIcons.binoculars,
+                      iconColor: const Color(0xFF4AB3FF),
+                      label: 'Coach',
+                      description:
+                          'Scout talent, manage your\nroster and team lineup',
+                      onTap: () => Get.toNamed('/register/coach'),
+                    ),
+                    const SizedBox(height: 14),
+                    _RoleCard(
+                      icon: LucideIcons.calendarDays,
+                      iconColor: const Color(0xFF5FE0A0),
+                      label: 'Organizer',
+                      description:
+                          'Create events, manage\ntournaments and venues',
+                      onTap: () => Get.toNamed('/register/organizer'),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => Get.offNamed('/login'),
+                      child: RichText(
+                        text: TextSpan(
+                          text: 'Already have an account?  ',
+                          style: TextStyle(color: AppTheme.sub, fontSize: 14),
+                          children: const [
+                            TextSpan(
+                              text: 'Sign In',
+                              style: TextStyle(
+                                color: AppTheme.accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 28),
+                  ],
                 ),
               ),
-              const SizedBox(height: 28),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

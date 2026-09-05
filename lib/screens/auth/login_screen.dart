@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../controllers/auth_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/auth_routing.dart';
+import '../../widgets/auth_hero.dart';
 import '../../widgets/gradient_button.dart';
 import '../../widgets/homegrown_wordmark.dart';
 
@@ -104,7 +105,16 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: AppTheme.bg,
       body: Stack(
         children: [
-          _hero(heroHeight),
+          AuthHero(
+            asset: _kHeroAsset,
+            height: heroHeight,
+            // The subject sits in the upper two-thirds of a tall portrait
+            // frame, so a centred cover crop lands on the shorts and cuts the
+            // head off. Biasing upward keeps the face and the ball — the part
+            // that carries the photograph — inside a short, wide window. Tuned
+            // to this frame; it does not transfer to another photograph.
+            alignment: const Alignment(0, -0.62),
+          ),
           LayoutBuilder(
             builder: (context, viewport) {
               // The sheet starts one corner-radius above the photograph's
@@ -125,60 +135,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               );
             },
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// The photograph, its scrim, and the wordmark that carries the splash's
-  /// identity through to the first screen you actually use.
-  Widget _hero(double height) {
-    return SizedBox(
-      height: height,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.asset(
-            _kHeroAsset,
-            fit: BoxFit.cover,
-            // The subject sits in the upper two-thirds of a tall portrait
-            // frame, so a centred cover crop lands on the shorts and cuts the
-            // head off. Biasing upward keeps the face and the ball — the part
-            // that carries the photograph — inside a short, wide window.
-            alignment: const Alignment(0, -0.62),
-            // Falls back to a themed gradient if the asset is missing, the
-            // same way the onboarding panels do, so layout never breaks.
-            errorBuilder: (context, error, stackTrace) => const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF1A1200), Color(0xFF0F0F1A)],
-                ),
-              ),
-            ),
-          ),
-          // Two jobs, and only two: keep the system status bar's white icons
-          // legible against a bright studio backdrop, and darken the bottom
-          // edge so the sheet's corners do not cut against a light band. The
-          // middle is left nearly clear — a flat scrim across the whole
-          // photograph washed it out to grey and took the picture with it.
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: const [0.0, 0.30, 0.72, 1.0],
-                colors: [
-                  const Color(0xFF07070C).withValues(alpha: 0.62),
-                  const Color(0xFF07070C).withValues(alpha: 0.16),
-                  const Color(0xFF07070C).withValues(alpha: 0.10),
-                  const Color(0xFF07070C).withValues(alpha: 0.46),
-                ],
-              ),
-            ),
           ),
         ],
       ),
