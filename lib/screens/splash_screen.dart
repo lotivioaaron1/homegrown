@@ -8,7 +8,6 @@ import '../theme/app_theme.dart';
 import '../utils/auth_routing.dart';
 import '../utils/onboarding_flag.dart';
 import '../widgets/fill_viewport_scroll.dart';
-import '../widgets/homegrown_mark.dart';
 import '../widgets/homegrown_wordmark.dart';
 import '../widgets/orbit_mark.dart';
 
@@ -255,16 +254,24 @@ class _SplashScreenState extends State<SplashScreen>
   Widget _identity(bool compact) {
     return Column(
       children: [
-        // Swap point for the new artwork: OrbitMark takes whatever sits at
-        // the centre, so replacing this line is the whole change. The drawn
-        // Mayon mark stands in meanwhile — it is square, vector, and centred,
-        // which the wide wordmark and the off-centre icon PNG are not.
+        // The wordmark rides inside the ring, so the lockup is the real logo
+        // rather than a stand-in shape. It only appears once on the screen
+        // now — repeating it below the ring would be the same artwork twice.
+        //
+        // Sized off its diagonal, not its width. The artwork is 3.24:1, so a
+        // width W needs roughly 1.05·W of circle for its corners to stay
+        // inside the dashes; the ring itself is inset by the orbiting icon,
+        // which is why the numbers are not simply half the size.
+        //
+        // Still the swap point for new artwork — OrbitMark takes whatever
+        // sits at the centre, so this one line is the whole change.
         OrbitMark(
-          size: compact ? 138 : 168,
-          child: HomegrownMark(size: compact ? 62 : 76),
+          size: compact ? 160 : 196,
+          child: HomegrownWordmark(
+              width: compact ? 114 : 140, onDark: true),
         ),
 
-        SizedBox(height: compact ? 24 : 32),
+        SizedBox(height: compact ? 22 : 30),
 
         AnimatedBuilder(
           animation: _animController,
@@ -277,8 +284,6 @@ class _SplashScreenState extends State<SplashScreen>
           ),
           child: Column(
             children: [
-              HomegrownWordmark(width: compact ? 168 : 190, onDark: true),
-              SizedBox(height: compact ? 12 : 16),
               Text(
                 'Every Game Counts.',
                 textAlign: TextAlign.center,
