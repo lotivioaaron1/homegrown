@@ -122,7 +122,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   /// Where this launch should land, or null to show the Get Started CTA.
   Future<String?> _resolveDestination() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = await _restoredUser();
 
     if (user != null) {
       // A backstop now rather than the only writer. AuthController marks this
@@ -168,6 +168,30 @@ class _SplashScreenState extends State<SplashScreen>
     // Not signed in: someone who has had an account on this device goes to
     // login, everyone else gets the intro.
     return await isOnboardingComplete() ? '/login' : null;
+  }
+
+  /// The signed-in user, giving Firebase a moment to restore one from disk.
+  ///
+  /// `currentUser` is usually populated by the time `Firebase.initializeApp`
+  /// returns, but it is not promised to be: the SDK can still be reading the
+  /// persisted session, and until it finishes the getter answers null. The old
+  /// flat 2500ms delay hid that entirely by never asking until long after
+  /// startup. Asking immediately does not, and the failure it would produce —
+  /// a signed-in user dropped on the login screen — is much worse than a short
+  /// wait.
+  ///
+  /// Costs nothing in practice. The common case returns without awaiting at
+  /// all, and even the slow path runs underneath the minimum hold rather than
+  /// after it. The timeout is what distinguishes "not restored yet" from
+  /// "genuinely signed out", since authStateChanges never closes on its own.
+  Future<User?> _restoredUser() async {
+    final current = FirebaseAuth.instance.currentUser;
+    if (current != null) return current;
+
+    return FirebaseAuth.instance
+        .authStateChanges()
+        .firstWhere((u) => u != null)
+        .timeout(const Duration(milliseconds: 1200), onTimeout: () => null);
   }
 
   void _onGetStarted() => Get.offNamed('/onboarding');
