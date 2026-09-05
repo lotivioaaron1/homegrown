@@ -2,12 +2,12 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../constants/app_links.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/onboarding_flag.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/theme_controller.dart';
 import '../../services/ranking_service.dart';
@@ -628,8 +628,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// intro's own Get Started still routes on to /register, which is a little
   /// odd when you are already signed in; acceptable for a debug shortcut.
   Future<void> _replayOnboarding() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('onboarding_complete');
+    await clearOnboardingComplete();
     Get.toNamed('/onboarding');
   }
 

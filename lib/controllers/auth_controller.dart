@@ -8,6 +8,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../services/auth_service.dart';
 import '../services/contact_service.dart';
 import '../utils/auth_routing.dart';
+import '../utils/onboarding_flag.dart';
 
 class AuthController extends GetxController {
   static AuthController get to => Get.find();
@@ -41,6 +42,12 @@ class AuthController extends GetxController {
 
       final credential = await _authService.signInWithEmail(email, password);
       final user = credential.user!;
+
+      // This device now belongs to someone with an account, so a later sign-out
+      // must land on /login rather than the intro. SplashScreen used to be the
+      // only writer of this flag and only on a cold start, which missed anyone
+      // who signed in and out without ever relaunching.
+      await markOnboardingComplete();
 
       // Sign-in still succeeds, but an unverified password account gets no
       // further than the verification screen. This is an in-app gate, not a
@@ -96,6 +103,11 @@ class AuthController extends GetxController {
       // signed-in account can read — see ContactService.
       await ContactService.write(uid: uid, email: email);
 
+      // Registration signs the user in, so from here they are a returning user
+      // on this device even if they never finish verifying. Recorded now so
+      // signing out lands them on /login instead of replaying the intro.
+      await markOnboardingComplete();
+
       // Send verification email right after account creation
       await credential.user?.sendEmailVerification();
 
@@ -135,6 +147,12 @@ class AuthController extends GetxController {
       final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCred.user;
       if (user == null) return null;
+
+      // Before the doc branch on purpose. The first-time path below returns
+      // early to send the user to role selection, and that account is just as
+      // real as an existing one — skipping the mark there would send them back
+      // through onboarding after their next sign-out.
+      await markOnboardingComplete();
 
       final docRef = _firestore.collection('users').doc(user.uid);
       final doc    = await docRef.get();

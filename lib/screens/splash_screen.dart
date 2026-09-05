@@ -3,11 +3,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../utils/auth_routing.dart';
+import '../utils/onboarding_flag.dart';
 import '../widgets/homegrown_wordmark.dart';
 
 /// Deliberately a single dark scene in both themes.
@@ -79,16 +79,18 @@ class _SplashScreenState extends State<SplashScreen>
   // ── Auth check ────────────────────────────────
   Future<void> _checkAuthState() async {
     if (!mounted) return;
-    final prefs = await SharedPreferences.getInstance();
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      // Having signed in on this device is what makes someone a returning
-      // user, so that is when onboarding counts as done. Recording it when
-      // the intro merely finished stranded anyone who watched it and then
-      // abandoned registration: the CTA below is the only route to
-      // /onboarding, so they were sent to /login from then on and never saw
-      // the intro again.
-      await prefs.setBool('onboarding_complete', true);
+      // A backstop now rather than the only writer. AuthController marks this
+      // at registration and at sign-in, which is where it actually becomes
+      // true; this line only still matters for accounts that were already
+      // signed in when that change shipped and so never passed through it.
+      //
+      // It is still keyed on a signed-in user, not on the intro finishing:
+      // marking it when the intro merely finished stranded anyone who watched
+      // it and then abandoned registration, since the CTA below is the only
+      // route to /onboarding and they were sent to /login from then on.
+      await markOnboardingComplete();
       if (!mounted) return;
       // Where a returning user lands — the super-admin's approval queue, the
       // verification screen, or home — is decided by landingRoute so this
@@ -117,7 +119,7 @@ class _SplashScreenState extends State<SplashScreen>
       return;
     }
     // Not logged in — check if onboarding was done
-    final onboardingDone = prefs.getBool('onboarding_complete') ?? false;
+    final onboardingDone = await isOnboardingComplete();
     if (!mounted) return;
     if (onboardingDone) {
       // Returning user who logged out → login screen
