@@ -6,8 +6,15 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../controllers/auth_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/auth_routing.dart';
+import '../../widgets/gradient_button.dart';
 import '../../widgets/homegrown_wordmark.dart';
 
+/// Hero photograph across the top, form on a rounded sheet lifted over it.
+///
+/// The sheet lives inside the scroll view rather than beside it, which is what
+/// makes the keyboard behave: the form slides up over the photograph instead
+/// of fighting it for room. The photograph itself is pinned behind, so it does
+/// not jump around while that happens.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -24,9 +31,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
 
-  static const _kRadius     = 14.0;
-  static const _kErrorRed   = Color(0xFFFF5C5C);
+  static const _kRadius       = 16.0;
+  static const _kSheetRadius  = 28.0;
+  static const _kErrorRed     = Color(0xFFFF5C5C);
   static const _kMaxFormWidth = 440.0; // caps width on tablets/large screens
+
+  /// Already shipped, already used full-bleed in onboarding. Reusing it keeps
+  /// the auth flow photographic like the rest of the app rather than importing
+  /// an illustration style nothing else here shares.
+  static const _kHeroAsset = 'assets/images/onboard_basketball.jpg';
 
   @override
   void dispose() {
@@ -78,277 +91,339 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
 
-    // Scale horizontal padding with screen width instead of a flat number,
-    // so the form breathes on small phones and doesn't hug the edges on
-    // wider ones. Clamped so it never gets too tight or too loose.
-    final horizontalPadding = (size.width * 0.07).clamp(20.0, 32.0);
-
-    // Shorter devices (e.g. SE-class phones) get tighter top spacing so
-    // the form isn't pushed into a scroll fight with the keyboard.
-    final isCompactHeight = size.height < 700;
-    final topSpacing = isCompactHeight ? 48.0 : 76.0;
+    // Shorter devices give the photograph less room so the form is not pushed
+    // into a scroll fight with the keyboard.
+    // Sized so the sign-up link still clears the fold on a normal phone.
+    // At 0.38 the photograph looked better in isolation but pushed the only
+    // route to registration off the bottom of the screen, which is a poor
+    // trade on the screen a new user lands on by mistake.
+    final heroHeight = (size.height * (size.height < 700 ? 0.28 : 0.34))
+        .clamp(170.0, 310.0);
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, viewport) {
-            return SingleChildScrollView(
-              padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-              child: ConstrainedBox(
-                // Guarantees the content column is at least one full
-                // viewport tall, so the Spacer below has real room to
-                // push the sign-up link toward the bottom. On short
-                // content this pins it low; on tall content (small
-                // phones, big text) it just scrolls normally.
-                constraints: BoxConstraints(minHeight: viewport.maxHeight),
-                child: IntrinsicHeight(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: _kMaxFormWidth),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            SizedBox(height: topSpacing),
+      body: Stack(
+        children: [
+          _hero(heroHeight),
+          LayoutBuilder(
+            builder: (context, viewport) {
+              // The sheet starts one corner-radius above the photograph's
+              // bottom edge, so it reads as lifted over it rather than butted
+              // against it.
+              final spacer = heroHeight - _kSheetRadius;
 
-                            // Carries the splash's wordmark through to the
-                            // first screen you actually use. Without it the
-                            // app goes from a full identity moment straight
-                            // to bare form fields, and the two read as
-                            // unrelated screens.
-                            // Theme-aware here, unlike the splash: this screen
-                            // follows the app theme, so the ink has to match
-                            // whichever background it lands on.
-                            HomegrownWordmark(
-                                width: isCompactHeight ? 132 : 152),
-
-                            SizedBox(height: isCompactHeight ? 18 : 24),
-
-                            // ── Heading ───────────────────
-                            Text(
-                      'Welcome Back',
-                      style: TextStyle(
-                        // ✅ Adapts to light/dark
-                        color:         AppTheme.textPrimary,
-                        fontSize:      26,
-                        fontWeight:    FontWeight.w900,
-                        letterSpacing: -0.4,
-                      ),
+              return SingleChildScrollView(
+                child: Column(
+                  children: [
+                    SizedBox(height: spacer),
+                    ConstrainedBox(
+                      constraints:
+                          BoxConstraints(minHeight: viewport.maxHeight - spacer),
+                      child: _sheet(),
                     ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
-                    const SizedBox(height: 8),
+  /// The photograph, its scrim, and the wordmark that carries the splash's
+  /// identity through to the first screen you actually use.
+  Widget _hero(double height) {
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            _kHeroAsset,
+            fit: BoxFit.cover,
+            // The subject sits in the upper two-thirds of a tall portrait
+            // frame, so a centred cover crop lands on the shorts and cuts the
+            // head off. Biasing upward keeps the face and the ball — the part
+            // that carries the photograph — inside a short, wide window.
+            alignment: const Alignment(0, -0.62),
+            // Falls back to a themed gradient if the asset is missing, the
+            // same way the onboarding panels do, so layout never breaks.
+            errorBuilder: (context, error, stackTrace) => const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF1A1200), Color(0xFF0F0F1A)],
+                ),
+              ),
+            ),
+          ),
+          // Two jobs, and only two: keep the system status bar's white icons
+          // legible against a bright studio backdrop, and darken the bottom
+          // edge so the sheet's corners do not cut against a light band. The
+          // middle is left nearly clear — a flat scrim across the whole
+          // photograph washed it out to grey and took the picture with it.
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0.0, 0.30, 0.72, 1.0],
+                colors: [
+                  const Color(0xFF07070C).withValues(alpha: 0.62),
+                  const Color(0xFF07070C).withValues(alpha: 0.16),
+                  const Color(0xFF07070C).withValues(alpha: 0.10),
+                  const Color(0xFF07070C).withValues(alpha: 0.46),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                    Text(
-                      'Sign in to your Homegrown account',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color:    AppTheme.sub,
-                        fontSize: 14,
+  Widget _sheet() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(_kSheetRadius),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 26, 24, 28),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _kMaxFormWidth),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Carries the splash's identity through to the first screen
+                // you actually use, so the two do not read as unrelated.
+                //
+                // On the sheet rather than over the photograph: any crop that
+                // puts the athlete's head near the top — which a good crop
+                // does — collides with a centred wordmark, and swapping the
+                // hero to the volleyball or badminton frame moves the
+                // collision somewhere new. Here it is legible whatever the
+                // picture does, and theme-aware because the sheet is.
+                const Center(child: HomegrownWordmark(width: 118)),
+
+                const SizedBox(height: 18),
+
+                Text(
+                  'Welcome Back',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Sign in to your Homegrown account',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.sub, fontSize: 13.5),
+                ),
+
+                const SizedBox(height: 28),
+
+                // ── Email ─────────────────────
+                TextFormField(
+                  controller:      _emailController,
+                  keyboardType:    TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autofillHints:   const [AutofillHints.email],
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                  decoration: _inputDeco(
+                    label:    'Email address',
+                    iconData: LucideIcons.mail,
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Email is required';
+                    }
+                    if (!GetUtils.isEmail(v.trim())) {
+                      return 'Enter a valid email';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 14),
+
+                // ── Password ──────────────────
+                TextFormField(
+                  controller:       _passwordController,
+                  obscureText:      _obscurePassword,
+                  textInputAction:  TextInputAction.done,
+                  onFieldSubmitted: (_) => _onSignIn(),
+                  autofillHints:    const [AutofillHints.password],
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                  decoration: _inputDeco(
+                    label:    'Password',
+                    iconData: LucideIcons.lock,
+                    suffix: IconButton(
+                      onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword),
+                      icon: Icon(
+                        _obscurePassword
+                            ? LucideIcons.eyeOff
+                            : LucideIcons.eye,
+                        color: AppTheme.muted,
+                        size: 19,
                       ),
+                      // An icon-only control needs a name, and the name has to
+                      // say what tapping it does, not what it currently shows.
+                      tooltip: _obscurePassword
+                          ? 'Show password'
+                          : 'Hide password',
                     ),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.isEmpty) {
+                      return 'Password is required';
+                    }
+                    if (v.length < 8) {
+                      return 'At least 8 characters required';
+                    }
+                    return null;
+                  },
+                ),
 
-                    SizedBox(height: isCompactHeight ? 28 : 40),
+                const SizedBox(height: 10),
 
-                    // ── Email ─────────────────────
-                    TextFormField(
-                      controller:      _emailController,
-                      keyboardType:    TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      // ✅ Adapts to light/dark
-                      style: TextStyle(
-                          color: AppTheme.textPrimary, fontSize: 14),
-                      decoration: _inputDeco(
-                        hint:     'Email address',
-                        iconData: LucideIcons.mail,
-                      ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Email is required';
-                        }
-                        if (!GetUtils.isEmail(v.trim())) {
-                          return 'Enter a valid email';
-                        }
-                        return null;
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // ── Password ──────────────────
-                    TextFormField(
-                      controller:      _passwordController,
-                      obscureText:     _obscurePassword,
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _onSignIn(),
-                      // ✅ Adapts to light/dark
-                      style: TextStyle(
-                          color: AppTheme.textPrimary, fontSize: 14),
-                      decoration: _inputDeco(
-                        hint:     'Password',
-                        iconData: LucideIcons.lock,
-                        suffix: GestureDetector(
-                          onTap: () => setState(
-                              () => _obscurePassword = !_obscurePassword),
-                          child: Icon(
-                            _obscurePassword
-                                ? LucideIcons.eyeOff
-                                : LucideIcons.eye,
-                            color: AppTheme.muted,
-                            size:  19,
-                          ),
-                        ),
-                      ),
-                      validator: (v) {
-                        if (v == null || v.isEmpty) {
-                          return 'Password is required';
-                        }
-                        if (v.length < 8) {
-                          return 'At least 8 characters required';
-                        }
-                        return null;
-                      },
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // ── Forgot Password ───────────
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: GestureDetector(
-                        onTap: _onForgotPassword,
-                        child: const Text(
-                          'Forgot Password?',
-                          style: TextStyle(
-                            color:      AppTheme.accent,
-                            fontSize:   13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    SizedBox(height: isCompactHeight ? 24 : 32),
-
-                    // ── Sign In button ────────────
-                    Obx(() => SizedBox(
-                      width:  double.infinity,
-                      height: 54,
-                      child: ElevatedButton(
-                        onPressed:
-                            _auth.isLoading.value ? null : _onSignIn,
-                        child: _auth.isLoading.value
-                            ? const SizedBox(
-                                width:  22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  // Always dark — on gold button
-                                  color: AppTheme.buttonFg,
-                                ),
-                              )
-                            : const Text('Sign In'),
-                      ),
-                    )),
-
-                    const SizedBox(height: 20),
-
-                    // ── OR divider ────────────────
-                    Row(children: [
-                      Expanded(child: Divider(color: AppTheme.border)),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        child: Text('OR', style: TextStyle(
-                            color: AppTheme.muted, fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.2))),
-                      Expanded(child: Divider(color: AppTheme.border)),
-                    ]),
-
-                    const SizedBox(height: 20),
-
-                    // ── Google Sign-In ────────────
-                    Obx(() => SizedBox(
-                      width: double.infinity, height: 54,
-                      child: OutlinedButton(
-                        onPressed: _auth.isGoogleLoading.value
-                            ? null : _onGoogleSignIn,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: AppTheme.border, width: 1.5),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(_kRadius)),
-                        ),
-                        child: _auth.isGoogleLoading.value
-                            ? const SizedBox(
-                                width: 20, height: 20,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2.2, color: AppTheme.accent))
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  // Lucide has no Google brand mark (it's a
-                                  // generic icon set), so we keep a simple
-                                  // styled "G" glyph instead of a mismatched
-                                  // generic icon.
-                                  Image.asset(
-                                    'assets/images/google_logo.png',
-                                    width: 20,
-                                    height: 20,
-                                    errorBuilder: (_, __, ___) => Text('G',
-                                        style: TextStyle(
-                                            color: AppTheme.textPrimary,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.w900)),
-                                  ),
-                                  const SizedBox(width: 10),  
-                                  Text('Continue with Google',
-                                      style: TextStyle(
-                                        color: AppTheme.textPrimary,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700)),
-                                ],
-                              ),
-                      ),
-                    )),
-
-                    // Flexible gap: pushes the sign-up link down toward
-                    // the bottom of the screen, with a sensible minimum
-                    // so it never crowds the button above on tall content.
-                    const Spacer(),
-                    SizedBox(height: isCompactHeight ? 32 : 40),
-
-                    // ── Sign Up link ──────────────
-                    GestureDetector(
-                      onTap: _onSignUp,
-                      child: RichText(
-                        text: TextSpan(
-                          text:  "Don't have an account?  ",
-                          style: TextStyle(
-                              color: AppTheme.sub, fontSize: 14),
-                          children: const [
-                            TextSpan(
-                              text: 'Sign Up',
-                              style: TextStyle(
-                                color:      AppTheme.accent,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    SizedBox(height: isCompactHeight ? 32 : 40),
-                          ],
+                // ── Forgot Password ───────────
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: _onForgotPassword,
+                    behavior: HitTestBehavior.opaque,
+                    child: const Padding(
+                      // Pads a 13px label out to a 44px-tall tap target.
+                      padding: EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                      child: Text(
+                        'Forgot Password?',
+                        style: TextStyle(
+                          color:      AppTheme.accent,
+                          fontSize:   13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+
+                const SizedBox(height: 14),
+
+                // ── Sign In button ────────────
+                Obx(() => GradientButton(
+                      onPressed: _auth.isLoading.value ? null : _onSignIn,
+                      borderRadius: _kRadius,
+                      child: _auth.isLoading.value
+                          ? const SizedBox(
+                              width:  22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: AppTheme.buttonFg,
+                              ),
+                            )
+                          : const Text('Sign In'),
+                    )),
+
+                const SizedBox(height: 20),
+
+                // ── OR divider ────────────────
+                Row(children: [
+                  Expanded(child: Divider(color: AppTheme.border)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Text('OR', style: TextStyle(
+                        color: AppTheme.muted, fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2))),
+                  Expanded(child: Divider(color: AppTheme.border)),
+                ]),
+
+                const SizedBox(height: 20),
+
+                // ── Google Sign-In ────────────
+                Obx(() => SizedBox(
+                  height: 54,
+                  child: OutlinedButton(
+                    onPressed: _auth.isGoogleLoading.value
+                        ? null : _onGoogleSignIn,
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: AppTheme.border, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(_kRadius)),
+                    ),
+                    child: _auth.isGoogleLoading.value
+                        ? const SizedBox(
+                            width: 20, height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2.2, color: AppTheme.accent))
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Image.asset(
+                                'assets/images/google_logo.png',
+                                width: 20,
+                                height: 20,
+                                errorBuilder: (_, __, ___) => Text('G',
+                                    style: TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w900)),
+                              ),
+                              const SizedBox(width: 10),
+                              Text('Continue with Google',
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                  ),
+                )),
+
+                const SizedBox(height: 22),
+
+                // ── Sign Up link ──────────────
+                GestureDetector(
+                  onTap: _onSignUp,
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: RichText(
+                      textAlign: TextAlign.center,
+                      text: TextSpan(
+                        text:  "Don't have an account?  ",
+                        style: TextStyle(color: AppTheme.sub, fontSize: 14),
+                        children: const [
+                          TextSpan(
+                            text: 'Sign Up',
+                            style: TextStyle(
+                              color:      AppTheme.accent,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -356,41 +431,47 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ── Input decoration ──────────────────────────
 
+  /// Filled and borderless until focused, which is where the soft look comes
+  /// from — the reference's fields have no resting outline at all.
+  ///
+  /// [label] is a real floating label rather than a hint. A placeholder is the
+  /// only thing naming the field, so the moment someone types, the field stops
+  /// saying what it is; the label survives that by floating instead.
   InputDecoration _inputDeco({
-    required String   hint,
+    required String   label,
     required IconData iconData,
     Widget?           suffix,
   }) {
+    final radius = BorderRadius.circular(_kRadius);
+
     return InputDecoration(
-      hintText:   hint,
-      hintStyle:  TextStyle(color: AppTheme.muted, fontSize: 14),
+      labelText:  label,
+      labelStyle: TextStyle(color: AppTheme.muted, fontSize: 14),
+      floatingLabelStyle: const TextStyle(
+          color: AppTheme.accent, fontSize: 13, fontWeight: FontWeight.w600),
       prefixIcon: Icon(iconData, color: AppTheme.muted, size: 19),
       suffixIcon: suffix,
       filled:     true,
-      fillColor:  AppTheme.card,
+      fillColor:  AppTheme.inputFill,
       contentPadding: const EdgeInsets.symmetric(
-          vertical: 16, horizontal: 16),
+          vertical: 18, horizontal: 16),
       border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(_kRadius),
-          borderSide:   BorderSide.none),
+          borderRadius: radius, borderSide: BorderSide.none),
+      // No resting outline. The fill alone carries the field, which is what
+      // keeps the form quiet.
       enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(_kRadius),
-          borderSide:
-              BorderSide(color: AppTheme.border, width: 1.5)),
+          borderRadius: radius, borderSide: BorderSide.none),
+      // Focus is the one state that must stay obvious, so the gold ring stays.
       focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: const BorderSide(
-              color: AppTheme.accent, width: 1.5)),
+          borderRadius: radius,
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.6)),
       errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: const BorderSide(
-              color: _kErrorRed, width: 1.5)),
+          borderRadius: radius,
+          borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),
       focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: const BorderSide(
-              color: _kErrorRed, width: 1.5)),
-      errorStyle: const TextStyle(
-          color: _kErrorRed, fontSize: 12),
+          borderRadius: radius,
+          borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),
+      errorStyle: const TextStyle(color: _kErrorRed, fontSize: 12),
     );
   }
 }

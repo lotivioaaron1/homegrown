@@ -1,5 +1,4 @@
 // lib/screens/splash_screen.dart
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,15 +7,23 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../utils/auth_routing.dart';
 import '../utils/onboarding_flag.dart';
+import '../widgets/fill_viewport_scroll.dart';
+import '../widgets/homegrown_mark.dart';
 import '../widgets/homegrown_wordmark.dart';
+import '../widgets/orbit_mark.dart';
 
 /// Deliberately a single dark scene in both themes.
 ///
-/// A splash is a held moment, not a screen you work in, and a photographic
-/// background only holds up against dark type. Keeping it fixed also removes
-/// a flash: the app used to build in light theme and then snap to the saved
-/// one, which was most visible here. main() now resolves the theme before the
-/// first frame, and this screen simply commits to its own palette.
+/// A splash is a held moment, not a screen you work in. Keeping it fixed also
+/// removes a flash: the app used to build in light theme and then snap to the
+/// saved one, which was most visible here. main() now resolves the theme
+/// before the first frame, and this screen simply commits to its own palette.
+///
+/// The photograph that used to sit behind all this is gone. It needed a heavy
+/// four-stop scrim to keep the lockup readable, and the two spent the whole
+/// animation fighting each other — the hoop read louder than the brand. A
+/// still gradient ground gives the mark somewhere quiet to land, and drops a
+/// 312 KB image decode out of the launch path.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -27,17 +34,24 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animController;
-  late Animation<double> _markAnim;
   late Animation<double> _fadeAnim;
   late Animation<double> _riseAnim;
-  late Animation<double> _scrimAnim;
 
   bool _showButtons = false;
+  bool _launched = false;
+
+  /// How long the brand moment is held before routing.
+  ///
+  /// The auth work runs underneath it rather than after it, so this is the
+  /// floor on a cold start, not an addition to one. It used to be a flat
+  /// 2500ms that only *then* began talking to Firebase, which made the real
+  /// wait 2.5s plus a network round trip, with ~700ms of dead air in the
+  /// middle where the animation had finished and nothing was happening.
+  static const _kMinHold = Duration(milliseconds: 1800);
 
   // Ink colours for this screen only. The scene is always dark, so these do
   // not come from AppTheme — a theme-aware getter here would produce dark
-  // text on a dark photograph in light mode.
-  static const _ink = Colors.white;
+  // text on a dark ground in light mode.
   static final _inkSoft = Colors.white.withValues(alpha: 0.72);
   static final _inkFaint = Colors.white.withValues(alpha: 0.55);
 
@@ -46,56 +60,77 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 1200),
     );
 
-    // The scene darkens first so the mark has something to sit against.
-    _scrimAnim = CurvedAnimation(
-      parent: _animController,
-      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
-    );
-    // Then Mayon rises from the baseline.
-    _markAnim = CurvedAnimation(
-      parent: _animController,
-      curve: const Interval(0.10, 0.70, curve: Curves.easeOutCubic),
-    );
-    // Wordmark and tagline follow it up.
+    // The supporting lines follow the mark up rather than arriving with it,
+    // so the eye lands on the identity first. OrbitMark owns the mark's own
+    // entrance; this controller only drives the type beneath it.
     _fadeAnim = CurvedAnimation(
       parent: _animController,
-      curve: const Interval(0.45, 1.0, curve: Curves.easeOut),
+      curve: const Interval(0.42, 1.0, curve: Curves.easeOut),
     );
-    _riseAnim = Tween<double>(begin: 20, end: 0).animate(
+    _riseAnim = Tween<double>(begin: 16, end: 0).animate(
       CurvedAnimation(
         parent: _animController,
-        curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
+        curve: const Interval(0.42, 1.0, curve: Curves.easeOutCubic),
       ),
     );
-
-    _animController.forward();
-    // Always wait 2.5s total before routing — user always sees splash
-    Future.delayed(const Duration(milliseconds: 2500), _checkAuthState);
   }
 
-  // ── Auth check ────────────────────────────────
-  Future<void> _checkAuthState() async {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_launched) return;
+    _launched = true;
+
+    if (MediaQuery.of(context).disableAnimations) {
+      _animController.value = 1.0;
+    } else {
+      _animController.forward();
+    }
+    _startLaunch();
+  }
+
+  // ── Launch ────────────────────────────────────
+
+  /// Holds the splash for [_kMinHold] while resolving where to go, then goes.
+  ///
+  /// The two run concurrently: on a fast connection the hold is what you wait
+  /// for, and on a slow one the animation keeps moving instead of freezing.
+  Future<void> _startLaunch() async {
+    String? destination;
+    try {
+      final results = await Future.wait<String?>([
+        _resolveDestination(),
+        Future<String?>.delayed(_kMinHold, () => null),
+      ]);
+      destination = results.first;
+    } catch (_) {
+      // Nothing below the CTA is safe to assume if this failed outright, and
+      // stranding someone on a splash forever is the worst outcome available.
+      destination = null;
+    }
+
     if (!mounted) return;
+    if (destination == null) {
+      setState(() => _showButtons = true);
+    } else {
+      Get.offAllNamed(destination);
+    }
+  }
+
+  /// Where this launch should land, or null to show the Get Started CTA.
+  Future<String?> _resolveDestination() async {
     final user = FirebaseAuth.instance.currentUser;
+
     if (user != null) {
       // A backstop now rather than the only writer. AuthController marks this
       // at registration and at sign-in, which is where it actually becomes
-      // true; this line only still matters for accounts that were already
-      // signed in when that change shipped and so never passed through it.
-      //
-      // It is still keyed on a signed-in user, not on the intro finishing:
-      // marking it when the intro merely finished stranded anyone who watched
-      // it and then abandoned registration, since the CTA below is the only
-      // route to /onboarding and they were sent to /login from then on.
+      // true; this only still matters for accounts that were already signed in
+      // when that change shipped and so never passed through it.
       await markOnboardingComplete();
-      if (!mounted) return;
-      // Where a returning user lands — the super-admin's approval queue, the
-      // verification screen, or home — is decided by landingRoute so this
-      // cold-start path and AuthController's direct sign-in cannot disagree.
-      //
+
       // reload() refreshes the cached emailVerified flag: someone who verified
       // in their browser since the last launch would otherwise be bounced back
       // to the verification screen on a stale token.
@@ -105,29 +140,34 @@ class _SplashScreenState extends State<SplashScreen>
         // Offline or the account was disabled — fall through with the cached
         // flag rather than blocking the launch on a network round trip.
       }
-      if (!mounted) return;
       final refreshed = FirebaseAuth.instance.currentUser ?? user;
-      final doc = await FirebaseFirestore.instance
-          .collection('users').doc(refreshed.uid).get();
-      if (!mounted) return;
-      Get.offAllNamed(landingRoute(
-        role: doc.data()?['role'] as String? ?? '',
+
+      String role = '';
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(refreshed.uid)
+            .get();
+        role = doc.data()?['role'] as String? ?? '';
+      } catch (_) {
+        // Same reasoning: an unreachable Firestore should not pin a signed-in
+        // user to the splash. landingRoute sends a roleless account to /home
+        // or /verify-email, both of which can recover on their own.
+      }
+
+      // Where a returning user lands is decided by landingRoute so this
+      // cold-start path and AuthController's direct sign-in cannot disagree.
+      return landingRoute(
+        role: role,
         emailVerified: refreshed.emailVerified,
         hasPasswordProvider: hasPasswordProvider(
             refreshed.providerData.map((p) => p.providerId)),
-      ));
-      return;
+      );
     }
-    // Not logged in — check if onboarding was done
-    final onboardingDone = await isOnboardingComplete();
-    if (!mounted) return;
-    if (onboardingDone) {
-      // Returning user who logged out → login screen
-      Get.offAllNamed('/login');
-    } else {
-      // Brand new user → show buttons
-      setState(() => _showButtons = true);
-    }
+
+    // Not signed in: someone who has had an account on this device goes to
+    // login, everyone else gets the intro.
+    return await isOnboardingComplete() ? '/login' : null;
   }
 
   void _onGetStarted() => Get.offNamed('/onboarding');
@@ -142,171 +182,123 @@ class _SplashScreenState extends State<SplashScreen>
   // ── Build ────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).height < 700;
+
     return Scaffold(
       backgroundColor: const Color(0xFF07070C),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          _background(),
-          _scrim(),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                children: [
-                  const Spacer(flex: 3),
-                  _identity(),
-                  const Spacer(flex: 4),
-                  _actions(),
-                  const SizedBox(height: 40),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _background() {
-    return ImageFiltered(
-      imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
-      child: Image.asset(
-        'assets/images/ring.jpg',
-        fit: BoxFit.cover,
-        color: Colors.black.withValues(alpha: 0.12),
-        colorBlendMode: BlendMode.darken,
-        // Falls back to a plain dark gradient if the asset is missing so
-        // layout never breaks.
-        errorBuilder: (context, error, stackTrace) => const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFF07070C), Color(0xFF1A1200)],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _scrim() {
-    return AnimatedBuilder(
-      animation: _scrimAnim,
-      builder: (context, child) => DecoratedBox(
-        decoration: BoxDecoration(
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            // Weighted toward the middle, where the mark and wordmark sit.
-            // A lighter scrim left the photograph competing with the lockup
-            // — the hoop read louder than the brand.
-            stops: const [0.0, 0.38, 0.72, 1.0],
+            // A warm lift at the bottom only, so the ground has somewhere to
+            // go without ever competing with the gold in the mark.
+            stops: [0.0, 0.55, 1.0],
             colors: [
-              Color.lerp(Colors.transparent, const Color(0xCC07070C),
-                  _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0xE60A0910),
-                  _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0xD90C0B14),
-                  _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0xF01A1200),
-                  _scrimAnim.value)!,
+              Color(0xFF07070C),
+              Color(0xFF0C0B14),
+              Color(0xFF16100A),
             ],
+          ),
+        ),
+        child: SafeArea(
+          // Scrolls rather than overflows once the lockup outgrows the
+          // viewport, which it does at the largest system text sizes. The
+          // Spacers still do their job while it fits — that is the whole
+          // reason this widget exists rather than a plain scroll view.
+          child: FillViewportScroll(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              children: [
+                const Spacer(flex: 3),
+                _identity(compact),
+                const Spacer(flex: 4),
+                _actions(),
+                const SizedBox(height: 40),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  /// Wordmark, tagline and dedication as one stacked lockup.
+  /// Mark, wordmark, tagline and dedication as one stacked lockup.
   ///
-  /// The app name is the hero. A drawn mark sat here previously and read as a
-  /// shape rather than an identity; a splash for an app called Homegrown
-  /// should lead with the word itself until real artwork exists.
-  Widget _identity() {
-    return AnimatedBuilder(
-      animation: _animController,
-      builder: (context, child) {
-        return Column(
-          children: [
-            // The wordmark inherits the entrance the drawn mark used to
-            // drive: it rises and settles first, then the supporting lines
-            // follow. Always the on-dark variant — this scene is dark in both
-            // themes, so the light-background artwork would put black letters
-            // on a black photograph.
-            Opacity(
-              opacity: _markAnim.value,
-              child: Transform.translate(
-                offset: Offset(0, (1 - _markAnim.value) * 16),
-                // 200 wide gives ~62 tall at the stacked 3.24:1 aspect, which
-                // sits under the 38px two-line tagline rather than rivalling
-                // it. The same width on the old 11:1 artwork was only ~21 tall.
-                child: const HomegrownWordmark(width: 200, onDark: true),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Opacity(
-              opacity: _fadeAnim.value,
-              child: Transform.translate(
-                offset: Offset(0, _riseAnim.value),
-                child: child,
-              ),
-            ),
-          ],
-        );
-      },
-      child: Column(
-        children: [
-          // The tagline carries the screen; the wordmark identifies it. Both
-          // can be large because the artwork is wide and short — it takes
-          // horizontal space, the tagline takes vertical, so they occupy
-          // different room instead of competing for the same.
-          const Text(
-            'Every Game\nCounts.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: _ink,
-              fontSize: 38,
-              fontWeight: FontWeight.w900,
-              height: 1.14,
-              letterSpacing: -1.0,
+  /// The tagline used to be 38px/w900 across two lines, which made it — not
+  /// the brand — the loudest thing on screen. With the mark now animating it
+  /// is set quiet and on one line, so there is exactly one thing to look at.
+  Widget _identity(bool compact) {
+    return Column(
+      children: [
+        // Swap point for the new artwork: OrbitMark takes whatever sits at
+        // the centre, so replacing this line is the whole change. The drawn
+        // Mayon mark stands in meanwhile — it is square, vector, and centred,
+        // which the wide wordmark and the off-centre icon PNG are not.
+        OrbitMark(
+          size: compact ? 138 : 168,
+          child: HomegrownMark(size: compact ? 62 : 76),
+        ),
+
+        SizedBox(height: compact ? 24 : 32),
+
+        AnimatedBuilder(
+          animation: _animController,
+          builder: (context, child) => Opacity(
+            opacity: _fadeAnim.value,
+            child: Transform.translate(
+              offset: Offset(0, _riseAnim.value),
+              child: child,
             ),
           ),
-          const SizedBox(height: 28),
-          // The verse is a dedication, not a headline. Set quieter and
-          // narrower than the tagline so the two stop competing — the script
-          // face at near-tagline size was the loudest thing on the screen and
-          // pulled the eye away from the brand.
-          SizedBox(
-            width: 240,
-            child: Column(
-              children: [
-                Text(
-                  'I can do all things through Christ who strengthens me.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.dancingScript(
-                    color: _inkSoft,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    height: 1.45,
-                  ),
+          child: Column(
+            children: [
+              HomegrownWordmark(width: compact ? 168 : 190, onDark: true),
+              SizedBox(height: compact ? 12 : 16),
+              Text(
+                'Every Game Counts.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _inkSoft,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.2,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'PHILIPPIANS 4:13',
-                  style: TextStyle(
-                    color: _inkFaint,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 2.4,
-                  ),
+              ),
+              SizedBox(height: compact ? 22 : 30),
+              // The verse is a dedication, not a headline — narrower and
+              // quieter than everything above it.
+              SizedBox(
+                width: 240,
+                child: Column(
+                  children: [
+                    Text(
+                      'I can do all things through Christ who strengthens me.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.dancingScript(
+                        color: _inkSoft,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'PHILIPPIANS 4:13',
+                      style: TextStyle(
+                        color: _inkFaint,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 2.4,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
