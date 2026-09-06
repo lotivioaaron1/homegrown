@@ -12,6 +12,8 @@ import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/profile_photo_picker.dart';
 import '../../widgets/fill_viewport_scroll.dart';
+import '../../constants/sport_positions.dart';
+import '../../widgets/position_picker_sheet.dart';
 import '../../services/contact_service.dart';
 import '../../services/storage_service.dart';
 import '../../utils/auth_routing.dart';
@@ -42,7 +44,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   bool _obscurePw = true; bool _obscureConfirm = true;
 
   final List<String> _selectedSports = [];
-  final _positionCtrl = TextEditingController();
+  String _position = '';
   String _yearsOfPlaying = '';
   final _heightCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
@@ -54,7 +56,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   @override
   void dispose() {
     for (final c in [_firstNameCtrl, _lastNameCtrl, _emailCtrl,
-      _passwordCtrl, _confirmCtrl, _positionCtrl,
+      _passwordCtrl, _confirmCtrl,
       _heightCtrl, _weightCtrl, _bioCtrl]) { c.dispose(); }
     super.dispose();
   }
@@ -65,6 +67,14 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
     final picked = await showBarangayPickerSheet(context,
         selected: _selectedBarangay);
     if (picked != null) setState(() => _selectedBarangay = picked);
+  }
+
+  // ── Position picker ───────────────────────
+
+  Future<void> _pickPosition() async {
+    final picked = await showPositionPickerSheet(context,
+        sports: _selectedSports, selected: _position);
+    if (picked != null) setState(() => _position = picked);
   }
 
   // ── Navigation ────────────────────────────
@@ -78,6 +88,9 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
     if (_step == 1) {
       if (_selectedSports.isEmpty) {
         _snack('Select Sport', 'Please select at least one sport.'); return;
+      }
+      if (_position.isEmpty) {
+        _snack('Position', 'Please select your position.'); return;
       }
       if (_yearsOfPlaying.isEmpty) {
         _snack('Years', 'Please select your years of playing.'); return;
@@ -121,7 +134,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
             'role':              'athlete',
             'barangay':          _selectedBarangay,
             'primarySports':     _selectedSports,
-            'position':          _positionCtrl.text.trim(),
+            'position':          _position,
             'yearsOfPlaying':    _yearsOfPlaying,
             'heightCm':          _heightCtrl.text.trim(),
             'weightKg':          _weightCtrl.text.trim(),
@@ -381,16 +394,54 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           children: _kSports.map((s) {
             final sel = _selectedSports.contains(s);
             return _Chip(label: s, sel: sel,
-              onTap: () => setState(() =>
-                  sel ? _selectedSports.remove(s) : _selectedSports.add(s)));
+              onTap: () => setState(() {
+                sel ? _selectedSports.remove(s) : _selectedSports.add(s);
+                // Dropping a sport can orphan the position picked under it —
+                // a Setter who stops playing volleyball isn't a Setter.
+                if (!isKnownPosition(_position, _selectedSports)) {
+                  _position = '';
+                }
+              }));
           }).toList()),
         const SizedBox(height: 20),
         const _SectionLabel(label: 'Position / Role'),
         const SizedBox(height: 8),
-        _Field(ctrl: _positionCtrl,
-          hint: 'e.g. Point Guard, Setter, Singles',
-          icon: Icons.sports_basketball_outlined,
-          cap: TextCapitalization.words),
+        // Mirrors the barangay picker in step 1 rather than a text field:
+        // position is now chosen from a fixed per-sport list so it can't
+        // arrive misspelled or lowercased.
+        GestureDetector(
+          onTap: _selectedSports.isEmpty ? null : _pickPosition,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 15),
+            decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(_kRadius),
+              border: Border.all(
+                color: _position.isNotEmpty
+                    ? AppTheme.accent : AppTheme.border,
+                width: 1.5)),
+            child: Row(children: [
+              Icon(Icons.sports_basketball_outlined,
+                  color: _position.isNotEmpty
+                      ? AppTheme.accent : AppTheme.muted,
+                  size: 20),
+              const SizedBox(width: 12),
+              Expanded(child: Text(
+                _position.isNotEmpty
+                    ? _position
+                    : _selectedSports.isEmpty
+                        ? 'Select your sport first'
+                        : 'Select Position',
+                style: TextStyle(
+                  color: _position.isNotEmpty
+                      ? AppTheme.textPrimary : AppTheme.muted,
+                  fontSize: 14))),
+              Icon(Icons.keyboard_arrow_down_rounded,
+                  color: AppTheme.muted, size: 20),
+            ]),
+          ),
+        ),
         const SizedBox(height: 20),
         const _SectionLabel(label: 'Years of Playing'),
         const SizedBox(height: 8),

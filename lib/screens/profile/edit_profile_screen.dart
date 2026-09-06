@@ -7,7 +7,9 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../services/storage_service.dart';
+import '../../constants/sport_positions.dart';
 import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/position_picker_sheet.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/sports.dart';
 
@@ -32,7 +34,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   final _firstNameCtrl = TextEditingController();
   final _lastNameCtrl = TextEditingController();
-  final _positionCtrl = TextEditingController();
+  String _position = '';
   final _heightCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
   String? _barangay;
@@ -60,7 +62,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     _firstNameCtrl.dispose();
     _lastNameCtrl.dispose();
-    _positionCtrl.dispose();
     _heightCtrl.dispose();
     _weightCtrl.dispose();
     _bioCtrl.dispose();
@@ -79,7 +80,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           (data['sportsOrganized'] as List?)?.cast<String>().toList() ?? [];
       _firstNameCtrl.text = data['firstName'] as String? ?? '';
       _lastNameCtrl.text = data['lastName'] as String? ?? '';
-      _positionCtrl.text = data['position'] as String? ?? '';
+      // Kept verbatim even when it's legacy free text that isn't in
+      // kSportPositions: the picker is how positions get corrected, but
+      // loading this screen shouldn't silently erase a value the user never
+      // touched. The UI flags an unrecognized one instead.
+      _position = data['position'] as String? ?? '';
       _heightCtrl.text = data['heightCm']?.toString() ?? '';
       _weightCtrl.text = data['weightKg']?.toString() ?? '';
       _barangay = data['barangay'] as String?;
@@ -136,7 +141,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         // never see these fields, so saving their profile shouldn't stamp
         // three blank athlete values onto their document.
         if (_role == 'athlete') ...{
-          'position': _positionCtrl.text.trim(),
+          'position': _position,
           'heightCm': _heightCtrl.text.trim(),
           'weightKg': _weightCtrl.text.trim(),
         },
@@ -251,7 +256,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 if (_role == 'athlete') ...[
                   _label('Position'),
                   const SizedBox(height: 8),
-                  _field(_positionCtrl, 'e.g. Setter'),
+                  _buildPositionPicker(),
                   const SizedBox(height: 14),
                   Row(children: [
                     Expanded(child: Column(
@@ -347,6 +352,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   _sports.remove(s);
                                 } else {
                                   _sports.add(s);
+                                }
+                                // Dropping a sport can orphan the position
+                                // picked under it. Only clears a position the
+                                // picker itself produced — a legacy free-text
+                                // value is never in the list, and wiping it on
+                                // an unrelated sport tap would be the silent
+                                // data loss the load path avoids.
+                                if (_position.isNotEmpty &&
+                                    !isKnownPosition(_position, _sports) &&
+                                    isCatalogPosition(_position)) {
+                                  _position = '';
                                 }
                               })))
                       .toList(),
@@ -563,6 +579,61 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ]),
       ),
     );
+  }
+
+  /// Twin of [_buildBarangayPicker], for the athlete-only Position field.
+  ///
+  /// Two states the barangay picker doesn't have: the tile is inert until a
+  /// sport is selected (the sheet is per-sport, so there'd be nothing to
+  /// show), and a stored value that isn't in the catalog gets a note under it.
+  /// That note is the whole legacy story — accounts created before the picker
+  /// keep their hand-typed position until the owner replaces it here.
+  Widget _buildPositionPicker() {
+    final hasValue = _position.isNotEmpty;
+    final hasSport = _sports.isNotEmpty;
+    final isLegacy = hasValue && !isCatalogPosition(_position);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      GestureDetector(
+        onTap: !hasSport
+            ? null
+            : () async {
+                final picked = await showPositionPickerSheet(context,
+                    sports: _sports, selected: _position);
+                if (picked != null) setState(() => _position = picked);
+              },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(_kRadius),
+              border: Border.all(
+                  color: hasValue ? AppTheme.accent : AppTheme.border,
+                  width: 1.5)),
+          child: Row(children: [
+            Icon(Icons.sports_basketball_outlined,
+                color: hasValue ? AppTheme.accent : AppTheme.muted, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Text(
+                    hasValue
+                        ? _position
+                        : hasSport
+                            ? 'Select Position'
+                            : 'Select your sport first',
+                    style: TextStyle(
+                        color: hasValue ? AppTheme.textPrimary : AppTheme.muted,
+                        fontSize: 14))),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                color: AppTheme.muted, size: 20),
+          ]),
+        ),
+      ),
+      if (isLegacy) ...[
+        const SizedBox(height: 6),
+        Text('Not a recognized position — tap to update.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+      ],
+    ]);
   }
 
   Widget _chip(String label, bool sel, VoidCallback onTap) {

@@ -147,8 +147,17 @@ void main() {
           reason: "step 2's button should sit where step 1's does, not "
               'directly under the last field');
 
-      // Step 2 needs a sport and a years chip before it will advance.
+      // Step 2 needs a sport, a position and a years chip before it advances.
       await tester.tap(find.text('Basketball'));
+      await tester.pumpAndSettle();
+
+      // Position is picked from a per-sport sheet, not typed, so the tile
+      // stays inert until a sport is selected above it.
+      await tester.tap(find.text('Select Position'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Point Guard'));
+      await tester.pumpAndSettle();
+
       await tester.tap(find.text('3-5 Yrs'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ElevatedButton, 'Next'));
