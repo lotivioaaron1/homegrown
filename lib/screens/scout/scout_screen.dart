@@ -8,6 +8,7 @@ import '../../theme/app_theme.dart';
 import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/firestore_helpers.dart';
 import '../../utils/stat_scoring.dart';
 import '../../utils/sports.dart';
 import '../profile/edit_profile_screen.dart';
@@ -542,8 +543,12 @@ class _ScoutScreenState extends State<ScoutScreen> {
             subtitle: friendlyError(snapshot.error));
         }
 
+        // Profiles whose Firebase Auth account is gone still sit in the users
+        // collection with their sports intact, so the query above cannot
+        // exclude them — see isListableProfile.
         var athletes = (snapshot.data?.docs ?? [])
             .map((d) => d.data() as Map<String, dynamic>)
+            .where(isListableProfile)
             .toList();
 
         // Filter by search query

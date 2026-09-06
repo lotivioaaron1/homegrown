@@ -10,6 +10,7 @@ import '../../services/rating_service.dart';
 import '../../utils/elo_calculator.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/firestore_helpers.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
 
@@ -204,7 +205,21 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         }
 
         final docs = snapshot.data?.docs ?? [];
-        if (docs.isEmpty) {
+
+        // The "All" filter constrains on role alone, so — unlike Scout, whose
+        // primarySports clause happens to exclude them — nothing in the query
+        // keeps out profiles whose account no longer exists. Those would rank
+        // as nameless rows on 0 points. See isListableProfile.
+        final athletes = docs
+            .map((d) => d.data() as Map<String, dynamic>)
+            .where(isListableProfile)
+            .toList()
+          ..sort((a, b) => _rankValue(b).compareTo(_rankValue(a)));
+
+        // Checked after that filter rather than on `docs`: a board holding
+        // nothing but deleted profiles is empty, and saying so beats
+        // rendering a header above no rows.
+        if (athletes.isEmpty) {
           return _buildEmpty(
             icon: LucideIcons.trophy,
             title: 'No athletes yet',
@@ -212,9 +227,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 ? 'Register athletes to see rankings'
                 : 'No $_filter athletes found');
         }
-
-        final athletes = docs.map((d) => d.data() as Map<String, dynamic>).toList()
-          ..sort((a, b) => _rankValue(b).compareTo(_rankValue(a)));
 
         final searching = _searchQuery.isNotEmpty;
 
