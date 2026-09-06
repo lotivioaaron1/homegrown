@@ -29,6 +29,9 @@ import 'screens/events/event_detail_screen.dart';
 import 'screens/events/edit_teams_screen.dart';
 import 'screens/events/edit_event_screen.dart';
 import 'screens/stats/add_stats_screen.dart';
+import 'screens/tournaments/create_tournament_screen.dart';
+import 'screens/tournaments/tournament_bracket_screen.dart';
+import 'screens/tournaments/tournament_list_screen.dart';
 import 'screens/leaderboard/leaderboard_screen.dart';
 import 'screens/dashboard/performance_dashboard_screen.dart';
 import 'screens/profile/athlete_profile_view_screen.dart';
@@ -184,6 +187,9 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/events/edit-teams',  page: () => const EditTeamsScreen()),
         GetPage(name: '/events/edit',        page: () => const EditEventScreen()),
         GetPage(name: '/matches/record',     page: () => const RecordMatchScreen()),
+        GetPage(name: '/tournaments',        page: () => const TournamentListScreen()),
+        GetPage(name: '/tournaments/create', page: () => const CreateTournamentScreen()),
+        GetPage(name: '/tournaments/detail', page: () => const TournamentBracketScreen()),
         GetPage(name: '/stats/add',          page: () => const AddStatsScreen()),
         GetPage(name: '/leaderboard',        page: () => const LeaderboardScreen()),
         GetPage(name: '/dashboard',          page: () => const PerformanceDashboardScreen()),

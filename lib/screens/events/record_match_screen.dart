@@ -5,7 +5,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import '../../theme/app_theme.dart';
+import '../../constants/query_limits.dart';
+import '../../models/tournament.dart';
 import '../../services/rating_service.dart';
+import '../../services/tournament_service.dart';
 import '../../utils/error_messages.dart';
 
 const _kSideA = 'A';
@@ -15,6 +18,11 @@ const _kSideB = 'B';
 /// roster into two sides and enters the final score. This becomes the
 /// match record that RatingService.finalizeMatch later applies Elo
 /// updates against, once every participant's stats are in.
+///
+/// If the event belongs to a tournament bracket, the same submit also
+/// advances the winner — see [_recordBracketMatch]. Optionally takes
+/// `Get.arguments` `{'eventId': ...}` to open straight onto one event,
+/// which is how the bracket screen sends the organizer here.
 class RecordMatchScreen extends StatefulWidget {
   const RecordMatchScreen({super.key});
   @override
@@ -24,6 +32,40 @@ class RecordMatchScreen extends StatefulWidget {
 class _RecordMatchScreenState extends State<RecordMatchScreen> {
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   Map<String, dynamic>? _selectedEvent;
+
+  String get _presetEventId =>
+      (Get.arguments as Map?)?['eventId'] as String? ?? '';
+
+  /// True once an event is chosen and it turns out to be a bracket matchup.
+  bool get _isBracketMatch => _selectedEvent?['tournamentId'] != null;
+
+  bool _isLoadingPreset = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_presetEventId.isNotEmpty) _loadPresetEvent();
+  }
+
+  /// Opens straight onto the event the caller named, so an organizer coming
+  /// from a bracket doesn't have to find that matchup again in a list that
+  /// a tournament has just filled with fifteen near-identical entries.
+  Future<void> _loadPresetEvent() async {
+    setState(() => _isLoadingPreset = true);
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('events')
+          .doc(_presetEventId)
+          .get();
+      final data = doc.data();
+      if (data != null && mounted) {
+        setState(() => _selectedEvent = data);
+        _prefillSides(data);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingPreset = false);
+    }
+  }
 
   /// uid -> 'A' | 'B'. A player absent from this map is unassigned.
   final Map<String, String> _sides = {};
@@ -38,6 +80,23 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     super.dispose();
   }
 
+  /// Prefills the split from each player's team, assigned at event
+  /// creation, so the organizer isn't re-splitting the same roster from
+  /// scratch every time a match is recorded. Any individual player can
+  /// still be flipped afterwards — which is how a no-show is dropped.
+  void _prefillSides(Map<String, dynamic> ev) {
+    setState(() {
+      _sides.clear();
+      for (final p
+          in (ev['players'] as List? ?? []).cast<Map<String, dynamic>>()) {
+        final team = p['team'] as String?;
+        if (team == _kSideA || team == _kSideB) {
+          _sides[p['uid'] as String] = team!;
+        }
+      }
+    });
+  }
+
   bool get _canSubmit {
     final sideA = _sides.entries.where((e) => e.value == _kSideA);
     final sideB = _sides.entries.where((e) => e.value == _kSideB);
@@ -46,6 +105,14 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     final scoreB = int.tryParse(_scoreBCtrl.text.trim());
     if (scoreA == null || scoreB == null) return false;
     return scoreA != scoreB;
+  }
+
+  /// A bracket result is confirmed before it is written, because advancing
+  /// a team is not reversible; an ordinary match goes straight through, as
+  /// it always has.
+  Future<void> _onSubmitPressed() async {
+    if (_isBracketMatch && !await _confirmAdvance()) return;
+    await _submit();
   }
 
   Future<void> _submit() async {
@@ -60,17 +127,31 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     final scoreA = int.parse(_scoreACtrl.text.trim());
     final scoreB = int.parse(_scoreBCtrl.text.trim());
 
+    final tournamentId = _selectedEvent!['tournamentId'] as String?;
+    final slotId = _selectedEvent!['tournamentSlotId'] as String?;
+
     setState(() => _isSaving = true);
     try {
-      await RatingService.recordMatch(
-        eventId: _selectedEvent!['eventId'] as String,
-        sport: _selectedEvent!['sport'] as String,
-        sideA: sideA,
-        sideB: sideB,
-        scoreA: scoreA,
-        scoreB: scoreB,
-        recordedBy: _uid,
-      );
+      if (tournamentId != null && slotId != null) {
+        await _recordBracketMatch(
+          tournamentId: tournamentId,
+          slotId: slotId,
+          sideA: sideA,
+          sideB: sideB,
+          scoreA: scoreA,
+          scoreB: scoreB,
+        );
+      } else {
+        await RatingService.recordMatch(
+          eventId: _selectedEvent!['eventId'] as String,
+          sport: _selectedEvent!['sport'] as String,
+          sideA: sideA,
+          sideB: sideB,
+          scoreA: scoreA,
+          scoreB: scoreB,
+          recordedBy: _uid,
+        );
+      }
       if (!mounted) return;
       Get.back();
       Get.snackbar(
@@ -96,6 +177,110 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     }
   }
 
+  /// Records a bracket matchup and advances its winner in one commit.
+  ///
+  /// The match write and the bracket write are staged onto the same batch
+  /// deliberately: if they were two commits, a failure between them would
+  /// leave a recorded result the bracket never acted on, and no screen
+  /// would be able to tell that from a match still waiting to be played.
+  Future<void> _recordBracketMatch({
+    required String tournamentId,
+    required String slotId,
+    required List<String> sideA,
+    required List<String> sideB,
+    required int scoreA,
+    required int scoreB,
+  }) async {
+    final db = FirebaseFirestore.instance;
+
+    final tSnap = await db.collection('tournaments').doc(tournamentId).get();
+    final tData = tSnap.data();
+    if (tData == null) {
+      throw StateError('This match belongs to a tournament that no longer exists.');
+    }
+    final tournament = Tournament.fromMap(tSnap.id, tData);
+
+    final slots = TournamentService.slotsFrom(
+        await TournamentService.slotsOf(tournamentId).get());
+    final slot = slots.firstWhere(
+      (s) => s.id == slotId,
+      orElse: () => throw StateError('This matchup is no longer in the bracket.'),
+    );
+    final followOn = slots.where((s) => s.id == slot.nextSlotId).toList();
+    final nextSlot = followOn.isEmpty ? null : followOn.first;
+
+    final batch = db.batch();
+    final matchId = await RatingService.recordMatch(
+      eventId: _selectedEvent!['eventId'] as String,
+      sport: _selectedEvent!['sport'] as String,
+      sideA: sideA,
+      sideB: sideB,
+      scoreA: scoreA,
+      scoreB: scoreB,
+      recordedBy: _uid,
+      writeBatch: batch,
+    );
+    TournamentService.stageAdvance(
+      batch,
+      tournament: tournament,
+      slot: slot,
+      nextSlot: nextSlot,
+      matchId: matchId,
+      scoreA: scoreA,
+      scoreB: scoreB,
+      winnerSide: scoreA > scoreB ? _kSideA : _kSideB,
+    );
+    await batch.commit();
+  }
+
+  /// Names the team that will advance before anything is written.
+  ///
+  /// Sides are still editable on a bracket matchup — an organizer has to be
+  /// able to drop a no-show — so this is the point at which a roster that
+  /// has been shuffled onto the wrong side becomes visible, while it can
+  /// still be corrected. Advancing is not undoable.
+  Future<bool> _confirmAdvance() async {
+    final ev = _selectedEvent!;
+    final scoreA = int.parse(_scoreACtrl.text.trim());
+    final scoreB = int.parse(_scoreBCtrl.text.trim());
+    final aWins = scoreA > scoreB;
+    final winnerName =
+        (aWins ? ev['teamAName'] : ev['teamBName']) as String? ?? 'The winner';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Advance $winnerName?',
+            style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w800)),
+        content: Text(
+            '${ev['teamAName']} $scoreA — $scoreB ${ev['teamBName']}\n\n'
+            '$winnerName moves on in the bracket. This cannot be undone.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child:
+                Text('Back', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Advance',
+                style: TextStyle(
+                    color: AppTheme.accent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -104,7 +289,12 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
         child: Column(children: [
           _buildTopBar(),
           Expanded(
-            child: _selectedEvent == null ? _buildEventPicker() : _buildSidesForm(),
+            child: _isLoadingPreset
+                ? const Center(child: CircularProgressIndicator(
+                    color: AppTheme.accent, strokeWidth: 2.5))
+                : _selectedEvent == null
+                    ? _buildEventPicker()
+                    : _buildSidesForm(),
           ),
         ]),
       ),
@@ -117,7 +307,9 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
       child: Row(children: [
         GestureDetector(
           onTap: () {
-            if (_selectedEvent == null) {
+            // Arriving with an event already chosen means there is no
+            // picker behind this screen to step back to.
+            if (_selectedEvent == null || _presetEventId.isNotEmpty) {
               Get.back();
             } else {
               setState(() {
@@ -134,8 +326,11 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
               color: AppTheme.card, borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppTheme.border)),
             child: Icon(
-              _selectedEvent == null ? Icons.close_rounded : Icons.arrow_back_ios_new_rounded,
-              color: AppTheme.textPrimary, size: _selectedEvent == null ? 18 : 16),
+              _selectedEvent == null || _presetEventId.isNotEmpty
+                  ? Icons.close_rounded
+                  : Icons.arrow_back_ios_new_rounded,
+              color: AppTheme.textPrimary,
+              size: _selectedEvent == null || _presetEventId.isNotEmpty ? 18 : 16),
           ),
         ),
         const SizedBox(width: 12),
@@ -155,6 +350,10 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           .collection('events')
           .where('organizerId', isEqualTo: _uid)
           .where('status', isEqualTo: 'upcoming')
+          // A single tournament can add a dozen or more events to this
+          // list, which is exactly the unbounded growth kMaxListQuery
+          // exists to cap.
+          .limit(kMaxListQuery)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -179,21 +378,10 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           itemBuilder: (context, i) {
             final ev = docs[i].data() as Map<String, dynamic>;
             return GestureDetector(
-              onTap: () => setState(() {
-                _selectedEvent = ev;
-                // Prefill from each player's team, assigned at event
-                // creation, so the organizer isn't re-splitting the same
-                // roster from scratch every time a match is recorded.
-                // Any individual player can still be flipped below.
-                _sides.clear();
-                for (final p in (ev['players'] as List? ?? [])
-                    .cast<Map<String, dynamic>>()) {
-                  final team = p['team'] as String?;
-                  if (team == _kSideA || team == _kSideB) {
-                    _sides[p['uid'] as String] = team!;
-                  }
-                }
-              }),
+              onTap: () {
+                setState(() => _selectedEvent = ev);
+                _prefillSides(ev);
+              },
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -249,8 +437,9 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
             : SizedBox(
                 width: double.infinity, height: 54,
                 child: ElevatedButton(
-                  onPressed: _canSubmit ? _submit : null,
-                  child: const Text('Record Match'),
+                  onPressed: _canSubmit ? _onSubmitPressed : null,
+                  child: Text(
+                      _isBracketMatch ? 'Record & Advance' : 'Record Match'),
                 ),
               ),
       ]),

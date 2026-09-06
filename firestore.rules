@@ -132,9 +132,14 @@ service cloud.firestore {
       // recorded, specifically so this check doesn't need an arbitrary
       // "does any doc in matches reference this event" query, which rules
       // can't cheaply express.
+      // A bracket matchup's event is owned by its tournament: deleting one
+      // would leave its slot pointing at nothing, with the bracket unable
+      // to move past that round. tournamentId is absent on every ordinary
+      // event, so this adds nothing to the existing path.
       allow delete: if isSignedIn() &&
         resource.data.organizerId == request.auth.uid &&
-        resource.data.get('hasMatchData', false) != true;
+        resource.data.get('hasMatchData', false) != true &&
+        !('tournamentId' in resource.data);
 
       // Read visibility is unchanged from today's de facto behavior
       // (a single-doc read has never been gated by isPublic/roster
@@ -236,6 +241,56 @@ service cloud.firestore {
       // real gap (today anyone could read/delete anyone's notifications).
       allow read, update, delete: if isSignedIn() &&
         resource.data.userId == request.auth.uid;
+    }
+
+    // ── tournaments ────────────────────────────────────
+    match /tournaments/{tournamentId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        isApprovedOrganizer(request.auth.uid);
+
+      allow update: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        request.resource.data.organizerId == resource.data.organizerId;
+
+      // Same guard as events: hasMatchData is set the first time any
+      // matchup's result is recorded, so a tournament that has already been
+      // played cannot be deleted out from under its results.
+      allow delete: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        resource.data.get('hasMatchData', false) != true;
+
+      allow read: if isSignedIn();
+
+      // One position in the bracket. Named 'slots' rather than 'matches' so
+      // it can never be confused with the top-level matches collection.
+      match /slots/{slotId} {
+        // organizerId is denormalized onto every slot instead of being read
+        // off the parent with get(). Two reasons, both fatal to the get()
+        // version: a rules get() sees pre-batch state, so while the whole
+        // bracket is written in one batch the tournament document does not
+        // exist yet; and a batched write is allowed only 20 document
+        // accesses, which a bracket of any size would exceed.
+        allow create: if isSignedIn() &&
+          request.resource.data.organizerId == request.auth.uid;
+
+        // A settled matchup is final. Without this, recording a second
+        // match against the same child event — which stays 'upcoming' and
+        // stays in the Record Match picker — would silently overwrite the
+        // winner and rewrite a later round that may already have been
+        // played. A batch cannot read-then-conditionally-write, so this is
+        // the only place that race can be closed.
+        allow update: if isSignedIn() &&
+          resource.data.organizerId == request.auth.uid &&
+          request.resource.data.organizerId == resource.data.organizerId &&
+          resource.data.status != 'completed' &&
+          resource.data.status != 'bye';
+
+        allow delete: if isSignedIn() &&
+          resource.data.organizerId == request.auth.uid;
+
+        allow read: if isSignedIn();
+      }
     }
 
     // Anything not explicitly matched above is denied — a forgotten

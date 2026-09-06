@@ -13,9 +13,11 @@ import '../../theme/app_theme.dart';
 import '../../controllers/auth_controller.dart';
 import '../../models/app_notification.dart';
 import '../../models/team_invite.dart';
+import '../../models/tournament.dart';
 import '../../services/notification_service.dart';
 import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
+import '../../services/tournament_service.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../utils/firestore_helpers.dart';
@@ -677,6 +679,12 @@ class _HomeScreenState extends State<HomeScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: _buildOrganizerNextEventSection(),
+        ),
+        _buildSectionTitle('Tournaments',
+            onViewAll: () => Get.toNamed('/tournaments')),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: _buildOrganizerTournamentSection(),
         ),
       ] else ...[
         _buildSectionTitle('Features'),
@@ -1557,6 +1565,90 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ]),
           ]),
+        );
+      },
+    );
+  }
+
+  // ── Tournaments section (organizer only) ──
+  // A running bracket is the organizer's other live workflow alongside the
+  // next event, so it gets the same treatment: the one that matters right
+  // now, with a way into the full list.
+
+  Widget _buildOrganizerTournamentSection() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: TournamentService.forOrganizer(_uid).map((s) => s),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border)),
+            child: Column(children: [
+              Icon(LucideIcons.trophy, color: AppTheme.muted, size: 28),
+              const SizedBox(height: 8),
+              Text('No tournaments yet', style: TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              GestureDetector(
+                onTap: () => Get.toNamed('/tournaments/create'),
+                child: const Text('Draw your first bracket', style: TextStyle(
+                    color: AppTheme.accent, fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+              ),
+            ]),
+          );
+        }
+
+        final t = Tournament.fromMap(
+            docs.first.id, docs.first.data() as Map<String, dynamic>);
+        return GestureDetector(
+          onTap: () => Get.toNamed('/tournaments/detail',
+              arguments: {'tournamentId': t.id}),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: t.isCompleted ? AppTheme.accent : AppTheme.border)),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(child: Text(t.name, style: TextStyle(
+                        color: AppTheme.textPrimary, fontSize: 15,
+                        fontWeight: FontWeight.w800),
+                        overflow: TextOverflow.ellipsis)),
+                    const SizedBox(width: 8),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.muted, size: 20),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text('${t.sport} · ${t.entrantCount} teams · ${t.venue}',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12),
+                      overflow: TextOverflow.ellipsis),
+                  if (t.championTeamName != null) ...[
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      const Icon(Icons.emoji_events_rounded,
+                          color: AppTheme.accent, size: 15),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text('${t.championTeamName} — champion',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: AppTheme.accent, fontSize: 13,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                    ]),
+                  ],
+                ]),
+          ),
         );
       },
     );

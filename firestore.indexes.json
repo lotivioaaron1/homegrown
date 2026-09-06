@@ -47,6 +47,15 @@
       ]
     },
     {
+      "//": "The organizer's tournament list, newest first. Bracket slots need no index of their own — a bracket is at most 15 documents, read whole and ordered client-side.",
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "//": "Unread-notification lookups for the badge and 'mark all read'.",
       "collectionGroup": "notifications",
       "queryScope": "COLLECTION",

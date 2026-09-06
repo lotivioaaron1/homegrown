@@ -128,6 +128,14 @@ class EventDetailScreen extends StatelessWidget {
     final isOrganizer = organizerId != null &&
         organizerId == FirebaseAuth.instance.currentUser?.uid;
 
+    // This event is one matchup of a tournament bracket. It is owned by
+    // that bracket: deleting or cancelling it would leave its slot pointing
+    // at nothing and the tournament unable to move past that round, so the
+    // destructive actions are replaced by a link back to the bracket. The
+    // matching rule in firestore.rules is what actually enforces it.
+    final tournamentId = ev['tournamentId'] as String?;
+    final isBracketMatch = tournamentId != null;
+
     return Column(children: [
       _buildTopBar(name),
       Expanded(
@@ -199,7 +207,7 @@ class EventDetailScreen extends StatelessWidget {
                   color: AppTheme.muted, fontSize: 12,
                   fontWeight: FontWeight.w800, letterSpacing: 1)),
               const Spacer(),
-              if (isOrganizer && isEventUpcoming(ev)) ...[
+              if (isOrganizer && isEventUpcoming(ev) && !isBracketMatch) ...[
                 GestureDetector(
                   onTap: () => Get.toNamed('/events/edit',
                       arguments: {'eventId': _eventId}),
@@ -248,12 +256,41 @@ class EventDetailScreen extends StatelessWidget {
               _buildPlayerGroup(context, teamBName ?? 'Team B',
                   players.where((p) => (p['team'] as String? ?? 'A') == 'B').toList()),
             ],
+            if (isBracketMatch) ...[
+              const SizedBox(height: 20),
+              GestureDetector(
+                onTap: () => Get.toNamed('/tournaments/detail',
+                    arguments: {'tournamentId': tournamentId}),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                      color: AppTheme.card,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppTheme.border)),
+                  child: Row(children: [
+                    const Icon(Icons.account_tree_outlined,
+                        color: AppTheme.accent, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text('Part of a tournament bracket',
+                          style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.muted, size: 20),
+                  ]),
+                ),
+              ),
+            ],
             if (isOrganizer) ...[
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity, height: 50,
                 child: ElevatedButton(
-                  onPressed: () => Get.toNamed('/matches/record'),
+                  onPressed: () => Get.toNamed('/matches/record',
+                      arguments: isBracketMatch ? {'eventId': _eventId} : null),
                   style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accent,
                       shape: RoundedRectangleBorder(
@@ -263,7 +300,8 @@ class EventDetailScreen extends StatelessWidget {
                       fontWeight: FontWeight.w700)),
                 ),
               ),
-              if (!isCancelled) _buildDangerZone(context, ev),
+              if (!isCancelled && !isBracketMatch)
+                _buildDangerZone(context, ev),
             ],
           ]),
         ),
