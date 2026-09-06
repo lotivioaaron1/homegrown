@@ -543,9 +543,10 @@ class _ScoutScreenState extends State<ScoutScreen> {
             subtitle: friendlyError(snapshot.error));
         }
 
-        // Profiles whose Firebase Auth account is gone still sit in the users
-        // collection with their sports intact, so the query above cannot
-        // exclude them — see isListableProfile.
+        // Drops deleted-account tombstones and nameless documents, which the
+        // query above has no way to exclude. Note this does NOT catch a
+        // profile orphaned by a console account deletion — that one keeps its
+        // name and has to be cleaned out of Firestore; see isListableProfile.
         var athletes = (snapshot.data?.docs ?? [])
             .map((d) => d.data() as Map<String, dynamic>)
             .where(isListableProfile)

@@ -15,22 +15,24 @@ String asString(dynamic value) => value is String ? value : '';
 
 /// True when a `users/{uid}` document represents someone worth listing.
 ///
-/// Two kinds of dead profile have to be kept out of Scout and the Leaderboard,
-/// and neither can be excluded by the Firestore query itself:
+/// Rejects exactly two things, neither of which the Firestore query can
+/// exclude on its own:
 ///
-/// * Deleting an account from the Firebase console removes only the Auth
-///   credential. `users/{uid}` survives completely untouched — same `role`,
-///   same `primarySports`, same `openToRecruitment` — so the person keeps
-///   appearing as a scoutable athlete nobody can ever sign in as. The name
-///   check is what catches these, since nothing on the document records that
-///   the account behind it is gone.
-/// * The in-app deletion flow leaves a deliberate tombstone (`deleted: true`,
-///   see [AccountDeletionService]) so that references from matches and stats
-///   still resolve to "Deleted user". That is right for a match report and
-///   wrong for a list of athletes to recruit or rank.
+/// * A tombstone left by the in-app deletion flow (`deleted: true`, see
+///   [AccountDeletionService]). Those exist so references from matches and
+///   stats still resolve to "Deleted user", which is right for a match report
+///   and wrong for a list of athletes to recruit or rank.
+/// * A document with no usable name, because a card with no name on it tells
+///   a coach nothing and cannot be acted on.
 ///
-/// Blank names are treated as unlistable rather than rendered, because a card
-/// with no name on it tells a coach nothing and cannot be acted on.
+/// **This is a safety net, not a fix for stale profiles.** Deleting an account
+/// from the Firebase console removes only the Auth credential; `users/{uid}`
+/// survives untouched, keeping its `role`, `primarySports` and
+/// `openToRecruitment`. Such a profile still carries a perfectly good name, so
+/// it passes this predicate and goes on being listed. A client has no way to
+/// ask whether an Auth account still exists, so the only real remedy is to
+/// clean up the orphaned documents — see
+/// `functions/scripts/purge-orphaned-profiles.js`.
 bool isListableProfile(Map<String, dynamic> user) {
   if (user['deleted'] == true) return false;
   final parts =

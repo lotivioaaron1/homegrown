@@ -207,9 +207,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         final docs = snapshot.data?.docs ?? [];
 
         // The "All" filter constrains on role alone, so — unlike Scout, whose
-        // primarySports clause happens to exclude them — nothing in the query
-        // keeps out profiles whose account no longer exists. Those would rank
-        // as nameless rows on 0 points. See isListableProfile.
+        // primarySports clause happens to exclude them — the deletion
+        // tombstones reach this list and would rank as nameless rows on 0
+        // points. See isListableProfile, which is a safety net only: an
+        // orphaned profile that kept its name still needs a data cleanup.
         final athletes = docs
             .map((d) => d.data() as Map<String, dynamic>)
             .where(isListableProfile)

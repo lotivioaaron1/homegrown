@@ -28,14 +28,29 @@
  *   node scripts/purge-orphaned-profiles.js --apply
  *       Commits it.
  *
+ *   node scripts/purge-orphaned-profiles.js --apply --hard
+ *       Deletes the documents outright instead of tombstoning. Only correct
+ *       when nothing references the uids — check that events, matches, stats
+ *       and tournaments hold no rows for them first. Right after a
+ *       reset-demo-data.js run, when the activity collections are empty,
+ *       there is nothing for a tombstone to protect and this leaves a cleaner
+ *       database.
+ *
  * This is irreversible: Firestore has no undo, and the free plan keeps no
  * point-in-time backup. Read the dry run before adding --apply — in
  * particular check the email column for anyone you did not mean to remove,
  * since an account deleted from the console is already unrecoverable but its
  * profile is the last copy of their data.
  *
- * Auth: point GOOGLE_APPLICATION_CREDENTIALS at a service-account key for
- * homegrown-app-b71d1.
+ * Auth: the Admin SDK needs application-default credentials — either point
+ * GOOGLE_APPLICATION_CREDENTIALS at a service-account key for
+ * homegrown-app-b71d1, or run `gcloud auth application-default login`. Being
+ * logged into the `firebase` CLI is NOT enough; the SDK does not read that
+ * session, and without either of the above this fails with "Unable to detect
+ * a Project Id in the current environment". If neither is set up, the same
+ * cleanup can be done straight through the CLI, which does use that session:
+ *
+ *   firebase firestore:delete users/<uid> --recursive --force
  */
 
 // firebase-admin 13+ dropped the old `admin.auth()` / `admin.credential`
@@ -45,6 +60,7 @@ const {getAuth} = require("firebase-admin/auth");
 const {getFirestore, FieldValue} = require("firebase-admin/firestore");
 
 const apply = process.argv.includes("--apply");
+const hard = process.argv.includes("--hard");
 
 initializeApp({credential: applicationDefault()});
 const auth = getAuth();
@@ -84,8 +100,11 @@ async function findOrphanedUids(uids) {
   return orphaned;
 }
 
-/** Erases one orphan's personal data and reduces the profile to a tombstone. */
-async function tombstone(doc) {
+/**
+ * Erases one orphan's personal data, then either removes the profile document
+ * outright (--hard) or reduces it to a tombstone.
+ */
+async function purge(doc) {
   const uid = doc.id;
 
   await deleteQuery(doc.ref.collection("media"));
@@ -97,6 +116,14 @@ async function tombstone(doc) {
       db.collection("teamMemberships").where("athleteId", "==", uid));
   await deleteQuery(
       db.collection("teamMemberships").where("coachId", "==", uid));
+
+  if (hard) {
+    // The subcollections are already gone above, so this leaves nothing
+    // behind. Safe only because the caller has confirmed no surviving record
+    // references this uid — see the --hard note in the header.
+    await doc.ref.delete();
+    return;
+  }
 
   // set(), not update(): overwriting the whole document means no personal
   // field can survive by being forgotten here. `role` is carried over because
@@ -114,6 +141,9 @@ async function main() {
   console.log(apply ?
     "Mode: APPLY — this permanently erases data." :
     "Mode: DRY RUN — nothing will change. Add --apply to commit.");
+  console.log(hard ?
+    "Disposal: HARD DELETE — profile documents are removed outright." :
+    "Disposal: TOMBSTONE — profiles are reduced to \"Deleted user\".");
   console.log("");
 
   const users = await db.collection("users").get();
@@ -137,13 +167,16 @@ async function main() {
     return;
   }
 
+  const verb = hard ? "delete" : "tombstone";
+  const past = hard ? "deleted" : "tombstoned";
+
   console.log("");
   for (const doc of orphans) {
     const u = doc.data();
     const sports = Array.isArray(u.primarySports) ?
       u.primarySports.join("/") : "-";
     console.log(
-        `  ${apply ? "tombstoning" : "would tombstone"}: ` +
+        `  ${apply ? `${verb}:` : `would ${verb}:`} `.padEnd(18) +
         `${(u.fullName || "(no name)").padEnd(24)} ` +
         `${(u.email || "-").padEnd(34)} ` +
         `${(u.role || "-").padEnd(10)} ${sports}`);
@@ -151,11 +184,11 @@ async function main() {
 
   if (apply) {
     for (const doc of orphans) {
-      await tombstone(doc);
+      await purge(doc);
     }
-    console.log(`\n  profiles tombstoned: ${orphans.length}`);
+    console.log(`\n  profiles ${past}: ${orphans.length}`);
   } else {
-    console.log(`\n  profiles that would be tombstoned: ${orphans.length}`);
+    console.log(`\n  profiles that would be ${past}: ${orphans.length}`);
     console.log("\nDry run only — re-run with --apply to commit.");
   }
 }
