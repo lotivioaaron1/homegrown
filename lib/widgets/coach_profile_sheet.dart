@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import '../screens/profile/coach_profile_view_screen.dart';
 import '../theme/app_theme.dart';
 
 /// Shared read-only coach profile bottom sheet — avatar, coaching level,
@@ -37,6 +38,7 @@ void showCoachProfileSheet(
         if (coach != null) {
           return _CoachProfileContent(
               scrollController: ctrl,
+              coachId: coachId,
               coach: coach,
               fallbackName: fallbackName);
         }
@@ -51,6 +53,7 @@ void showCoachProfileSheet(
             }
             return _CoachProfileContent(
               scrollController: ctrl,
+              coachId: coachId,
               coach: snapshot.data!.data() as Map<String, dynamic>? ?? {},
               fallbackName: fallbackName,
             );
@@ -63,14 +66,24 @@ void showCoachProfileSheet(
 
 class _CoachProfileContent extends StatelessWidget {
   final ScrollController scrollController;
+  final String coachId;
   final Map<String, dynamic> coach;
   final String fallbackName;
 
   const _CoachProfileContent({
     required this.scrollController,
+    required this.coachId,
     required this.coach,
     required this.fallbackName,
   });
+
+  /// Dismisses the sheet before pushing the full profile — without the
+  /// `Get.back()` the sheet stays mounted underneath and is still there when
+  /// the viewer pops back off the profile. Mirrors the athlete sheet.
+  void _openFullProfile() {
+    Get.back();
+    Get.to(() => CoachProfileViewScreen(coachId: coachId));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -199,6 +212,27 @@ class _CoachProfileContent extends StatelessWidget {
                         color: AppTheme.sub, fontSize: 13, height: 1.5))),
           ],
           const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: OutlinedButton(
+              onPressed: () => _openFullProfile(),
+              style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppTheme.accent, width: 1.5)),
+              child:
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text('View Full Profile',
+                    style: TextStyle(
+                        color: AppTheme.accentText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(width: 6),
+                Icon(Icons.arrow_forward_rounded,
+                    color: AppTheme.accentText, size: 15),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 10),
           SizedBox(
               width: double.infinity,
               height: 50,

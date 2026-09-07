@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
+import '../../widgets/coach_profile_sheet.dart';
 
 class TeamInvitesScreen extends StatefulWidget {
   const TeamInvitesScreen({super.key});
@@ -255,8 +256,27 @@ class _InviteCard extends StatelessWidget {
       Text(invite.teamName, style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w800)),
       const SizedBox(height: 2),
-      Text('Invited by ${invite.coachName} · ${relativeDate(invite.createdAt)}',
-          style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+      // The coach is the thing being decided on here, so their name opens
+      // their profile rather than sitting as dead text. Before this, an
+      // athlete had to accept an invite to find out who had sent it — while
+      // the coach had already seen their whole portfolio in Scout.
+      GestureDetector(
+        onTap: () => showCoachProfileSheet(context,
+            coachId: invite.coachId, fallbackName: invite.coachName),
+        behavior: HitTestBehavior.opaque,
+        child: Row(children: [
+          Flexible(
+            child: Text(
+                'Invited by ${invite.coachName} · ${relativeDate(invite.createdAt)}',
+                style: TextStyle(
+                    color: AppTheme.accentText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis),
+          ),
+          Icon(Icons.chevron_right_rounded, color: AppTheme.accentText, size: 16),
+        ]),
+      ),
       const SizedBox(height: 12),
       Row(children: [
         Expanded(child: SizedBox(

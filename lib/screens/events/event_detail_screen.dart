@@ -11,6 +11,7 @@ import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/report_dialog.dart';
 
 class EventDetailScreen extends StatelessWidget {
@@ -217,6 +218,14 @@ class EventDetailScreen extends StatelessWidget {
                 _InfoRow(icon: Icons.calendar_today_outlined, label: fmtDate),
               ]),
             ),
+            // Who is running this event. Until this row, organizerId decided
+            // which buttons were drawn and was never shown to anyone — an
+            // athlete could be rostered into an event by a stranger they had
+            // no way to look up.
+            if (organizerId != null && organizerId.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              OrganizerByline(organizerId: organizerId),
+            ],
             const SizedBox(height: 20),
             _buildMatchResults(teamAName, teamBName),
             _TeamVsTeamHeader(
