@@ -38,6 +38,15 @@
       ]
     },
     {
+      "//": "MediaService.watch filtered to photos or videos: equality on type alongside the createdAt ordering. Created in the console rather than here, so `firebase deploy` kept offering to delete it as an unknown index — declaring it is what stops that prompt. COLLECTION scope, not COLLECTION_GROUP: every read is scoped to one user's own users/{uid}/media path.",
+      "collectionGroup": "media",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "//": "Venue locator: upcoming public events.",
       "collectionGroup": "events",
       "queryScope": "COLLECTION",
