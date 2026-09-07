@@ -513,45 +513,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             border: Border.all(color: AppTheme.border)),
         child: Column(children: [
           Obx(() {
-            final theme = ThemeController.to;
-            final followsDevice = theme.mode.value == ThemeMode.system;
-            final isDark = theme.isDark;
-            return Column(children: [
-              _settingsRow(
-                icon: LucideIcons.smartphone,
-                label: 'Match device theme',
-                sub: "Follows your phone's light or dark setting",
-                trailing: Switch(
-                  value: followsDevice,
-                  // Turning this off hands control back at whatever the device
-                  // had it on, so the screen does not change appearance in the
-                  // same tap that only meant to stop following.
-                  onChanged: (on) => theme.setMode(on
-                      ? ThemeMode.system
-                      : (isDark ? ThemeMode.dark : ThemeMode.light)),
-                  activeThumbColor: AppTheme.accent,
-                  inactiveThumbColor: AppTheme.muted,
-                  inactiveTrackColor: AppTheme.border,
-                ),
+            final isDark = ThemeController.to.isDark.value;
+            return _settingsRow(
+              icon: isDark ? LucideIcons.sun : LucideIcons.moon,
+              label: 'Dark Mode',
+              trailing: Switch(
+                value: isDark,
+                onChanged: (_) => ThemeController.to.toggleTheme(),
+                activeThumbColor: AppTheme.accent,
+                inactiveThumbColor: AppTheme.muted,
+                inactiveTrackColor: AppTheme.border,
               ),
-              _settingsRow(
-                icon: isDark ? LucideIcons.sun : LucideIcons.moon,
-                label: 'Dark Mode',
-                trailing: Switch(
-                  // Shows the resolved theme, so while the device is in charge
-                  // this still reflects what the phone is actually doing. A
-                  // null onChanged is what dims it in that state.
-                  value: isDark,
-                  onChanged: followsDevice
-                      ? null
-                      : (on) => theme
-                          .setMode(on ? ThemeMode.dark : ThemeMode.light),
-                  activeThumbColor: AppTheme.accent,
-                  inactiveThumbColor: AppTheme.muted,
-                  inactiveTrackColor: AppTheme.border,
-                ),
-              ),
-            ]);
+            );
           }),
           // Play requires the privacy policy to be reachable from inside the
           // app, not only from the store listing.

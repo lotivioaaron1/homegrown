@@ -4,12 +4,13 @@
 // until you navigated back a couple of times.
 //
 // The mechanism is worth stating, because the naive version of this test passes
-// against the broken code. GetX rebuilds every route on the stack in the same
-// frame the theme changes — but MaterialApp animates the change over 200ms and
-// ThemeData.lerp only flips `brightness` at the halfway point, so a rebuild in
-// that first frame still read the outgoing brightness. That is why the first
-// test pumps a *single* frame rather than settling: settling would hide the
-// defect behind the animation it is about.
+// against the broken code. MaterialApp animates a theme change over 200ms and
+// ThemeData.lerp only flips `brightness` at the halfway point, so anything
+// rebuilt in the frame the toggle fired still read the outgoing brightness —
+// and the screens on the navigator stack were not being rebuilt at all, because
+// ModalRoute caches each route's built page. That is why these tests pump a
+// *single* frame rather than settling: settling would hide the first half of
+// the defect behind the animation it is about.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,9 +36,9 @@ Widget _host() => GetMaterialApp(
 Color? _surface(WidgetTester tester) =>
     tester.widget<Container>(find.byKey(const Key('surface'))).color;
 
-Future<void> _pumpApp(WidgetTester tester, {required ThemeMode start}) async {
-  SharedPreferences.setMockInitialValues({'theme_mode': start.name});
-  AppTheme.isDark = ThemeController.isDarkFor(start);
+Future<void> _pumpApp(WidgetTester tester, {required bool startDark}) async {
+  SharedPreferences.setMockInitialValues({'is_dark_mode': startDark});
+  AppTheme.isDark = startDark;
   Get.put(ThemeController());
   await tester.pumpWidget(_host());
   await tester.pumpAndSettle();
@@ -47,83 +48,39 @@ void main() {
   setUp(() => AppTheme.isDark = false);
 
   // Get.reset() only clears GetX's instance map — it does not run onClose, so
-  // without the delete the controller stays registered as a
-  // WidgetsBindingObserver and keeps reacting to the next test's brightness.
+  // the controller is deleted explicitly rather than left half-disposed.
   tearDown(() {
     Get.delete<ThemeController>(force: true);
     Get.reset();
     AppTheme.isDark = false;
   });
 
-  group('turning dark mode on', () {
-    testWidgets('repaints a screen that is already open, on the same frame',
-        (tester) async {
-      await _pumpApp(tester, start: ThemeMode.light);
-      expect(_surface(tester), _lightBg);
+  testWidgets('repaints a screen that is already open, on the same frame',
+      (tester) async {
+    await _pumpApp(tester, startDark: false);
+    expect(_surface(tester), _lightBg);
 
-      await ThemeController.to.setMode(ThemeMode.dark);
-      await tester.pump(); // one frame: the theme animation has only just begun
+    await ThemeController.to.toggleTheme();
+    await tester.pump(); // one frame: the theme animation has only just begun
 
-      expect(_surface(tester), _darkBg);
-    });
-
-    testWidgets('and back off again', (tester) async {
-      await _pumpApp(tester, start: ThemeMode.dark);
-      expect(_surface(tester), _darkBg);
-
-      await ThemeController.to.setMode(ThemeMode.light);
-      await tester.pump();
-
-      expect(_surface(tester), _lightBg);
-    });
+    expect(_surface(tester), _darkBg);
   });
 
-  group('following the device', () {
-    testWidgets('picks up the phone flipping to dark while the app is open',
-        (tester) async {
-      await _pumpApp(tester, start: ThemeMode.system);
-      expect(_surface(tester), _lightBg);
+  testWidgets('and turns back off again just as immediately', (tester) async {
+    await _pumpApp(tester, startDark: true);
+    expect(_surface(tester), _darkBg);
 
-      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
-      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
-      await tester.pumpAndSettle();
+    await ThemeController.to.toggleTheme();
+    await tester.pump();
 
-      expect(_surface(tester), _darkBg);
-    });
-
-    testWidgets('stops following once an explicit choice is made',
-        (tester) async {
-      await _pumpApp(tester, start: ThemeMode.system);
-
-      await ThemeController.to.setMode(ThemeMode.light);
-      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
-      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
-      await tester.pumpAndSettle();
-
-      expect(_surface(tester), _lightBg);
-    });
+    expect(_surface(tester), _lightBg);
   });
 
-  group('savedThemeMode', () {
-    test('defaults a fresh install to following the device', () async {
-      SharedPreferences.setMockInitialValues({});
+  testWidgets('remembers the choice for the next launch', (tester) async {
+    await _pumpApp(tester, startDark: false);
 
-      expect(await ThemeController.savedThemeMode(), ThemeMode.system);
-    });
+    await ThemeController.to.toggleTheme();
 
-    test('keeps a Dark Mode choice made before system mode existed', () async {
-      SharedPreferences.setMockInitialValues({'is_dark_mode': true});
-
-      expect(await ThemeController.savedThemeMode(), ThemeMode.dark);
-    });
-
-    test('reads back what setMode wrote', () async {
-      SharedPreferences.setMockInitialValues({});
-      Get.put(ThemeController());
-
-      await ThemeController.to.setMode(ThemeMode.dark);
-
-      expect(await ThemeController.savedThemeMode(), ThemeMode.dark);
-    });
+    expect(await ThemeController.savedThemeMode(), ThemeMode.dark);
   });
 }

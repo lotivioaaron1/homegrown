@@ -76,7 +76,7 @@ void main() async {
     // getters are resolved once per build, so any widget built during that
     // gap picked light-mode colours and kept them.
     final startupTheme = await ThemeController.savedThemeMode();
-    AppTheme.isDark = ThemeController.isDarkFor(startupTheme);
+    AppTheme.isDark = startupTheme == ThemeMode.dark;
 
     runApp(HomegrownApp(initialThemeMode: startupTheme));
   }, (error, stack) {
@@ -154,7 +154,7 @@ class HomegrownApp extends StatelessWidget {
   /// made while the app is running.
   final ThemeMode initialThemeMode;
 
-  const HomegrownApp({super.key, this.initialThemeMode = ThemeMode.system});
+  const HomegrownApp({super.key, this.initialThemeMode = ThemeMode.light});
 
   @override
   Widget build(BuildContext context) {
