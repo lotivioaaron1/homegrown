@@ -7,9 +7,11 @@ import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../models/media_item.dart';
+import '../../models/team_invite.dart';
 import '../../services/media_service.dart';
 import '../../services/team_service.dart';
 import '../../widgets/photo_viewer_dialog.dart';
+import '../../widgets/team_roster_grid.dart';
 import '../../widgets/video_player_sheet.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/media_section.dart';
@@ -148,7 +150,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 // Team identity hub (coach only) — My Team and Scout stay
                 // the real roster/scouting tools; this is a summary plus
                 // quick entry points into them, not a second copy.
+                //
+                // The roster grid below is the one exception. It was added
+                // after a coach saw their own players on the profile athletes
+                // see of them but not on this screen, and reasonably read the
+                // difference as their players having been removed. It renders
+                // through the same TeamRosterGrid the public profile uses, so
+                // the two cannot show different rosters again.
                 if (role == 'coach') ...[
+                  if ((data['primarySports'] as List?)?.isNotEmpty ==
+                      true) ...[
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: (data['primarySports'] as List)
+                          .map((s) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                    color: AppTheme.cardNested,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border:
+                                        Border.all(color: AppTheme.border)),
+                                child: Text(s.toString(),
+                                    style: TextStyle(
+                                        color: AppTheme.sub, fontSize: 11)),
+                              ))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   GestureDetector(
                     onTap: () => Get.toNamed('/team/roster'),
                     child: Container(
@@ -242,6 +273,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             fontSize: 13,
                             height: 1.5)),
                   ],
+                  const SizedBox(height: 20),
+                  Text('Players',
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  StreamBuilder<QuerySnapshot>(
+                    stream: TeamService.streamRoster(_uid),
+                    builder: (context, rosterSnap) => TeamRosterGrid(
+                      members: (rosterSnap.data?.docs ?? [])
+                          .map((d) => TeamInvite.fromMap(
+                              d.id, d.data() as Map<String, dynamic>))
+                          .toList()
+                        ..sort((a, b) => (b.respondedAt ?? DateTime(0))
+                            .compareTo(a.respondedAt ?? DateTime(0))),
+                      loading: rosterSnap.connectionState ==
+                          ConnectionState.waiting,
+                      emptyMessage:
+                          'No players yet. Use Scout Players to find athletes '
+                          'and invite them to your team.',
+                    ),
+                  ),
                   const SizedBox(height: 20),
                   Row(children: [
                     Expanded(

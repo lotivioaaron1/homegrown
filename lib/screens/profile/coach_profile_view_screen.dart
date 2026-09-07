@@ -12,8 +12,8 @@ import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/sports.dart';
 import '../../widgets/athlete_profile_parts.dart';
-import '../../widgets/member_profiles.dart';
 import '../../widgets/report_dialog.dart';
+import '../../widgets/team_roster_grid.dart';
 
 /// A coach's profile, read-only — the counterpart to
 /// [AthleteProfileViewScreen], and the answer to the athlete's side of the
@@ -262,57 +262,14 @@ class CoachProfileViewScreen extends StatelessWidget {
             const SizedBox(height: 18),
             _sectionTitle('Players'),
             const SizedBox(height: 8),
-            _roster(members, loading: loading),
+            TeamRosterGrid(
+              members: members,
+              loading: loading,
+              emptyMessage: 'No players on this team yet.',
+            ),
           ],
         );
       },
-    );
-  }
-
-  /// The roster, rendered from the live `users/{uid}` docs rather than the
-  /// membership snapshot — those freeze a name and photo at invite time, so a
-  /// roster built straight from them shows whoever the athlete used to be.
-  Widget _roster(List<TeamInvite> members, {required bool loading}) {
-    if (loading) {
-      return const SizedBox(
-          height: 64,
-          child: Center(
-              child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      color: AppTheme.accent, strokeWidth: 2))));
-    }
-    if (members.isEmpty) {
-      return _panel('No players on this team yet.');
-    }
-
-    return MemberProfilesBuilder(
-      uids: members.map((m) => m.athleteId).toList(),
-      builder: (context, profiles) => Wrap(
-        spacing: 10,
-        runSpacing: 12,
-        children: members.map((m) {
-          final identity = resolveMemberIdentity(profiles[m.athleteId],
-              fallbackName: m.athleteName,
-              fallbackPhotoUrl: m.athletePhotoUrl);
-          return SizedBox(
-            width: 62,
-            child: Column(children: [
-              _memberAvatar(identity),
-              const SizedBox(height: 5),
-              Text(identity.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: AppTheme.sub,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600)),
-            ]),
-          );
-        }).toList(),
-      ),
     );
   }
 
@@ -451,37 +408,6 @@ class CoachProfileViewScreen extends StatelessWidget {
                 imageUrl: photoUrl,
                 fit: BoxFit.cover,
                 memCacheWidth: 200,
-                errorWidget: (_, __, ___) => fallback,
-              )
-            : fallback,
-      ),
-    );
-  }
-
-  Widget _memberAvatar(MemberIdentity identity) {
-    final fallback = Center(
-      child: Text(_initialsOf(identity.name),
-          style: const TextStyle(
-              color: AppTheme.buttonFg,
-              fontSize: 15,
-              fontWeight: FontWeight.w800)),
-    );
-    final photoUrl = identity.photoUrl;
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: const BoxDecoration(
-          gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppTheme.accent, AppTheme.accent2]),
-          shape: BoxShape.circle),
-      child: ClipOval(
-        child: (photoUrl != null && photoUrl.isNotEmpty)
-            ? CachedNetworkImage(
-                imageUrl: photoUrl,
-                fit: BoxFit.cover,
-                memCacheWidth: 130,
                 errorWidget: (_, __, ___) => fallback,
               )
             : fallback,
