@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:get/get.dart';
 
 class AppTheme {
   AppTheme._();
@@ -28,7 +27,20 @@ class AppTheme {
   // Semantic — theme-aware getters
   // ─────────────────────────────────────────────
 
-  static bool get _isDark => Get.isDarkMode;
+  /// Whether the getters below resolve to their dark values.
+  ///
+  /// [ThemeController] owns this and sets it before it triggers the rebuild
+  /// that repaints the app.
+  ///
+  /// It is a plain flag rather than `Get.isDarkMode` on purpose. That reads
+  /// `Theme.of(context).brightness`, MaterialApp animates a theme change over
+  /// 200ms, and `ThemeData.lerp` only flips `brightness` at the halfway point —
+  /// so a screen rebuilding in the frame the toggle fires still saw the theme
+  /// it was *leaving*, re-rendered in the old colours, and stayed that way
+  /// because nothing marked it dirty again once the animation finished.
+  static bool isDark = false;
+
+  static bool get _isDark => isDark;
 
   /// Scaffold background
   static Color get bg => _isDark

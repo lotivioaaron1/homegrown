@@ -73,9 +73,10 @@ void main() async {
     // Read the saved theme before the first frame. ThemeController also
     // loads it, but asynchronously — which meant a dark-mode user saw the
     // app build in light theme and then snap to dark. Worse, AppTheme's
-    // getters read Get.isDarkMode, so any widget built during that gap
-    // picked light-mode colours and kept them.
+    // getters are resolved once per build, so any widget built during that
+    // gap picked light-mode colours and kept them.
     final startupTheme = await ThemeController.savedThemeMode();
+    AppTheme.isDark = ThemeController.isDarkFor(startupTheme);
 
     runApp(HomegrownApp(initialThemeMode: startupTheme));
   }, (error, stack) {
@@ -153,7 +154,7 @@ class HomegrownApp extends StatelessWidget {
   /// made while the app is running.
   final ThemeMode initialThemeMode;
 
-  const HomegrownApp({super.key, this.initialThemeMode = ThemeMode.light});
+  const HomegrownApp({super.key, this.initialThemeMode = ThemeMode.system});
 
   @override
   Widget build(BuildContext context) {
