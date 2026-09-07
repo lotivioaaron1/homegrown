@@ -1,5 +1,6 @@
 // lib/services/notification_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 /// Central place to write notification docs. Kept as static helpers
 /// (not a GetX controller) so any screen — AddStatsScreen today,
@@ -7,6 +8,22 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// needing a shared instance or extra setup.
 class NotificationService {
   static final _col = FirebaseFirestore.instance.collection('notifications');
+
+  /// The complete set of notification types the app writes. Mirrored by the
+  /// allowlist in firestore.rules — a signed-in user can still write a
+  /// notification to anyone, but no longer one of an arbitrary invented type,
+  /// and no longer one attributed to somebody else. Add to both places
+  /// together when introducing a new type.
+  static const Set<String> kTypes = {
+    'event_added',
+    'event_cancelled',
+    'event_updated',
+    'organizer_pending',
+    'organizer_status',
+    'stats_added',
+    'team_full',
+    'team_invite',
+  };
 
   /// Call this alongside whatever action should notify a user —
   /// e.g. right after AddStatsScreen's batch.commit() for stats.
@@ -22,6 +39,9 @@ class NotificationService {
     String? relatedId,
     WriteBatch? writeBatch,
   }) async {
+    assert(kTypes.contains(type), 'Unknown notification type "$type" — add it '
+        'to NotificationService.kTypes and to firestore.rules together.');
+
     final doc = _col.doc();
     final data = {
       'userId': userId,
@@ -30,6 +50,10 @@ class NotificationService {
       'body': body,
       'relatedId': relatedId,
       'read': false,
+      // Records who caused the notification so the rules can refuse a document
+      // attributed to anyone but its actual sender. Recipients never see this;
+      // it exists purely so forgery is checkable server-side.
+      'fromUid': FirebaseAuth.instance.currentUser?.uid,
       'createdAt': FieldValue.serverTimestamp(),
     };
     if (writeBatch != null) {

@@ -12,11 +12,20 @@ class RatingService {
   static final _matches = FirebaseFirestore.instance.collection('matches');
   static final _users = FirebaseFirestore.instance.collection('users');
   static final _stats = FirebaseFirestore.instance.collection('stats');
+  static final _events = FirebaseFirestore.instance.collection('events');
 
   static String sportKey(String sport) => sport.toLowerCase();
 
   /// Creates a pending match. [scoreA] and [scoreB] must differ -- none of
   /// basketball, volleyball or badminton end in a draw.
+  ///
+  /// [writeBatch] is optional and follows the same convention as
+  /// NotificationService.create: pass an existing batch to have these
+  /// writes staged onto it and committed by the caller, so the match lands
+  /// atomically alongside whatever else that caller is writing. A bracket
+  /// match uses this to advance its winner in the very same commit as the
+  /// result, so the two can never disagree. Omit it to commit immediately.
+  /// Either way the new match's id is returned.
   static Future<String> recordMatch({
     required String eventId,
     required String sport,
@@ -25,11 +34,13 @@ class RatingService {
     required int scoreA,
     required int scoreB,
     required String recordedBy,
+    WriteBatch? writeBatch,
   }) async {
     assert(scoreA != scoreB, 'A match cannot end in a tie');
     final winner = scoreA > scoreB ? 'A' : 'B';
     final doc = _matches.doc();
-    await doc.set({
+    final batch = writeBatch ?? FirebaseFirestore.instance.batch();
+    batch.set(doc, {
       'eventId': eventId,
       'sport': sport,
       'sideA': sideA,
@@ -42,6 +53,11 @@ class RatingService {
       'createdAt': FieldValue.serverTimestamp(),
       'finalizedAt': null,
     });
+    // Denormalized onto the event so the Delete-event Firestore rule can
+    // check "does this event have any match data" without an arbitrary
+    // collection query, which security rules can't cheaply express.
+    batch.update(_events.doc(eventId), {'hasMatchData': true});
+    if (writeBatch == null) await batch.commit();
     return doc.id;
   }
 

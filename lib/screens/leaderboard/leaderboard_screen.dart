@@ -8,8 +8,25 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
 import '../../utils/elo_calculator.dart';
+import '../../widgets/athlete_profile_sheet.dart';
+import '../../utils/error_messages.dart';
+import '../../utils/firestore_helpers.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
+
+/// Hard ceiling on how many athlete documents one leaderboard view will read.
+///
+/// The ranking can't be pushed into the query: the "All" view sorts on `points`,
+/// but a sport filter sorts on `ratings.<sport>` and treats a missing rating as
+/// [kStartingRating]. Firestore's `orderBy` drops documents that lack the field
+/// entirely, so ordering server-side would silently hide every athlete who has
+/// never been rated in that sport. Ranking therefore stays client-side, and this
+/// bounds what it costs.
+///
+/// Legazpi has nowhere near this many registered athletes, so in practice the
+/// cap never binds and the ranking is exact. Past it, the board becomes "top
+/// 200-ish" rather than wrong — an acceptable trade for a bounded bill.
+const int _kMaxRankedAthletes = 200;
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -22,6 +39,43 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   String _filter = 'All';
 
+  // Name search, filtered client-side over the already-streamed result set —
+  // Firestore has no substring operator, and the board is capped at
+  // _kMaxRankedAthletes anyway, so this costs no extra reads.
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  String? _streamedFilter;
+  Stream<QuerySnapshot>? _athletesStream;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Held across rebuilds rather than rebuilt inside `build()`. A freshly
+  /// constructed `snapshots()` is a new stream identity, so StreamBuilder would
+  /// tear down its subscription and re-read the whole result set on every
+  /// filter tap and every pull-to-refresh. Only a filter change should cost a
+  /// new query.
+  Stream<QuerySnapshot> _athleteStream() {
+    if (_athletesStream != null && _streamedFilter == _filter) {
+      return _athletesStream!;
+    }
+
+    Query query = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'athlete');
+
+    if (_filter != 'All') {
+      query = query.where('primarySports', arrayContains: _filter);
+    }
+
+    _streamedFilter = _filter;
+    return _athletesStream = query.limit(_kMaxRankedAthletes).snapshots();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -29,6 +83,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       body: SafeArea(
         child: Column(children: [
           _buildTopBar(),
+          _buildSearchBar(),
           _buildFilterRow(),
           Expanded(child: _buildList()),
         ]),
@@ -59,6 +114,46 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       ]),
     );
   }
+
+  // Deliberately identical in shape and styling to Scout's search bar
+  // (scout_screen.dart): a coach moves between the two screens constantly and
+  // they should not feel like different apps.
+  Widget _buildSearchBar() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        child: TextField(
+          controller: _searchCtrl,
+          onChanged: (v) => setState(() => _searchQuery = v.trim()),
+          style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+          decoration: InputDecoration(
+            hintText: 'Search athlete by name...',
+            hintStyle: TextStyle(color: AppTheme.muted, fontSize: 13),
+            prefixIcon:
+                Icon(LucideIcons.search, color: AppTheme.muted, size: 18),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? GestureDetector(
+                    onTap: () {
+                      _searchCtrl.clear();
+                      setState(() => _searchQuery = '');
+                    },
+                    child: Icon(LucideIcons.x, color: AppTheme.muted, size: 18))
+                : null,
+            filled: true,
+            fillColor: AppTheme.card,
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide:
+                    const BorderSide(color: AppTheme.accent, width: 1.5)),
+          ),
+        ),
+      );
 
   Widget _buildFilterRow() {
     return SingleChildScrollView(
@@ -95,16 +190,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   Widget _buildList() {
-    Query query = FirebaseFirestore.instance
-        .collection('users')
-        .where('role', isEqualTo: 'athlete');
-
-    if (_filter != 'All') {
-      query = query.where('primarySports', arrayContains: _filter);
-    }
-
     return StreamBuilder<QuerySnapshot>(
-      stream: query.snapshots(),
+      stream: _athleteStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(
@@ -114,11 +201,26 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           return _buildEmpty(
             icon: LucideIcons.alertCircle,
             title: 'Something went wrong',
-            subtitle: snapshot.error.toString());
+            subtitle: friendlyError(snapshot.error));
         }
 
         final docs = snapshot.data?.docs ?? [];
-        if (docs.isEmpty) {
+
+        // The "All" filter constrains on role alone, so — unlike Scout, whose
+        // primarySports clause happens to exclude them — the deletion
+        // tombstones reach this list and would rank as nameless rows on 0
+        // points. See isListableProfile, which is a safety net only: an
+        // orphaned profile that kept its name still needs a data cleanup.
+        final athletes = docs
+            .map((d) => d.data() as Map<String, dynamic>)
+            .where(isListableProfile)
+            .toList()
+          ..sort((a, b) => _rankValue(b).compareTo(_rankValue(a)));
+
+        // Checked after that filter rather than on `docs`: a board holding
+        // nothing but deleted profiles is empty, and saying so beats
+        // rendering a header above no rows.
+        if (athletes.isEmpty) {
           return _buildEmpty(
             icon: LucideIcons.trophy,
             title: 'No athletes yet',
@@ -127,11 +229,40 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 : 'No $_filter athletes found');
         }
 
-        final athletes = docs.map((d) => d.data() as Map<String, dynamic>).toList()
-          ..sort((a, b) => _rankValue(b).compareTo(_rankValue(a)));
+        final searching = _searchQuery.isNotEmpty;
 
-        final top3 = athletes.take(3).toList();
-        final rest = athletes.length > 3 ? athletes.sublist(3) : <Map<String, dynamic>>[];
+        // Ranks are fixed here, against the full sorted board, before any
+        // search narrows it. An athlete found by name must still show the
+        // position they actually hold — renumbering the matches would tell
+        // someone they are #2 when they are #37.
+        final ranked = [
+          for (var i = 0; i < athletes.length; i++) (i + 1, athletes[i]),
+        ];
+
+        final matches = searching
+            ? ranked.where((r) {
+                final a = r.$2;
+                final name = '${a['firstName'] ?? ''} ${a['lastName'] ?? ''}';
+                return name.toLowerCase().contains(_searchQuery.toLowerCase());
+              }).toList()
+            : ranked;
+
+        if (searching && matches.isEmpty) {
+          return _buildEmpty(
+              icon: LucideIcons.searchX,
+              title: 'No athletes found',
+              subtitle: 'Try a different name or sport filter');
+        }
+
+        // A podium built from search results would crown whoever happens to
+        // match first, so it is dropped for the duration of a search and the
+        // matches render as one flat, truly-ranked list.
+        final top3 = searching
+            ? const <(int, Map<String, dynamic>)>[]
+            : matches.take(3).toList();
+        final rest = searching
+            ? matches
+            : (matches.length > 3 ? matches.sublist(3) : const []);
         final myRank = athletes.indexWhere((a) => a['uid'] == _uid) + 1;
 
         return StreamBuilder<DocumentSnapshot>(
@@ -152,9 +283,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 children: [
-                  if (top3.isNotEmpty) _buildPodium(top3, role),
-                  const SizedBox(height: 20),
-                  if (role == 'athlete' && myRank > 3 && myRank > 0) ...[
+                  if (top3.isNotEmpty) ...[
+                    _buildPodium(
+                        top3.map((r) => r.$2).toList(growable: false), role),
+                    const SizedBox(height: 20),
+                  ],
+                  if (!searching &&
+                      role == 'athlete' &&
+                      myRank > 3 &&
+                      myRank > 0) ...[
                     _buildMyRankBanner(myRank, athletes[myRank - 1]),
                     const SizedBox(height: 16),
                   ],
@@ -162,7 +299,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Text(
-                        role == 'coach' ? 'TAP ATHLETE TO SCOUT' : 'FULL RANKINGS',
+                        searching
+                            ? '${rest.length} MATCH${rest.length == 1 ? '' : 'ES'}'
+                            : role == 'coach'
+                                ? 'TAP ATHLETE TO SCOUT'
+                                : 'FULL RANKINGS',
                         style: TextStyle(color: AppTheme.muted, fontSize: 10,
                             fontWeight: FontWeight.w700, letterSpacing: 1)),
                     ),
@@ -173,8 +314,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                         border: Border.all(color: AppTheme.border)),
                       child: Column(
                         children: rest.asMap().entries.map((e) {
-                          final rank = e.key + 4;
-                          final athlete = e.value;
+                          final (rank, athlete) = e.value;
                           final isLast = e.key == rest.length - 1;
                           final isMe = athlete['uid'] == _uid;
                           return _buildRow(
@@ -209,7 +349,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         border: Border.all(color: AppTheme.border)),
       child: Column(children: [
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(LucideIcons.crown, color: AppTheme.accent, size: 16),
+          const Icon(LucideIcons.crown, color: AppTheme.accent, size: 16),
           const SizedBox(width: 6),
           Text('Top Athletes', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w800)),
@@ -316,7 +456,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               style: TextStyle(
               color: AppTheme.accentText, fontSize: 12, fontWeight: FontWeight.w600)),
           ])),
-        Icon(LucideIcons.star, color: AppTheme.accent, size: 20),
+        const Icon(LucideIcons.star, color: AppTheme.accent, size: 20),
       ]),
     );
   }
@@ -425,156 +565,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   void _showAthleteProfile(Map<String, dynamic> athlete) {
-    final pts = _rankValue(athlete);
-    final position = athlete['position'] as String? ?? '—';
-    final barangay = athlete['barangay'] as String? ?? '—';
-    final sports = (athlete['primarySports'] as List?)
-        ?.map((e) => e.toString()).join(', ') ?? '—';
-    final years = athlete['yearsOfPlaying'] as String? ?? '—';
-    final isOpen = athlete['openToRecruitment'] as bool? ?? false;
-    final bio = athlete['bio'] as String? ?? '';
-    final name = _displayName(athlete);
-    final photoUrl = athlete['photoUrl'] as String?;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.card,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.55,
-        maxChildSize: 0.85,
-        builder: (_, ctrl) => SingleChildScrollView(
-          controller: ctrl,
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 36),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Center(child: Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: AppTheme.border,
-                  borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 20),
-            Row(children: [
-              Container(
-                width: 56, height: 56,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft, end: Alignment.bottomRight,
-                    colors: [AppTheme.accent, AppTheme.accent2]),
-                  borderRadius: BorderRadius.circular(16)),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: photoUrl != null && photoUrl.isNotEmpty
-                      ? Image.network(photoUrl, fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Center(child: Text(
-                              _initials(name),
-                              style: const TextStyle(color: AppTheme.buttonFg,
-                                  fontSize: 18, fontWeight: FontWeight.w800))))
-                      : Center(child: Text(_initials(name),
-                          style: const TextStyle(color: AppTheme.buttonFg,
-                              fontSize: 18, fontWeight: FontWeight.w800))),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                    style: TextStyle(color: AppTheme.textPrimary,
-                        fontSize: 16, fontWeight: FontWeight.w800)),
-                  Text('$position · $barangay',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-                ])),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.accentSurface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.accent)),
-                child: Column(children: [
-                  Text('$pts', style: TextStyle(
-                    color: AppTheme.accentText, fontSize: 20,
-                    fontWeight: FontWeight.w900)),
-                  Text(_unitLabel, style: TextStyle(
-                    color: AppTheme.muted, fontSize: 9)),
-                ]),
-              ),
-            ]),
-            const SizedBox(height: 20),
-            Divider(color: AppTheme.border),
-            const SizedBox(height: 12),
-            Row(children: [
-              _profileStat('Sport', sports),
-              const SizedBox(width: 12),
-              _profileStat('Experience', years),
-              const SizedBox(width: 12),
-              _profileStat('Barangay', barangay),
-            ]),
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: isOpen
-                    ? const Color(0xFF0D2E20)
-                    : AppTheme.cardNested,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isOpen ? AppTheme.success : AppTheme.border)),
-              child: Row(children: [
-                Icon(isOpen ? LucideIcons.checkCircle2 : LucideIcons.xCircle,
-                  color: isOpen ? AppTheme.success : AppTheme.muted, size: 20),
-                const SizedBox(width: 10),
-                Expanded(child: Text(
-                  isOpen
-                      ? 'Open to recruitment — available to join a team'
-                      : 'Not currently open to recruitment',
-                  style: TextStyle(
-                    color: isOpen ? AppTheme.success : AppTheme.muted,
-                    fontSize: 12, fontWeight: FontWeight.w600))),
-              ]),
-            ),
-            if (bio.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Bio', style: TextStyle(
-                color: AppTheme.textPrimary, fontSize: 13,
-                fontWeight: FontWeight.w700)),
-              const SizedBox(height: 6),
-              Text(bio, style: TextStyle(
-                color: AppTheme.sub, fontSize: 13, height: 1.6)),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity, height: 50,
-              child: OutlinedButton(
-                onPressed: () => Get.back(),
-                child: Text('Close', style: TextStyle(
-                  color: AppTheme.sub, fontSize: 15,
-                  fontWeight: FontWeight.w600))),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _profileStat(String label, String value) {
-    return Expanded(child: Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppTheme.cardNested,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.border)),
-      child: Column(children: [
-        Text(label, style: TextStyle(
-          color: AppTheme.muted, fontSize: 9,
-          fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-        const SizedBox(height: 4),
-        Text(value, textAlign: TextAlign.center, style: TextStyle(
-          color: AppTheme.textPrimary, fontSize: 11,
-          fontWeight: FontWeight.w700),
-          overflow: TextOverflow.ellipsis),
-      ]),
-    ));
+    final athleteId = athlete['uid'] as String? ?? '';
+    showAthleteProfileSheet(context, athleteId: athleteId);
   }
 
   Widget _buildEmpty({required IconData icon,

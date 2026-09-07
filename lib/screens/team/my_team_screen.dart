@@ -1,13 +1,18 @@
 // lib/screens/team/my_team_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
+import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/member_profiles.dart';
+import '../../utils/error_messages.dart';
 
 class MyTeamScreen extends StatefulWidget {
   const MyTeamScreen({super.key});
@@ -38,6 +43,8 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _buildTeamIdentityCard(),
+              const SizedBox(height: 20),
               _buildSectionLabel('ROSTER'),
               const SizedBox(height: 10),
               _buildRosterSection(),
@@ -136,6 +143,128 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
     ]),
   );
 
+  // ── Team identity (name + logo) ───────────
+
+  bool _uploadingLogo = false;
+
+  Widget _buildTeamIdentityCard() {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').doc(_uid).snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() as Map<String, dynamic>? ?? {};
+        final teamName = data['teamOrganization'] as String? ?? 'Your Team';
+        final logoUrl = data['teamLogoUrl'] as String?;
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.border)),
+          child: Row(children: [
+            GestureDetector(
+              onTap: _uploadingLogo ? null : _pickAndUploadLogo,
+              child: Container(
+                width: 56, height: 56,
+                decoration: BoxDecoration(
+                    color: AppTheme.cardNested,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.border)),
+                child: _uploadingLogo
+                    ? const Center(child: CircularProgressIndicator(
+                        color: AppTheme.accent, strokeWidth: 2))
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(13),
+                        child: logoUrl != null && logoUrl.isNotEmpty
+                            ? Image.network(logoUrl, fit: BoxFit.cover,
+                                width: 56, height: 56,
+                                errorBuilder: (_, __, ___) => Icon(
+                                    Icons.shield_outlined,
+                                    color: AppTheme.muted, size: 26))
+                            : Icon(Icons.add_photo_alternate_outlined,
+                                color: AppTheme.muted, size: 26)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(teamName, style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 15,
+                    fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                Text('Tap the logo to change it', style: TextStyle(
+                    color: AppTheme.muted, fontSize: 11)),
+              ]),
+            ),
+            GestureDetector(
+              onTap: () => _renameTeam(teamName),
+              child: const Icon(Icons.edit_outlined, color: AppTheme.accent, size: 18),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndUploadLogo() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery, maxWidth: 1000, imageQuality: 85);
+    if (picked == null) return;
+    setState(() => _uploadingLogo = true);
+    try {
+      final url = await TeamService.uploadTeamLogo(_uid, File(picked.path));
+      await FirebaseFirestore.instance.collection('users').doc(_uid)
+          .update({'teamLogoUrl': url});
+    } catch (e) {
+      if (mounted) {
+        Get.snackbar('Error', friendlyError(e),
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFF2A1A1A),
+            colorText: AppTheme.error,
+            margin: const EdgeInsets.all(16), borderRadius: 12);
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingLogo = false);
+    }
+  }
+
+  void _renameTeam(String currentName) {
+    final ctrl = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Rename your team', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          style: TextStyle(color: AppTheme.textPrimary),
+          decoration: InputDecoration(
+              hintText: 'Team name',
+              hintStyle: TextStyle(color: AppTheme.muted)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Cancel', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final name = ctrl.text.trim();
+              Navigator.pop(dialogContext);
+              if (name.isEmpty) return;
+              await FirebaseFirestore.instance.collection('users').doc(_uid)
+                  .update({'teamOrganization': name});
+            },
+            child: const Text('Save', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showPendingInvitesSheet() {
     showModalBottomSheet(
       context: context,
@@ -205,12 +334,24 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
           );
         }
 
-        return Column(children: members.map((m) => _RosterCard(
-          invite: m,
-          relativeDate: _relativeDate,
-          onRemove: () => _confirmRemove(m),
-          onTapAthlete: () => _showAthleteProfile(m.athleteId, m.athleteName),
-        )).toList());
+        // The membership doc's name/photo are invite-time copies, so the
+        // roster is rendered from the live user docs instead.
+        return MemberProfilesBuilder(
+          uids: members.map((m) => m.athleteId).toList(),
+          builder: (context, profiles) =>
+              Column(children: members.map((m) {
+                final identity = resolveMemberIdentity(profiles[m.athleteId],
+                    fallbackName: m.athleteName,
+                    fallbackPhotoUrl: m.athletePhotoUrl);
+                return _RosterCard(
+                  invite: m,
+                  identity: identity,
+                  relativeDate: _relativeDate,
+                  onRemove: () => _confirmRemove(m, identity.name),
+                  onTapAthlete: () => _showAthleteProfile(m.athleteId),
+                );
+              }).toList()),
+        );
       },
     );
   }
@@ -234,29 +375,36 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
               .compareTo(a.createdAt ?? DateTime(0)));
 
         if (invites.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
             icon: Icons.mail_outline_rounded,
             title: 'No pending invites',
             subtitle: 'Invites you send will show up here until answered',
           );
         }
 
-        return Column(children: invites.map((inv) => _PendingCard(
-          invite: inv,
-          relativeDate: _relativeDate,
-          onCancel: () => TeamService.cancelInvite(inv.id),
-        )).toList());
+        return MemberProfilesBuilder(
+          uids: invites.map((inv) => inv.athleteId).toList(),
+          builder: (context, profiles) =>
+              Column(children: invites.map((inv) => _PendingCard(
+                invite: inv,
+                identity: resolveMemberIdentity(profiles[inv.athleteId],
+                    fallbackName: inv.athleteName,
+                    fallbackPhotoUrl: inv.athletePhotoUrl),
+                relativeDate: _relativeDate,
+                onCancel: () => TeamService.cancelInvite(inv.id),
+              )).toList()),
+        );
       },
     );
   }
 
-  void _confirmRemove(TeamInvite invite) {
+  void _confirmRemove(TeamInvite invite, String athleteName) {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Remove ${invite.athleteName}?', style: TextStyle(
+        title: Text('Remove $athleteName?', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
         content: Text(
             "They'll need a new invite to rejoin ${invite.teamName}.",
@@ -280,136 +428,13 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
   }
 
   // ── Athlete profile sheet ──────────────────
-  // Read-only view of a roster athlete's profile — same visual language as
-  // Scout's profile sheet, minus the recruitment badge and Invite button
-  // (not relevant once they're already on the roster).
+  // Read-only view of a roster athlete's profile — the same shared sheet
+  // Scout and Leaderboard use, minus the recruitment badge and Invite
+  // button (not relevant once they're already on the roster, since this
+  // caller passes no trailingActionBuilder).
 
-  Future<void> _showAthleteProfile(String athleteId, String athleteName) async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users').doc(athleteId).get();
-    if (!mounted) return;
-    final a = doc.data() ?? {};
-
-    final position = a['position'] as String? ?? '—';
-    final barangay = a['barangay'] as String? ?? '—';
-    final years = a['yearsOfPlaying'] as String? ?? '—';
-    final height = a['heightCm'] as String? ?? '—';
-    final weight = a['weightKg'] as String? ?? '—';
-    final bio = a['bio'] as String? ?? '';
-    final sports = (a['primarySports'] as List?)
-        ?.map((e) => e.toString()).join(', ') ?? '—';
-    final pts = a['points'];
-    final ptsStr = pts is num ? '${pts.toInt()}' : '0';
-    final photoUrl = a['photoUrl'] as String?;
-    final nameParts = athleteName.trim().split(' ');
-    final initials = nameParts
-        .where((p) => p.isNotEmpty)
-        .take(2)
-        .map((p) => p[0])
-        .join()
-        .toUpperCase();
-
-    if (!mounted) return;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.card,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        builder: (_, ctrl) => SingleChildScrollView(
-          controller: ctrl,
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4,
-                decoration: BoxDecoration(
-                    color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(2)))),
-              const SizedBox(height: 20),
-              Center(child: Column(children: [
-                Container(
-                  width: 72, height: 72,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [AppTheme.accent, AppTheme.accent2]),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppTheme.accent, width: 2.5)),
-                  child: ClipOval(
-                    child: photoUrl != null && photoUrl.isNotEmpty
-                        ? Image.network(photoUrl, fit: BoxFit.cover,
-                            width: 72, height: 72,
-                            errorBuilder: (_, __, ___) => Center(
-                                child: Text(initials, style: const TextStyle(
-                                    color: AppTheme.buttonFg, fontSize: 22,
-                                    fontWeight: FontWeight.w900))))
-                        : Center(child: Text(initials, style: const TextStyle(
-                            color: AppTheme.buttonFg, fontSize: 22,
-                            fontWeight: FontWeight.w900))),
-                  )),
-                const SizedBox(height: 10),
-                Text(athleteName, style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 18,
-                    fontWeight: FontWeight.w900)),
-                const SizedBox(height: 3),
-                Text('$position · $barangay',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 13)),
-              ])),
-              const SizedBox(height: 20),
-              Row(children: [
-                _StatBox(value: ptsStr, label: 'Total Pts', isAccent: true),
-                const SizedBox(width: 8),
-                _StatBox(value: years, label: 'Experience'),
-                const SizedBox(width: 8),
-                _StatBox(value: '${height}cm', label: 'Height'),
-                const SizedBox(width: 8),
-                _StatBox(value: '${weight}kg', label: 'Weight'),
-              ]),
-              const SizedBox(height: 16),
-              Divider(color: AppTheme.border),
-              const SizedBox(height: 12),
-              _InfoRow(label: 'Sport', value: sports),
-              const SizedBox(height: 8),
-              _InfoRow(label: 'Position', value: position),
-              const SizedBox(height: 8),
-              _InfoRow(label: 'Barangay', value: barangay),
-              const SizedBox(height: 8),
-              _InfoRow(label: 'Experience', value: years),
-              if (bio.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text('Bio', style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                      color: AppTheme.cardNested,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppTheme.border)),
-                  child: Text(bio, style: TextStyle(
-                      color: AppTheme.sub, fontSize: 13, height: 1.5))),
-              ],
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity, height: 50,
-                child: OutlinedButton(
-                  onPressed: () => Get.back(),
-                  child: Text('Close', style: TextStyle(
-                      color: AppTheme.sub, fontSize: 14,
-                      fontWeight: FontWeight.w600)))),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _showAthleteProfile(String athleteId) {
+    showAthleteProfileSheet(context, athleteId: athleteId);
   }
 }
 
@@ -419,19 +444,23 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
 
 class _RosterCard extends StatelessWidget {
   final TeamInvite invite;
+  /// Live name/photo. The `invite` still supplies everything the membership
+  /// itself owns — the join date, the remove action — but not the identity.
+  final MemberIdentity identity;
   final String Function(DateTime?) relativeDate;
   final VoidCallback onRemove;
   final VoidCallback onTapAthlete;
 
   const _RosterCard({
     required this.invite,
+    required this.identity,
     required this.relativeDate,
     required this.onRemove,
     required this.onTapAthlete,
   });
 
   String get _initials {
-    final parts = invite.athleteName.trim().split(' ')
+    final parts = identity.name.trim().split(' ')
         .where((p) => p.isNotEmpty).take(2);
     return parts.map((p) => p[0]).join().toUpperCase();
   }
@@ -452,16 +481,16 @@ class _RosterCard extends StatelessWidget {
         child: Row(children: [
           Container(
             width: 42, height: 42,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [AppTheme.accent, AppTheme.accent2]),
               shape: BoxShape.circle),
             child: ClipOval(
-              child: invite.athletePhotoUrl != null &&
-                      invite.athletePhotoUrl!.isNotEmpty
-                  ? Image.network(invite.athletePhotoUrl!, fit: BoxFit.cover,
+              child: identity.photoUrl != null &&
+                      identity.photoUrl!.isNotEmpty
+                  ? Image.network(identity.photoUrl!, fit: BoxFit.cover,
                       width: 42, height: 42,
                       errorBuilder: (_, __, ___) => Center(
                           child: Text(_initials, style: const TextStyle(
@@ -475,7 +504,7 @@ class _RosterCard extends StatelessWidget {
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(invite.athleteName, style: TextStyle(
+              Text(identity.name, style: TextStyle(
                   color: AppTheme.textPrimary, fontSize: 15,
                   fontWeight: FontWeight.w800),
                   overflow: TextOverflow.ellipsis),
@@ -504,11 +533,13 @@ class _RosterCard extends StatelessWidget {
 
 class _PendingCard extends StatelessWidget {
   final TeamInvite invite;
+  final MemberIdentity identity;
   final String Function(DateTime?) relativeDate;
   final VoidCallback onCancel;
 
   const _PendingCard({
     required this.invite,
+    required this.identity,
     required this.relativeDate,
     required this.onCancel,
   });
@@ -524,7 +555,7 @@ class _PendingCard extends StatelessWidget {
     ),
     child: Row(children: [
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(invite.athleteName, style: TextStyle(
+        Text(identity.name, style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w800)),
         const SizedBox(height: 2),
         Text('Invited ${relativeDate(invite.createdAt)}',
@@ -574,52 +605,10 @@ class _EmptyCard extends StatelessWidget {
         const SizedBox(height: 14),
         TextButton(
           onPressed: onAction,
-          child: Text(actionLabel!, style: TextStyle(
+          child: Text(actionLabel!, style: const TextStyle(
               color: AppTheme.accent, fontWeight: FontWeight.w700)),
         ),
       ],
     ]),
   );
-}
-
-class _StatBox extends StatelessWidget {
-  final String value, label;
-  final bool isAccent;
-  const _StatBox({required this.value, required this.label,
-      this.isAccent = false});
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: isAccent ? AppTheme.accentSurface : AppTheme.cardNested,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isAccent ? AppTheme.accent : AppTheme.border)),
-      child: Column(children: [
-        Text(value, style: TextStyle(
-          color: isAccent ? AppTheme.accentText : AppTheme.textPrimary,
-          fontSize: 14, fontWeight: FontWeight.w900),
-          overflow: TextOverflow.ellipsis),
-        const SizedBox(height: 2),
-        Text(label, style: TextStyle(
-            color: AppTheme.muted, fontSize: 9),
-            overflow: TextOverflow.ellipsis),
-      ]),
-    ),
-  );
-}
-
-class _InfoRow extends StatelessWidget {
-  final String label, value;
-  const _InfoRow({required this.label, required this.value});
-  @override
-  Widget build(BuildContext context) => Row(children: [
-    SizedBox(width: 90, child: Text(label, style: TextStyle(
-      color: AppTheme.muted, fontSize: 12))),
-    Expanded(child: Text(value, style: TextStyle(
-      color: AppTheme.textPrimary, fontSize: 13,
-      fontWeight: FontWeight.w600),
-      overflow: TextOverflow.ellipsis)),
-  ]);
 }

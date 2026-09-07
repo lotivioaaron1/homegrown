@@ -3,15 +3,27 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/fill_viewport_scroll.dart';
 
+/// Deliberately not built like login.
+///
+/// A photographic header was tried here, to make signup read as login's
+/// sibling. It is gone by preference: this screen is a set of choices, and the
+/// cards are what should carry it, so it keeps its own plain ground rather
+/// than borrowing the hero-and-sheet construction from the screen before it.
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.bg,
       body: SafeArea(
-        child: Padding(
+        // Scrolls rather than overflows. The cards fit on a normal phone, but
+        // three of them plus a two-line subtitle do not survive the largest
+        // system text sizes. Invisible while it fits, and the Spacer still
+        // pushes the sign-in link down whenever there is room.
+        child: FillViewportScroll(
           padding: const EdgeInsets.symmetric(horizontal: 28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -30,14 +42,16 @@ class RegisterScreen extends StatelessWidget {
               Text(
                 'Athletes compete. Coaches scout.\nOrganizers run the show.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppTheme.sub, fontSize: 14, height: 1.5),
+                style:
+                    TextStyle(color: AppTheme.sub, fontSize: 14, height: 1.5),
               ),
               const SizedBox(height: 36),
               _RoleCard(
                 icon: LucideIcons.zap,
                 iconColor: const Color(0xFFFF8A34),
                 label: 'Athlete',
-                description: 'Track stats, earn points,\nget discovered by coaches',
+                description:
+                    'Track stats, earn points,\nget discovered by coaches',
                 onTap: () => Get.toNamed('/register/athlete'),
               ),
               const SizedBox(height: 14),
@@ -45,7 +59,8 @@ class RegisterScreen extends StatelessWidget {
                 icon: LucideIcons.binoculars,
                 iconColor: const Color(0xFF4AB3FF),
                 label: 'Coach',
-                description: 'Scout talent, manage your\nroster and team lineup',
+                description:
+                    'Scout talent, manage your\nroster and team lineup',
                 onTap: () => Get.toNamed('/register/coach'),
               ),
               const SizedBox(height: 14),
@@ -156,7 +171,7 @@ class _RoleCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               LucideIcons.chevronRight,
               color: AppTheme.muted,
               size: 18,

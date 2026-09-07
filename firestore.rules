@@ -1,0 +1,373 @@
+rules_version = '2';
+
+// Derived from a full audit of every real read/write/query shape used by
+// the Flutter app (see docs/superpowers/specs if present, or the plan this
+// shipped with) — not a generic template. Two documented simplifications
+// exist below (notification creation, cross-user points/ratings updates)
+// where full validation would require disproportionate complexity for a
+// low-severity risk; each is called out at the point it applies.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isApprovedOrganizer(uid) {
+      return isSignedIn() &&
+        userData(uid).role == 'organizer' &&
+        userData(uid).organizerStatus == 'approved';
+    }
+
+    function isAdmin(uid) {
+      return isSignedIn() && userData(uid).role == 'admin';
+    }
+
+    function eventOrganizerId(eventId) {
+      return get(/databases/$(database)/documents/events/$(eventId)).data.organizerId;
+    }
+
+    // ── users ──────────────────────────────────────────
+    match /users/{uid} {
+      // role is set once at registration (or once, from '' to a real
+      // value, by google-profile-setup) and is never 'admin' through the
+      // public app — an admin account only ever exists because someone
+      // hand-set it directly in Firestore/Console.
+      allow create: if isSelf(uid) &&
+        request.resource.data.role in ['athlete', 'coach', 'organizer', ''];
+
+      allow update: if isSelf(uid) && (
+        request.resource.data.role == resource.data.role ||
+        (resource.data.role == '' &&
+         request.resource.data.role in ['athlete', 'coach', 'organizer'])
+      );
+
+      // Cross-user exception #1: add_stats_screen.dart / rating_service.dart
+      // bump a participant's points/rating after the organizer records
+      // results. Simplification: this checks the requester is a real,
+      // admin-approved organizer account and restricts the write to
+      // exactly these two fields — it does not re-derive the specific
+      // event/match linkage (that would need the write itself to carry an
+      // eventId, which it doesn't). An approved organizer could misuse this
+      // to nudge a number with no matching stats doc, which is a much
+      // smaller residual risk than "anyone" being able to.
+      allow update: if isSignedIn() && request.auth.uid != uid &&
+        isApprovedOrganizer(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['points', 'ratings']);
+
+      // Cross-user exception #2: the super-admin approving/rejecting a
+      // pending organizer — see admin_review_screen.dart. Field-restricted
+      // so an admin account can only ever flip this one status, never
+      // rewrite anything else on someone else's profile.
+      allow update: if isSignedIn() && request.auth.uid != uid &&
+        isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['organizerStatus']);
+
+      // Cross-user exception #3: the super-admin suspending or reinstating an
+      // account from the console's user directory — see
+      // admin_user_service.dart. Kept as its own rule rather than widening
+      // #2's key list, so the approval path keeps its narrow guarantee: an
+      // admin acting on the queue still cannot touch anything but the status.
+      //
+      // Suspension is enforced by the app at sign-in (see landingRoute), not
+      // by these rules. Checking !suspended on every write in the app would
+      // add a get() on the user document to each one; as with the email
+      // verification gate, this is an in-app gate for UX rather than a
+      // security boundary.
+      allow update: if isSignedIn() && request.auth.uid != uid &&
+        isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['suspended', 'suspendedAt', 'suspendedReason']);
+
+      // The profile document stays readable by any signed-in account, because
+      // leaderboards, Scout, rosters and profile sheets all legitimately show
+      // a stranger's name, role, sport and barangay. Contact details are the
+      // part that must not be readable that way, and Firestore read rules are
+      // document-level — there is no way to serve some fields and withhold
+      // others — so email and phoneNumber live in the private subcollection
+      // below instead of here. Anything added to this document is world-
+      // readable to the signed-in population; put it in private/ if it isn't
+      // meant to be.
+      allow read: if isSignedIn();
+
+      // ── users/{uid}/private ────────────────────
+      // Contact details (email, phoneNumber). Readable only by the owner and
+      // by the super-admin, who needs an applicant's email and phone to vet
+      // an organizer application — see admin_review_screen.dart.
+      match /private/{docId} {
+        // isSignedIn() first so request.auth.uid is never dereferenced on an
+        // unauthenticated request — same guard shape as the cross-user update
+        // rules above.
+        allow read: if isSignedIn() &&
+          (isSelf(uid) || isAdmin(request.auth.uid));
+        // Only ever written by its owner, at registration and profile edit.
+        // The admin reviews these, never edits them.
+        allow write: if isSelf(uid);
+      }
+
+      match /media/{mediaId} {
+        allow read: if isSignedIn();
+        allow write: if isSelf(uid);
+      }
+
+      match /ratingHistory/{entryId} {
+        allow read: if isSelf(uid);
+        allow write: if isSignedIn() && request.auth.uid != uid &&
+          isApprovedOrganizer(request.auth.uid);
+
+        // Entries are written by organizers, never by the athlete, so the
+        // rule above deliberately excludes self-writes. Deletion is the one
+        // exception: account deletion has to be able to clear a user's own
+        // rating history, and only that user can initiate it.
+        allow delete: if isSelf(uid);
+      }
+    }
+
+    // ── events ─────────────────────────────────────────
+    match /events/{eventId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        isApprovedOrganizer(request.auth.uid);
+
+      allow update: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        request.resource.data.organizerId == resource.data.organizerId;
+
+      // The super-admin moderating content — see admin_content_screen.dart.
+      // Restricted to `status`, which in practice means cancelling: the admin
+      // can take an event off the board but cannot rewrite its venue, date,
+      // roster or organizer. Cancelling rather than deleting is deliberate —
+      // 'cancelled' is a status the app already renders everywhere, the
+      // organizer already gets an event_cancelled notification for it, and
+      // any recorded results stay attached to a real event document.
+      allow update: if isSignedIn() && isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']);
+
+      // hasMatchData is set by rating_service.dart the moment a match is
+      // recorded, specifically so this check doesn't need an arbitrary
+      // "does any doc in matches reference this event" query, which rules
+      // can't cheaply express.
+      // A bracket matchup's event is owned by its tournament: deleting one
+      // would leave its slot pointing at nothing, with the bracket unable
+      // to move past that round. tournamentId is absent on every ordinary
+      // event, so this adds nothing to the existing path.
+      allow delete: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        resource.data.get('hasMatchData', false) != true &&
+        !('tournamentId' in resource.data);
+
+      // Read visibility is unchanged from today's de facto behavior
+      // (a single-doc read has never been gated by isPublic/roster
+      // membership) — tightening that is a separate, not-yet-scoped piece
+      // of privacy hardening, not part of this pass.
+      allow read: if isSignedIn();
+    }
+
+    // ── matches ────────────────────────────────────────
+    match /matches/{matchId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.recordedBy == request.auth.uid &&
+        eventOrganizerId(request.resource.data.eventId) == request.auth.uid;
+
+      // finalizeMatch only ever changes status/finalizedAt.
+      allow update: if isSignedIn() &&
+        eventOrganizerId(resource.data.eventId) == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'finalizedAt']);
+
+      allow read: if isSignedIn();
+    }
+
+    // ── stats ──────────────────────────────────────────
+    match /stats/{statId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        eventOrganizerId(request.resource.data.eventId) == request.auth.uid;
+
+      // No code path ever updates or deletes a stats doc.
+      allow update, delete: if false;
+
+      // Intentionally broad — profile viewing and leaderboards both
+      // depend on reading any athlete's stats, not just your own.
+      allow read: if isSignedIn();
+    }
+
+    // ── teamMemberships ────────────────────────────────
+    match /teamMemberships/{membershipId} {
+      // A coach only recruits for the sports they coach — a basketball
+      // coach can't invite a badminton player. Both sides store a list
+      // (a coach may coach two sports, an athlete may play two), so the
+      // test is overlap, not equality. Scout won't surface a mismatched
+      // athlete and TeamService.sendInvite refuses one, but this is the
+      // boundary that actually holds outside the app.
+      //
+      // A user doc with no primarySports fails this and is denied, which
+      // is the safe direction: such a coach is told to set their sports
+      // rather than being quietly allowed to recruit anyone.
+      allow create: if isSignedIn() &&
+        request.resource.data.coachId == request.auth.uid &&
+        userData(request.auth.uid).role == 'coach' &&
+        userData(request.auth.uid).primarySports
+          .hasAny(userData(request.resource.data.athleteId).primarySports);
+
+      // acceptInvite only ever changes status/respondedAt.
+      allow update: if isSignedIn() &&
+        resource.data.athleteId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'respondedAt']);
+
+      // decline/cancel/remove/leave share one implementation; either side
+      // of the relationship can end it.
+      allow delete: if isSignedIn() &&
+        (resource.data.coachId == request.auth.uid ||
+         resource.data.athleteId == request.auth.uid);
+
+      // Intentionally broad — Scout's roster-fullness check on other
+      // coaches and an athlete viewing teammates via a different coach's
+      // roster both depend on this not being owner-only.
+      allow read: if isSignedIn();
+    }
+
+    // ── notifications ──────────────────────────────────
+    match /notifications/{notificationId} {
+      // Simplification: every real call site has writer != recipient
+      // (coach->athlete invite, organizer->roster, etc.) and there are 6+
+      // distinct relationships that would each need their own get()
+      // cross-check to validate properly. Fully validating the *relationship*
+      // still isn't worth that complexity, so any signed-in user may still
+      // notify any other user.
+      //
+      // What is checked is authorship and shape: the notification must be
+      // attributed to the account actually writing it, and must be one of the
+      // types the app knows how to render. That removes forgery — nobody can
+      // send a notification that appears to come from someone else, or invent
+      // a type — and leaves only volume, which needs a server to solve
+      // properly. Keep this list in sync with NotificationService.kTypes.
+      allow create: if isSignedIn() &&
+        request.resource.data.fromUid == request.auth.uid &&
+        request.resource.data.userId is string &&
+        request.resource.data.type in [
+          'event_added', 'event_cancelled', 'event_updated',
+          'organizer_pending', 'organizer_status', 'stats_added',
+          'team_full', 'team_invite'
+        ];
+
+      // Reading, marking read, and deleting are owner-only — closes a
+      // real gap (today anyone could read/delete anyone's notifications).
+      allow read, update, delete: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
+    }
+
+    // ── tournaments ────────────────────────────────────
+    match /tournaments/{tournamentId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        isApprovedOrganizer(request.auth.uid);
+
+      allow update: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        request.resource.data.organizerId == resource.data.organizerId;
+
+      // The super-admin cancelling a tournament, on the same terms as the
+      // events rule above: status only, nothing else. The bracket's slots are
+      // left alone — a cancelled tournament keeps its history rather than
+      // unwinding rounds that were already played.
+      allow update: if isSignedIn() && isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']);
+
+      // Same guard as events: hasMatchData is set the first time any
+      // matchup's result is recorded, so a tournament that has already been
+      // played cannot be deleted out from under its results.
+      allow delete: if isSignedIn() &&
+        resource.data.organizerId == request.auth.uid &&
+        resource.data.get('hasMatchData', false) != true;
+
+      allow read: if isSignedIn();
+
+      // One position in the bracket. Named 'slots' rather than 'matches' so
+      // it can never be confused with the top-level matches collection.
+      match /slots/{slotId} {
+        // organizerId is denormalized onto every slot instead of being read
+        // off the parent with get(). Two reasons, both fatal to the get()
+        // version: a rules get() sees pre-batch state, so while the whole
+        // bracket is written in one batch the tournament document does not
+        // exist yet; and a batched write is allowed only 20 document
+        // accesses, which a bracket of any size would exceed.
+        allow create: if isSignedIn() &&
+          request.resource.data.organizerId == request.auth.uid;
+
+        // A settled matchup is final. Without this, recording a second
+        // match against the same child event — which stays 'upcoming' and
+        // stays in the Record Match picker — would silently overwrite the
+        // winner and rewrite a later round that may already have been
+        // played. A batch cannot read-then-conditionally-write, so this is
+        // the only place that race can be closed.
+        allow update: if isSignedIn() &&
+          resource.data.organizerId == request.auth.uid &&
+          request.resource.data.organizerId == resource.data.organizerId &&
+          resource.data.status != 'completed' &&
+          resource.data.status != 'bye';
+
+        allow delete: if isSignedIn() &&
+          resource.data.organizerId == request.auth.uid;
+
+        allow read: if isSignedIn();
+      }
+    }
+
+    // ── reports ────────────────────────────────────────
+    // Complaints about a user or an event, filed from the report sheet and
+    // worked through on the admin console's Reports tab.
+    match /reports/{reportId} {
+      // Attributed to the account actually filing it, opened in the 'open'
+      // state, and limited to the target types the queue knows how to render
+      // — the same authorship-and-shape validation the notifications rule
+      // uses, and for the same reason: fully validating that the target
+      // exists would cost a get() per report and still not stop a determined
+      // reporter from filing a groundless one.
+      allow create: if isSignedIn() &&
+        request.resource.data.reporterUid == request.auth.uid &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.targetType in ['user', 'event'];
+
+      // The queue is the admin's. A reporter can read back only their own
+      // reports, which is what lets the sheet check for a duplicate before
+      // filing a second one — and stops anyone learning who reported whom.
+      allow read: if isSignedIn() && (
+        isAdmin(request.auth.uid) ||
+        resource.data.reporterUid == request.auth.uid
+      );
+
+      // Only the admin closes a report, and only by moving its status: the
+      // original complaint text is never editable, by the reporter or by the
+      // admin reviewing it.
+      allow update: if isSignedIn() && isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'resolvedBy', 'resolvedAt']) &&
+        request.resource.data.status in ['open', 'resolved', 'dismissed'];
+
+      // Nothing deletes a report. A dismissed one stays on the Closed tab as
+      // the record that somebody looked at it and decided.
+      allow delete: if false;
+    }
+
+    // Anything not explicitly matched above is denied — a forgotten
+    // collection fails closed, not open.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -10,6 +10,7 @@ import '../../services/notification_service.dart';
 import '../../services/rating_service.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/stat_scoring.dart';
+import '../../utils/error_messages.dart';
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 class AddStatsScreen extends StatefulWidget {
@@ -23,6 +24,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
   int  _step      = 0;
   bool _isLoading = false;
   Map<String, dynamic>? _selectedEvent;
+  String? _selectedTeam;
   Map<String, dynamic>? _selectedPlayer;
   Set<String> _submittedUids = {};
   List<QueryDocumentSnapshot> _pendingMatches = [];
@@ -42,6 +44,16 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
   final _setsCtrl  = TextEditingController();
   bool  _matchWon  = false;
   final _notesCtrl = TextEditingController();
+
+  // A team-selection step is only inserted for events that actually have
+  // team data (created after team assignment was added to event creation)
+  // — older events fall back to the flat 3-step flow unchanged.
+  bool get _hasTeams => (_selectedEvent?['players'] as List? ?? [])
+      .cast<Map<String, dynamic>>().any((p) => p['team'] != null);
+  List<String> get _titles => _hasTeams
+      ? const ['Select Event', 'Select Team', 'Select Player', 'Enter Stats']
+      : const ['Select Event', 'Select Player', 'Enter Stats'];
+
   @override
   void dispose() {
     for (final c in [
@@ -161,7 +173,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       if (!mounted) return;
       setState(() {
         _submittedUids.add(athleteId);
-        _step = 1;
+        _step = _titles.indexOf('Select Player');
         _selectedPlayer = null;
         _clearStats();
       });
@@ -176,7 +188,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         duration:        const Duration(seconds: 3),
       );
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -231,7 +243,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     );
   }
   Widget _buildTopBar() {
-    final titles = ['Select Event', 'Select Player', 'Enter Stats'];
+    final titles = _titles;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Row(children: [
@@ -240,13 +252,16 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
             if (_step == 0) { Get.back(); return; }
             setState(() {
               _step--;
-              if (_step == 0) {
+              final phase = titles[_step];
+              if (phase == 'Select Event') {
                 _selectedEvent = null;
+                _selectedTeam = null;
                 _submittedUids = {};
                 _pendingMatches = [];
                 _selectedMatchId = null;
+              } else if (phase == 'Select Player') {
+                _selectedPlayer = null;
               }
-              if (_step == 1) _selectedPlayer = null;
             });
           },
           child: Container(
@@ -271,7 +286,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           decoration: BoxDecoration(
             color: AppTheme.accentSurface, borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppTheme.accent)),
-          child: Text('Step ${_step + 1} of 3', style: TextStyle(
+          child: Text('Step ${_step + 1} of ${titles.length}', style: TextStyle(
             color: AppTheme.accentText, fontSize: 11, fontWeight: FontWeight.w700)),
         ),
       ]),
@@ -281,10 +296,10 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Row(
-        children: List.generate(3, (i) => Expanded(
+        children: List.generate(_titles.length, (i) => Expanded(
           child: Container(
             height: 4,
-            margin: EdgeInsets.only(right: i < 2 ? 4 : 0),
+            margin: EdgeInsets.only(right: i < _titles.length - 1 ? 4 : 0),
             decoration: BoxDecoration(
               color: i <= _step ? AppTheme.accent : AppTheme.border,
               borderRadius: BorderRadius.circular(2)),
@@ -294,10 +309,11 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     );
   }
   Widget _buildStep() {
-    switch (_step) {
-      case 0:  return _buildStep1();
-      case 1:  return _buildStep2();
-      default: return _buildStep3();
+    switch (_titles[_step]) {
+      case 'Select Event':  return _buildStep1();
+      case 'Select Team':   return _buildTeamStep();
+      case 'Select Player': return _buildStep2();
+      default:               return _buildStep3();
     }
   }
   Widget _buildStep1() {
@@ -316,7 +332,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           return _EmptyState(
             icon: Icons.error_outline,
             title: 'Something went wrong',
-            subtitle: snapshot.error.toString());
+            subtitle: friendlyError(snapshot.error));
         }
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
@@ -404,9 +420,63 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       },
     );
   }
-  Widget _buildStep2() {
+  Widget _buildTeamStep() {
     final players = (_selectedEvent?['players'] as List? ?? [])
         .cast<Map<String, dynamic>>();
+    final teamAName = _selectedEvent?['teamAName'] as String? ?? 'Team A';
+    final teamBName = _selectedEvent?['teamBName'] as String? ?? 'Team B';
+    final countA = players.where((p) => p['team'] == 'A').length;
+    final countB = players.where((p) => p['team'] == 'B').length;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      children: [
+        Text('Which team is this stat for?', style: TextStyle(
+          color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 12),
+        _teamCard(teamAName, countA, 'A'),
+        const SizedBox(height: 10),
+        _teamCard(teamBName, countB, 'B'),
+      ],
+    );
+  }
+  Widget _teamCard(String name, int count, String team) => GestureDetector(
+    onTap: () => setState(() { _selectedTeam = team; _step++; }),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border)),
+      child: Row(children: [
+        Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+            color: AppTheme.accentSurface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.accent)),
+          child: const Icon(Icons.groups_rounded, color: AppTheme.accent, size: 22)),
+        const SizedBox(width: 12),
+        Expanded(child: Text(name, style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w700))),
+        Text('$count', style: TextStyle(
+            color: AppTheme.muted, fontSize: 13, fontWeight: FontWeight.w600)),
+        const SizedBox(width: 8),
+        Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
+      ]),
+    ),
+  );
+  Widget _buildStep2() {
+    final allPlayers = (_selectedEvent?['players'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+    final players = _selectedTeam == null
+        ? allPlayers
+        : allPlayers.where((p) => p['team'] == _selectedTeam).toList();
+    String? teamLabel;
+    if (_selectedTeam == 'A') {
+      teamLabel = _selectedEvent?['teamAName'] as String? ?? 'Team A';
+    } else if (_selectedTeam == 'B') {
+      teamLabel = _selectedEvent?['teamBName'] as String? ?? 'Team B';
+    }
     return Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -424,7 +494,9 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 Text(_selectedEvent?['name'] as String? ?? '',
                   style: TextStyle(color: AppTheme.accentText,
                       fontSize: 13, fontWeight: FontWeight.w700)),
-                Text('${_selectedEvent?['sport']} · Tap a player to add stats',
+                Text(teamLabel != null
+                    ? '${_selectedEvent?['sport']} · $teamLabel · Tap a player to add stats'
+                    : '${_selectedEvent?['sport']} · Tap a player to add stats',
                   style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ])),
           ]),
@@ -443,9 +515,9 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
               color: const Color(0xFF0D3020),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: AppTheme.success)),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(Icons.check_circle_outline, color: AppTheme.success, size: 12),
-              const SizedBox(width: 4),
+              SizedBox(width: 4),
               Text('= Stats submitted',
                 style: TextStyle(color: AppTheme.success, fontSize: 10,
                     fontWeight: FontWeight.w600)),
@@ -455,7 +527,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ),
       Expanded(
         child: players.isEmpty
-            ? _EmptyState(
+            ? const _EmptyState(
                 icon: Icons.people_outline,
                 title: 'No players in this event',
                 subtitle: 'Add players when creating the event')
@@ -470,7 +542,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   final initials = _getInitials(p['fullName'] as String? ?? '');
                   return GestureDetector(
                     onTap: done ? null : () {
-                      setState(() { _selectedPlayer = p; _step = 2; });
+                      setState(() { _selectedPlayer = p; _step++; });
                     },
                     child: Opacity(
                       opacity: done ? 0.6 : 1.0,
@@ -507,15 +579,15 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                             ],
                           )),
                           done
-                              ? Row(children: [
+                              ? const Row(children: [
                                   Icon(Icons.check_circle_rounded,
                                       color: AppTheme.success, size: 18),
-                                  const SizedBox(width: 4),
+                                  SizedBox(width: 4),
                                   Text('Done', style: TextStyle(
                                     color: AppTheme.success, fontSize: 11,
                                     fontWeight: FontWeight.w600)),
                                 ])
-                              : Icon(Icons.add_circle_outline_rounded,
+                              : const Icon(Icons.add_circle_outline_rounded,
                                   color: AppTheme.accent, size: 22),
                         ]),
                       ),
@@ -713,17 +785,17 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
         color: selected
-            ? (isWin ? const Color(0xFF0D2E20) : const Color(0xFF2A1010))
+            ? (isWin ? AppTheme.successSurface : AppTheme.errorSurface)
             : AppTheme.card,
         borderRadius: BorderRadius.circular(_kRadius),
         border: Border.all(
           color: selected
-              ? (isWin ? AppTheme.success : _kErrorRed)
+              ? (isWin ? AppTheme.successText : AppTheme.errorText)
               : AppTheme.border,
           width: selected ? 2 : 1.5)),
       child: Center(child: Text(label, style: TextStyle(
         color: selected
-            ? (isWin ? AppTheme.success : _kErrorRed)
+            ? (isWin ? AppTheme.successText : AppTheme.errorText)
             : AppTheme.muted,
         fontSize: 14, fontWeight: FontWeight.w700))),
     );

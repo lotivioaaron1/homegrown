@@ -1,11 +1,22 @@
 // lib/screens/auth/organizer_register_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
-import '../../constants/legazpi_barangays.dart';
+import '../../widgets/privacy_consent_text.dart';
+import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/profile_photo_picker.dart';
+import '../../widgets/fill_viewport_scroll.dart';
+import '../../services/contact_service.dart';
+import '../../services/notification_service.dart';
+import '../../utils/auth_routing.dart';
+import '../../utils/registration_rollback.dart';
+import '../../services/storage_service.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -30,6 +41,7 @@ class _OrganizerRegisterScreenState
   final _firstNameCtrl = TextEditingController();
   final _lastNameCtrl  = TextEditingController();
   final _emailCtrl     = TextEditingController();
+  final _phoneCtrl     = TextEditingController();
   final _passwordCtrl  = TextEditingController();
   final _confirmCtrl   = TextEditingController();
   String _selectedBarangay = '';
@@ -41,107 +53,70 @@ class _OrganizerRegisterScreenState
   final List<String> _sportsOrganized = [];
 
   // Step 3
+  File? _profileImage;
   final _bioCtrl           = TextEditingController();
   final _certificationsCtrl = TextEditingController();
+  // Optional — a photo an admin can weigh when reviewing this signup (a
+  // barangay certificate, business permit, or a team photo). Never made
+  // required: that risks abandoning legitimate signups who don't have
+  // something ready, so the admin screen just flags its absence instead.
+  File? _verificationDoc;
 
   @override
   void dispose() {
-    for (final c in [_firstNameCtrl, _lastNameCtrl, _emailCtrl,
+    for (final c in [_firstNameCtrl, _lastNameCtrl, _emailCtrl, _phoneCtrl,
       _passwordCtrl, _confirmCtrl, _organizationCtrl,
       _bioCtrl, _certificationsCtrl]) { c.dispose(); }
     super.dispose();
   }
 
+  Future<void> _pickVerificationDoc() async {
+    // Wider than the avatar below on purpose — this one has to stay legible
+    // enough for an admin to read a permit or certificate off it.
+    final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery, maxWidth: 1600, imageQuality: 85);
+    if (picked != null) setState(() => _verificationDoc = File(picked.path));
+  }
+
+  // ── Profile photo ─────────────────────────
+
+  Future<void> _pickImage() async {
+    // maxWidth matters: without it a modern phone camera shot uploads at
+    // full resolution, which blows past the "max 5MB" the UI promises.
+    // Matches edit_profile_screen.dart's avatar picker.
+    final p = await ImagePicker().pickImage(
+        source: ImageSource.gallery, maxWidth: 1000, imageQuality: 80);
+    if (p != null && mounted) setState(() => _profileImage = File(p.path));
+  }
+
+  /// Uploads the avatar picked in step 3 and points the user's doc at it.
+  /// Must run *after* account creation: storage.rules requires
+  /// `request.auth.uid == uid`, which only holds once the new user is
+  /// signed in.
+  ///
+  /// Deliberately swallows its own failures rather than letting them reach
+  /// _onCreateAccount's catch. By this point the account already exists, so
+  /// bouncing the user back to the form is a dead end — their retry would
+  /// just fail with 'email-already-in-use'. A missing photo is recoverable
+  /// from Edit Profile; a stranded account is not.
+  Future<void> _uploadProfilePhoto(String uid) async {
+    if (_profileImage == null) return;
+    try {
+      final url = await StorageService.uploadProfilePhoto(uid, _profileImage!);
+      await FirebaseFirestore.instance
+          .collection('users').doc(uid).update({'photoUrl': url});
+    } catch (_) {
+      _snack('Photo not uploaded',
+          'Your account was created. You can add a photo from Edit Profile.');
+    }
+  }
+
   // ── Barangay picker ───────────────────────
 
-  void _pickBarangay() {
-    final search = TextEditingController();
-    List<String> filtered = List.from(kLegazpiBarangays);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setModal) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize:     0.92,
-          builder: (_, ctrl) => Column(children: [
-            const SizedBox(height: 12),
-            Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(2))),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Text('Select Barangay', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 16,
-                  fontWeight: FontWeight.w800)),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: search,
-                autofocus: true,
-                style: TextStyle(color: AppTheme.textPrimary),
-                onChanged: (q) => setModal(() {
-                  filtered = kLegazpiBarangays
-                      .where((b) => b.toLowerCase()
-                          .contains(q.toLowerCase()))
-                      .toList();
-                }),
-                decoration: InputDecoration(
-                  hintText: 'Search barangay...',
-                  hintStyle: TextStyle(color: AppTheme.muted),
-                  prefixIcon: Icon(Icons.search_rounded,
-                      color: AppTheme.muted, size: 20),
-                  filled: true, fillColor: AppTheme.bg,
-                  contentPadding: const EdgeInsets.symmetric(
-                      vertical: 12, horizontal: 16),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.border)),
-                  focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: AppTheme.accent, width: 1.5)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: ListView.builder(
-              controller: ctrl,
-              itemCount: filtered.length,
-              itemBuilder: (_, i) {
-                final b   = filtered[i];
-                final sel = b == _selectedBarangay;
-                return ListTile(
-                  dense: true,
-                  title: Text(b, style: TextStyle(
-                    color: sel
-                        ? AppTheme.accentText : AppTheme.textPrimary,
-                    fontWeight:
-                        sel ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 14)),
-                  trailing: sel
-                      ? Icon(Icons.check_circle_rounded,
-                          color: AppTheme.accent, size: 20) : null,
-                  onTap: () {
-                    setState(() => _selectedBarangay = b);
-                    Navigator.pop(context);
-                  },
-                );
-              },
-            )),
-          ]),
-        ),
-      ),
-    );
+  Future<void> _pickBarangay() async {
+    final picked = await showBarangayPickerSheet(context,
+        selected: _selectedBarangay);
+    if (picked != null) setState(() => _selectedBarangay = picked);
   }
 
   // ── Navigation ────────────────────────────
@@ -177,29 +152,71 @@ class _OrganizerRegisterScreenState
         email:    _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      await FirebaseFirestore.instance
-          .collection('users').doc(cred.user!.uid).set({
-        'uid':             cred.user!.uid,
-        'firstName':       _firstNameCtrl.text.trim(),
-        'lastName':        _lastNameCtrl.text.trim(),
-        'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'email':           _emailCtrl.text.trim(),
-        'role':            'organizer',
-        'barangay':        _selectedBarangay,
-        'organization':    _organizationCtrl.text.trim(),
-        'organizationType': _organizationType,
-        'sportsOrganized': _sportsOrganized,
-        'bio':             _bioCtrl.text.trim(),
-        'certifications':  _certificationsCtrl.text.trim(),
-        'profileImageUrl': '',
-        'createdAt':       FieldValue.serverTimestamp(),
-      });
+      // See athlete_register_screen.dart — both writes are required, so a
+      // failure has to take the Auth account with it rather than strand the
+      // email address.
+      await withRegistrationRollback(
+        deleteAccount: () => cred.user!.delete(),
+        writes: () async {
+          await FirebaseFirestore.instance
+              .collection('users').doc(cred.user!.uid).set({
+            'uid':             cred.user!.uid,
+            'firstName':       _firstNameCtrl.text.trim(),
+            'lastName':        _lastNameCtrl.text.trim(),
+            'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+            'role':            'organizer',
+            // An organizer can't create/publish events until a super-admin
+            // approves this — see firestore.rules and admin_review_screen.dart.
+            'organizerStatus': 'pending',
+            'barangay':        _selectedBarangay,
+            'organization':    _organizationCtrl.text.trim(),
+            'organizationType': _organizationType,
+            'sportsOrganized': _sportsOrganized,
+            'bio':             _bioCtrl.text.trim(),
+            'certifications':  _certificationsCtrl.text.trim(),
+            // Every avatar in the app reads 'photoUrl' (home, profile,
+            // leaderboard, scout, team). Don't invent a second field name here.
+            'photoUrl':        '',
+            'createdAt':       FieldValue.serverTimestamp(),
+          });
+          // Email and phone are kept off the publicly-readable profile doc;
+          // the super-admin reads them from users/{uid}/private when reviewing
+          // this application — see ContactService and admin_review_screen.dart.
+          await ContactService.write(
+            uid: cred.user!.uid,
+            email: _emailCtrl.text.trim(),
+            phoneNumber: _phoneCtrl.text.trim(),
+          );
+        },
+      );
       await cred.user?.sendEmailVerification();
+      await _uploadProfilePhoto(cred.user!.uid);
+
+      if (_verificationDoc != null) {
+        await StorageService.uploadOrganizerVerificationDoc(
+            cred.user!.uid, _verificationDoc!);
+      }
+
+      // Let the super-admin know someone's waiting, instead of relying on
+      // them to remember to check /admin — see admin_review_screen.dart.
+      final admins = await FirebaseFirestore.instance
+          .collection('users').where('role', isEqualTo: 'admin').get();
+      for (final admin in admins.docs) {
+        await NotificationService.create(
+          userId: admin.id,
+          type: 'organizer_pending',
+          title: 'New organizer awaiting approval',
+          body: '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()} '
+              'registered as an organizer and needs review.',
+          relatedId: cred.user!.uid,
+        );
+      }
+
       if (mounted) setState(() => _showSuccess = true);
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -214,15 +231,10 @@ class _OrganizerRegisterScreenState
       duration: const Duration(seconds: 3));
   }
 
-  String _mapError(String code) {
-    switch (code) {
-      case 'email-already-in-use':
-        return 'An account already exists with this email.';
-      case 'weak-password': return 'Password is too weak.';
-      case 'invalid-email': return 'Please enter a valid email.';
-      default: return 'Registration failed. Please try again.';
-    }
-  }
+  /// See athlete_register_screen.dart — one shared mapping across all three
+  /// role registrations and sign-in.
+  String _mapError(String code) =>
+      authErrorMessage(code) ?? 'Registration failed. Please try again.';
 
   // ── Build ─────────────────────────────────
 
@@ -238,6 +250,12 @@ class _OrganizerRegisterScreenState
         _buildProgressBar(),
         Expanded(child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
+          // Pin steps to the top — see coach_register_screen.dart for why
+          // the default centred layout made short steps float mid-screen.
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...previous, if (current != null) current],
+          ),
           transitionBuilder: (child, anim) => SlideTransition(
             position: Tween<Offset>(
                 begin: const Offset(0.08, 0),
@@ -296,7 +314,7 @@ class _OrganizerRegisterScreenState
   // ── Step 1 — Personal Info ────────────────
 
   Widget _buildStep1() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Form(key: _step1Key,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,10 +341,20 @@ class _OrganizerRegisterScreenState
             keyboard: TextInputType.emailAddress,
             validator: (v) {
               if (v!.trim().isEmpty) return 'Email is required';
-              if (!GetUtils.isEmail(v.trim()))
+              if (!GetUtils.isEmail(v.trim())) {
                 return 'Enter a valid email';
+              }
               return null;
             }),
+          const SizedBox(height: 12),
+          _Field(ctrl: _phoneCtrl, hint: 'Phone Number',
+            icon: Icons.phone_outlined,
+            keyboard: TextInputType.phone,
+            validator: (v) =>
+                v!.trim().isEmpty ? 'Phone number is required' : null),
+          const SizedBox(height: 4),
+          Text('So an admin can reach you directly to verify your account.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
           const SizedBox(height: 12),
 
           // ── Barangay picker ────────────────
@@ -376,10 +404,12 @@ class _OrganizerRegisterScreenState
             validator: (v) {
               if (v!.isEmpty) return 'Password is required';
               if (v.length < 8) return 'At least 8 characters';
-              if (!RegExp(r'[A-Z]').hasMatch(v))
+              if (!RegExp(r'[A-Z]').hasMatch(v)) {
                 return 'Add at least one uppercase letter';
-              if (!RegExp(r'[0-9]').hasMatch(v))
+              }
+              if (!RegExp(r'[0-9]').hasMatch(v)) {
                 return 'Add at least one number';
+              }
               return null;
             }),
           const SizedBox(height: 12),
@@ -396,11 +426,15 @@ class _OrganizerRegisterScreenState
                 color: AppTheme.muted, size: 20)),
             validator: (v) {
               if (v!.isEmpty) return 'Please confirm your password';
-              if (v != _passwordCtrl.text)
+              if (v != _passwordCtrl.text) {
                 return 'Passwords do not match';
+              }
               return null;
             }),
-          const SizedBox(height: 262),
+          const SizedBox(height: 32),
+          // See coach_register_screen.dart — replaces a fixed 262px gap that
+          // only positioned the button correctly on one screen size.
+          const Spacer(),
           _PrimaryButton(label: 'Next', onTap: _nextStep),
         ]),
       ),
@@ -410,7 +444,7 @@ class _OrganizerRegisterScreenState
   // ── Step 2 — Organization Details ─────────
 
   Widget _buildStep2() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -443,6 +477,7 @@ class _OrganizerRegisterScreenState
                       : _sportsOrganized.add(s)));
           }).toList()),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(label: 'Next', onTap: _nextStep),
       ]),
     );
@@ -451,12 +486,16 @@ class _OrganizerRegisterScreenState
   // ── Step 3 — Bio & Credentials ────────────
 
   Widget _buildStep3() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start,
         children: [
         const _StepHeader(emoji: '🪪', title: 'Profile',
-            subtitle: 'Step 3 of 3 — Bio & credentials'),
+            subtitle: 'Step 3 of 3 — Photo, bio & credentials'),
+        const SizedBox(height: 24),
+        // Your public avatar — distinct from the verification document
+        // further down, which is private and only an admin ever sees.
+        ProfilePhotoPicker(image: _profileImage, onTap: _pickImage),
         const SizedBox(height: 24),
         const _SectionLabel(label: 'Bio (Optional)'),
         const SizedBox(height: 8),
@@ -473,7 +512,55 @@ class _OrganizerRegisterScreenState
           hint: 'e.g. PhilSports Accredited, LGU Recognized',
           icon: Icons.workspace_premium_outlined,
           cap: TextCapitalization.sentences),
-        const SizedBox(height: 32),
+        const SizedBox(height: 20),
+        const _SectionLabel(label: 'Verification Photo (Optional)'),
+        const SizedBox(height: 4),
+        Text(
+            'A barangay certificate, business permit, or a photo with '
+            'your team — helps the admin verify you faster.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: _pickVerificationDoc,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(_kRadius),
+                border: Border.all(
+                    color: _verificationDoc != null
+                        ? AppTheme.accent : AppTheme.border,
+                    width: 1.5)),
+            child: _verificationDoc != null
+                ? Row(children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.file(_verificationDoc!,
+                          width: 48, height: 48, fit: BoxFit.cover),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Photo attached',
+                        style: TextStyle(
+                            color: AppTheme.textPrimary, fontSize: 13,
+                            fontWeight: FontWeight.w600))),
+                    const Text('Change', style: TextStyle(
+                        color: AppTheme.accent, fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+                  ])
+                : Row(children: [
+                    Icon(Icons.add_a_photo_outlined,
+                        color: AppTheme.muted, size: 20),
+                    const SizedBox(width: 12),
+                    Text('Attach a photo',
+                        style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+                  ]),
+          ),
+        ),
+        const SizedBox(height: 24),
+        const PrivacyConsentText(),
+        const SizedBox(height: 14),
+        const Spacer(),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))
@@ -498,7 +585,7 @@ class _OrganizerRegisterScreenState
         borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
     focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_kRadius),
-        borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+        borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
   );
 }
 
@@ -519,22 +606,25 @@ class _SuccessView extends StatelessWidget {
           decoration: BoxDecoration(color: AppTheme.accentSurface,
               shape: BoxShape.circle,
               border: Border.all(color: AppTheme.accent, width: 2)),
-          child: const Center(child: Text('📋',
+          child: const Center(child: Text('⏳',
               style: TextStyle(fontSize: 48)))),
         const SizedBox(height: 32),
-        Text('Welcome, Organizer!', textAlign: TextAlign.center,
+        Text('Account Created!', textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.textPrimary, fontSize: 26,
               fontWeight: FontWeight.w900, letterSpacing: -0.5)),
         const SizedBox(height: 12),
         Text(
-          'Hello $firstName! Start creating events and '
-          'recording stats for your athletes.',
+          "Hello $firstName! Your organizer account is being reviewed "
+          "by our team — you'll be notified once you're approved and "
+          "able to start creating events.",
           textAlign: TextAlign.center,
           style: TextStyle(
               color: AppTheme.sub, fontSize: 15, height: 1.6)),
         const Spacer(),
         _PrimaryButton(label: 'Go to Home',
-            onTap: () => Get.offAllNamed('/home')),
+            // See athlete_register_screen.dart — a new account must clear the
+            // verification gate before it can reach /home.
+            onTap: () => Get.offAllNamed(kRouteVerifyEmail)),
         const SizedBox(height: 40),
       ]),
     )),
@@ -629,7 +719,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
           borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

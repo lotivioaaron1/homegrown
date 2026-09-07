@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delete Your Account — Homegrown</title>
+<style>
+  :root {
+    --ink: #16161d; --ink-2: #3f3e4a; --muted: #6e6d7c;
+    --ground: #ffffff; --surface: #f7f7f9; --border: #e3e3e9;
+    --accent: #7a5600; --danger: #b3261e; --danger-wash: #fbeae8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f2f1f5; --ink-2: #c9c7d2; --muted: #9795a3;
+      --ground: #111014; --surface: #1a191f; --border: #2e2d36;
+      --accent: #ffc22e; --danger: #ff8a80; --danger-wash: #2c1614;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 42rem; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+  h1 { font-size: 2rem; line-height: 1.15; margin: 0 0 .5rem; }
+  h2 { font-size: 1.15rem; margin: 2.25rem 0 .75rem; }
+  p, li { color: var(--ink-2); }
+  ul, ol { padding-left: 1.25rem; }
+  li { margin-bottom: .4rem; }
+  .sub { color: var(--muted); margin: 0 0 2rem; }
+  .box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem 1.35rem; margin: 1.5rem 0; }
+  .box.warn { background: var(--danger-wash); border-color: var(--danger); }
+  .box p:first-child { margin-top: 0; }
+  .box p:last-child { margin-bottom: 0; }
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps li {
+    counter-increment: s; position: relative; padding-left: 2.5rem; margin-bottom: 1rem;
+  }
+  .steps li::before {
+    content: counter(s); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--surface); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; font-weight: 700; color: var(--ink);
+  }
+  a { color: var(--accent); }
+  code { background: var(--surface); padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  .mail {
+    display: inline-block; margin-top: .5rem; padding: .7rem 1.1rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; font-weight: 600; text-decoration: none; color: var(--ink);
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Delete your Homegrown account</h1>
+<p class="sub">Two ways to permanently remove your account and personal data.</p>
+
+<h2>Fastest: delete it yourself in the app</h2>
+<p>If you still have Homegrown installed, you can delete your account immediately without waiting for
+anyone:</p>
+<ol class="steps">
+  <li>Open Homegrown and sign in</li>
+  <li>Go to the <strong>Profile</strong> tab</li>
+  <li>Tap <strong>Settings</strong></li>
+  <li>Scroll to the bottom and tap <strong>Delete my account</strong></li>
+  <li>Confirm with your password (or your Google account) and type <code>DELETE</code></li>
+</ol>
+<p>Your account is removed straight away.</p>
+
+<h2>If you have uninstalled the app</h2>
+<p>Email us from <strong>the email address registered to your Homegrown account</strong> — we use it to
+confirm the request is really yours:</p>
+
+<p><a class="mail" href="mailto:[YOUR CONTACT EMAIL]?subject=Homegrown%20account%20deletion%20request">
+[YOUR CONTACT EMAIL]</a></p>
+
+<p>Put <em>"Account deletion request"</em> in the subject line. You do not need to explain why. We will
+confirm once it is done, normally within <strong>7 days</strong>.</p>
+
+<h2>What gets deleted</h2>
+<p>Permanently, with no way to recover it:</p>
+<ul>
+  <li>Your name, email address and phone number</li>
+  <li>Your barangay, bio, and — for athletes — height and weight</li>
+  <li>Your profile photo and portfolio photos</li>
+  <li>Your team logo, if you are a coach</li>
+  <li>Your organizer verification document</li>
+  <li>Your rating history, notifications and team memberships</li>
+  <li>Your sign-in credentials — you will not be able to log back in</li>
+</ul>
+
+<h2>What stays, and why</h2>
+<div class="box warn">
+  <p>Match results, statistics and events that involve other people are kept, with your name
+  permanently replaced by <strong>"Deleted user"</strong>.</p>
+  <p>These records belong to everyone who took part, not only to you. Deleting a match would erase your
+  opponents' game history too, and deleting an event would remove it for every player who joined. Once
+  anonymized, these records no longer identify you.</p>
+</div>
+
+<h2>Is it reversible?</h2>
+<p>No. Deletion is permanent and immediate. Creating a new account with the same email address later
+will not restore any of your previous data, statistics or history.</p>
+
+<h2>Questions</h2>
+<p>See our <a href="privacy-policy.html">Privacy Policy</a>, or email
+<strong>[YOUR CONTACT EMAIL]</strong>.</p>
+
+</main>
+</body>
+</html>

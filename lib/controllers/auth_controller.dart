@@ -6,6 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../services/auth_service.dart';
+import '../services/contact_service.dart';
+import '../utils/auth_routing.dart';
+import '../utils/error_messages.dart';
+import '../utils/onboarding_flag.dart';
 
 class AuthController extends GetxController {
   static AuthController get to => Get.find();
@@ -37,19 +41,40 @@ class AuthController extends GetxController {
       isLoading.value    = true;
       errorMessage.value = '';
 
-      await _authService.signInWithEmail(email, password);
+      final credential = await _authService.signInWithEmail(email, password);
+      final user = credential.user!;
 
-      // Always allow login — unverified users see a
-      // soft reminder banner on the home screen instead
-      // of being blocked from accessing the app.
-      Get.offAllNamed('/home');
+      // This device now belongs to someone with an account, so a later sign-out
+      // must land on /login rather than the intro. SplashScreen used to be the
+      // only writer of this flag and only on a cold start, which missed anyone
+      // who signed in and out without ever relaunching.
+      await markOnboardingComplete();
+
+      // Sign-in still succeeds, but an unverified password account gets no
+      // further than the verification screen. This is an in-app gate, not a
+      // security boundary — a script holding the same credentials bypasses it
+      // entirely. What actually protects contact details is that they no
+      // longer live on the readable user doc (see ContactService and the
+      // users/{uid}/private rule). See landingRoute for why admins and Google
+      // accounts are treated differently.
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      Get.offAllNamed(landingRoute(
+        role: doc.data()?['role'] as String? ?? '',
+        emailVerified: user.emailVerified,
+        hasPasswordProvider:
+            hasPasswordProvider(user.providerData.map((p) => p.providerId)),
+        suspended: doc.data()?['suspended'] == true,
+      ));
 
     } on FirebaseAuthException catch (e) {
-      errorMessage.value = _mapFirebaseError(e.code);
-      _showErrorSnackbar(errorMessage.value);
+      // No snackbar on this path. LoginScreen renders errorMessage inline and
+      // keeps it on screen; a snackbar would say the same thing twice and then
+      // take the half of it that matters — the pointer to Google Sign-In —
+      // away again after three seconds.
+      errorMessage.value = authErrorMessage(e.code) ??
+          'Something went wrong. Please try again.';
     } catch (_) {
       errorMessage.value = 'Something went wrong. Please try again.';
-      _showErrorSnackbar(errorMessage.value);
     } finally {
       isLoading.value = false;
     }
@@ -76,20 +101,28 @@ class AuthController extends GetxController {
         'uid':       uid,
         'firstName': firstName,
         'lastName':  lastName,
-        'email':     email,
         'role':      role,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // Email lives in users/{uid}/private, not on the profile doc every
+      // signed-in account can read — see ContactService.
+      await ContactService.write(uid: uid, email: email);
+
+      // Registration signs the user in, so from here they are a returning user
+      // on this device even if they never finish verifying. Recorded now so
+      // signing out lands them on /login instead of replaying the intro.
+      await markOnboardingComplete();
 
       // Send verification email right after account creation
       await credential.user?.sendEmailVerification();
 
     } on FirebaseAuthException catch (e) {
-      errorMessage.value = _mapFirebaseError(e.code);
-      _showErrorSnackbar(errorMessage.value);
+      errorMessage.value =
+          authErrorMessage(e.code) ?? 'Registration failed. Please try again.';
+      _showErrorSnackbar('Registration Failed', errorMessage.value);
     } catch (_) {
       errorMessage.value = 'Registration failed. Please try again.';
-      _showErrorSnackbar(errorMessage.value);
+      _showErrorSnackbar('Registration Failed', errorMessage.value);
     } finally {
       isLoading.value = false;
     }
@@ -99,10 +132,21 @@ class AuthController extends GetxController {
   // Returns the role string if account already exists with a role set,
   // otherwise returns null (caller should route to role-selection).
 
+  /// Whether the account that just finished a Google sign-in is suspended.
+  ///
+  /// [signInWithGoogle] returns only the role, and uses a null role to mean
+  /// "brand-new account, send them to role selection" — so its return value
+  /// has nowhere to carry suspension. LoginScreen reads this immediately after
+  /// awaiting that call and feeds it to `landingRoute`, which stays the single
+  /// place the landing decision is made. Reset at the start of every attempt
+  /// so a stale true can never outlive the sign-in that set it.
+  bool lastSignInSuspended = false;
+
   Future<String?> signInWithGoogle() async {
     try {
       isGoogleLoading.value = true;
       errorMessage.value    = '';
+      lastSignInSuspended   = false;
 
       final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
@@ -121,6 +165,12 @@ class AuthController extends GetxController {
       final user = userCred.user;
       if (user == null) return null;
 
+      // Before the doc branch on purpose. The first-time path below returns
+      // early to send the user to role selection, and that account is just as
+      // real as an existing one — skipping the mark there would send them back
+      // through onboarding after their next sign-out.
+      await markOnboardingComplete();
+
       final docRef = _firestore.collection('users').doc(user.uid);
       final doc    = await docRef.get();
 
@@ -136,29 +186,50 @@ class AuthController extends GetxController {
           'uid':             user.uid,
           'firstName':       firstName,
           'lastName':        lastName,
-          'email':           user.email ?? '',
           'role':            '',
-          'profileImageUrl': user.photoURL ?? '',
+          // Every avatar in the app reads 'photoUrl' (home, profile,
+          // leaderboard, scout, team). Don't invent a second field name here.
+          'photoUrl':        user.photoURL ?? '',
           'authProvider':    'google',
           'createdAt':       FieldValue.serverTimestamp(),
         });
+        await ContactService.write(uid: user.uid, email: user.email ?? '');
         return null; // No role yet → caller routes to role selection
       }
 
-      final role = doc.data()?['role'] as String? ?? '';
+      // Self-heal accounts created before avatars were standardised on
+      // 'photoUrl': their Google picture went into 'profileImageUrl', which
+      // no screen ever read, so it silently never appeared. One write, on
+      // the first sign-in after this shipped. Email-registered accounts have
+      // nothing to migrate — their old field was always empty.
+      final data = doc.data() ?? {};
+      final legacyUrl = data['profileImageUrl'] as String? ?? '';
+      if ((data['photoUrl'] as String? ?? '').isEmpty && legacyUrl.isNotEmpty) {
+        await docRef.update({'photoUrl': legacyUrl});
+      }
+
+      lastSignInSuspended = data['suspended'] == true;
+
+      final role = data['role'] as String? ?? '';
       return role.isEmpty ? null : role;
 
     } on FirebaseAuthException catch (e) {
-      errorMessage.value = _mapFirebaseError(e.code);
-      _showErrorSnackbar(errorMessage.value);
+      // Like signInWithEmail, this reports through errorMessage alone: its only
+      // caller is LoginScreen, which renders that inline, and a snackbar on top
+      // would duplicate the banner.
+      errorMessage.value = authErrorMessage(e.code) ??
+          'Something went wrong. Please try again.';
       return null;
     } catch (e, st) {
-      // ignore: avoid_print
-      print('GOOGLE SIGN-IN ERROR: $e');
-      // ignore: avoid_print
-      print('STACK TRACE: $st');
-      errorMessage.value = 'Google sign-in failed: $e';
-      _showErrorSnackbar(errorMessage.value);
+      // debugPrint is stripped in release builds; print() is not, and would
+      // leak the raw exception and stack trace to logcat on user devices.
+      debugPrint('GOOGLE SIGN-IN ERROR: $e');
+      debugPrint('STACK TRACE: $st');
+      // The overwhelmingly common cause here is a signing-certificate SHA-1
+      // that isn't registered in Firebase, which surfaces as an opaque
+      // PlatformException. Don't put that in front of the user.
+      errorMessage.value =
+          "Couldn't sign in with Google. Check your connection and try again.";
       return null;
     } finally {
       isGoogleLoading.value = false;
@@ -185,38 +256,14 @@ class AuthController extends GetxController {
     Get.offAllNamed('/splash');
   }
 
-  // ── Error mapping ─────────────────────────────
+  // ── Error reporting ───────────────────────────
+  // Code-to-message mapping lives in utils/error_messages.dart, shared with the
+  // three role register screens and forgot-password. See the note on
+  // authErrorMessage for why several codes deliberately share one message.
 
-  String _mapFirebaseError(String code) {
-    switch (code) {
-      case 'user-not-found':
-        return 'No account found with this email.';
-      case 'wrong-password':
-        return 'Incorrect password. Please try again.';
-      case 'invalid-email':
-        return 'Please enter a valid email address.';
-      case 'email-already-in-use':
-        return 'An account already exists with this email.';
-      case 'weak-password':
-        return 'Password is too weak. Use at least 8 characters.';
-      case 'user-disabled':
-        return 'This account has been disabled.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please try again later.';
-      case 'network-request-failed':
-        return 'Network error. Check your connection.';
-      case 'invalid-credential':
-        return 'Invalid credentials. Please try again.';
-      case 'account-exists-with-different-credential':
-        return 'An account already exists with a different sign-in method.';
-      default:
-        return 'Something went wrong. Please try again.';
-    }
-  }
-
-  void _showErrorSnackbar(String message) {
+  void _showErrorSnackbar(String title, String message) {
     Get.snackbar(
-      'Sign In Failed',
+      title,
       message,
       snackPosition:   SnackPosition.BOTTOM,
       backgroundColor: const Color(0xFF2A1A1A),

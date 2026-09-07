@@ -1,0 +1,96 @@
+{
+  "indexes": [
+    {
+      "//": "RankingService.cityRank: equality on role plus a range on points. A range filter alongside an equality filter always needs a composite index — this is the one the aggregation introduced.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "points", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "Leaderboard filtered to one sport, and Scout's default view.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "primarySports", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "//": "Scout with the 'open to recruitment only' toggle on.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "primarySports", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "openToRecruitment", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "Recent activity feed and the per-athlete stat averages, which now order by recency before applying their limit.",
+      "collectionGroup": "stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "athleteId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "MediaService.watch filtered to photos or videos: equality on type alongside the createdAt ordering. Created in the console rather than here, so `firebase deploy` kept offering to delete it as an unknown index — declaring it is what stops that prompt. COLLECTION scope, not COLLECTION_GROUP: every read is scoped to one user's own users/{uid}/media path.",
+      "collectionGroup": "media",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "Venue locator: upcoming public events.",
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "isPublic", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "The organizer's tournament list, newest first. Bracket slots need no index of their own — a bracket is at most 15 documents, read whole and ordered client-side.",
+      "collectionGroup": "tournaments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "Unread-notification lookups for the badge and 'mark all read'.",
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "The super-admin overview's 'Recent activity' list: one user's notifications, newest first. Until the admin console existed nothing ordered this collection by time — the home-screen bell reads it unordered.",
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "The admin console's report queue, newest first. Covers both tabs: the Open tab filters status == 'open', the Closed tab uses whereIn over the two closed values, and an 'in' filter uses the same index as an equality one. The duplicate-report check in the report sheet needs no index — equality-only queries are served by merging single-field indexes.",
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

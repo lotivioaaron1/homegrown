@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_messages.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -40,9 +41,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       await FirebaseAuth.instance.sendPasswordResetEmail(
         email: _emailCtrl.text.trim(),
       );
-      setState(() { _emailSent = true; });
-      _startCooldown();
+      _showSent();
     } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        _showSent();
+        return;
+      }
       _snack('Error', _mapError(e.code), isError: true);
     } catch (e) {
       _snack('Error', 'Something went wrong. Please try again.',
@@ -63,10 +67,34 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _snack('Email Sent ✉️',
           'A new reset link was sent to ${_emailCtrl.text.trim()}');
     } on FirebaseAuthException catch (e) {
+      // Same reasoning as _sendReset: never confirm or deny that the address
+      // has an account. Restart the cooldown so repeated taps cannot be timed
+      // to tell the two outcomes apart either.
+      if (e.code == 'user-not-found') {
+        _startCooldown();
+        _snack('Email Sent ✉️',
+            'A new reset link was sent to ${_emailCtrl.text.trim()}');
+        return;
+      }
       _snack('Error', _mapError(e.code), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Show the "check your email" confirmation.
+  ///
+  /// Reached both on a real send and on `user-not-found`. A Google-only
+  /// account holds no password credential to reset, so Firebase may refuse
+  /// outright — and the old "No account found with this email." was then a
+  /// flat lie, since the account plainly exists and signs in through
+  /// "Continue with Google" every day. It was also an enumeration oracle for
+  /// addresses that genuinely have no account. Both cases now land here, and
+  /// the card explains the Google one so nobody sits waiting on mail that
+  /// cannot arrive.
+  void _showSent() {
+    setState(() => _emailSent = true);
+    _startCooldown();
   }
 
   void _startCooldown() {
@@ -79,18 +107,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
   }
 
-  String _mapError(String code) {
-    switch (code) {
-      case 'user-not-found':
-        return 'No account found with this email.';
-      case 'invalid-email':
-        return 'Please enter a valid email address.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please try again later.';
-      default:
-        return 'Failed to send reset email. Please try again.';
-    }
-  }
+  /// `user-not-found` never reaches here — both callers treat it as a send.
+  String _mapError(String code) =>
+      authErrorMessage(code) ?? 'Failed to send reset email. Please try again.';
 
   void _snack(String t, String m, {bool isError = false}) {
     Get.snackbar(t, m,
@@ -179,7 +198,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             color:  AppTheme.accentSurface,
                             shape:  BoxShape.circle,
                             border: Border.all(color: AppTheme.accent, width: 2)),
-                          child: Center(
+                          child: const Center(
                               child: Icon(LucideIcons.lock,
                                   color: AppTheme.accent, size: 36)),
                         ),
@@ -246,10 +265,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                 color: _kErrorRed, fontSize: 12),
                           ),
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty)
+                            if (v == null || v.trim().isEmpty) {
                               return 'Email is required';
-                            if (!GetUtils.isEmail(v.trim()))
+                            }
+                            if (!GetUtils.isEmail(v.trim())) {
                               return 'Enter a valid email address';
+                            }
                             return null;
                           },
                         ),
@@ -339,12 +360,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       Container(
                         width: 88, height: 88,
                         decoration: BoxDecoration(
-                          color:  const Color(0xFF0D2E20),
+                          color:  AppTheme.successSurface,
                           shape:  BoxShape.circle,
-                          border: Border.all(color: AppTheme.success, width: 2)),
+                          border: Border.all(
+                              color: AppTheme.successText, width: 2)),
                         child: Center(
                             child: Icon(LucideIcons.checkCheck,
-                                color: AppTheme.success, size: 36)),
+                                color: AppTheme.successText, size: 36)),
                       ),
 
                       const SizedBox(height: 28),
@@ -367,7 +389,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       Text(
                         _emailCtrl.text.trim(),
                         textAlign: TextAlign.center,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color:      AppTheme.accent,
                           fontSize:   15,
                           fontWeight: FontWeight.w700)),
@@ -381,22 +403,35 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           color:        AppTheme.card,
                           borderRadius: BorderRadius.circular(16),
                           border:       Border.all(color: AppTheme.border)),
-                        child: Column(children: [
+                        child: const Column(children: [
                           _InfoRow(
                             icon:  LucideIcons.inbox,
                             text:  'Check your email inbox (and spam folder)',
                           ),
-                          const SizedBox(height: 12),
+                          SizedBox(height: 12),
                           _InfoRow(
                             icon:  LucideIcons.mousePointerClick,
                             text:  'Click the reset link in the email',
                           ),
-                          const SizedBox(height: 12),
+                          SizedBox(height: 12),
                           _InfoRow(
                             // Lucide has no exact "lock-reset" icon — a
                             // key stands in for "get a new password".
                             icon:  LucideIcons.keyRound,
                             text:  'Create a new password and sign in',
+                          ),
+                          SizedBox(height: 12),
+                          // Last, because it applies to a minority of users
+                          // and the three steps above are the common path.
+                          // It has to be here at all because this card is
+                          // now also what a Google-only account sees: no
+                          // reset mail is coming for one, and without this
+                          // they would keep refreshing an inbox for it.
+                          _InfoRow(
+                            icon:  LucideIcons.info,
+                            text:  'Signed up with Google? No email will '
+                                   'arrive — go back and use Continue with '
+                                   'Google.',
                           ),
                         ]),
                       ),
@@ -423,7 +458,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: _isLoading
-                              ? SizedBox(
+                              ? const SizedBox(
                                   width: 18, height: 18,
                                   child: CircularProgressIndicator(
                                       strokeWidth: 2, color: AppTheme.accent))

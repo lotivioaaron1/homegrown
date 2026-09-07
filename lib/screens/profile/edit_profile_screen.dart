@@ -7,6 +7,11 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../services/storage_service.dart';
+import '../../constants/sport_positions.dart';
+import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/position_picker_sheet.dart';
+import '../../utils/error_messages.dart';
+import '../../utils/sports.dart';
 
 const _kRadius = 14.0;
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
@@ -29,14 +34,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   final _firstNameCtrl = TextEditingController();
   final _lastNameCtrl = TextEditingController();
-  final _positionCtrl = TextEditingController();
+  String _position = '';
   final _heightCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
-  final _barangayCtrl = TextEditingController();
+  String? _barangay;
   final _bioCtrl = TextEditingController();
-  String _sport = '';
+  List<String> _sports = [];
   String _experience = '';
   bool _openToRecruitment = false;
+  String _role = '';
+  List<String> _sportsOrganized = [];
+
+  /// Coaches register their experience as `yearsOfExperience` and their
+  /// profile view reads that field back; athletes use `yearsOfPlaying`.
+  /// This screen used to read and write `yearsOfPlaying` for everyone, so a
+  /// coach's Experience always loaded blank and saving it silently did nothing.
+  String get _experienceField =>
+      _role == 'coach' ? 'yearsOfExperience' : 'yearsOfPlaying';
 
   @override
   void initState() {
@@ -48,10 +62,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     _firstNameCtrl.dispose();
     _lastNameCtrl.dispose();
-    _positionCtrl.dispose();
     _heightCtrl.dispose();
     _weightCtrl.dispose();
-    _barangayCtrl.dispose();
     _bioCtrl.dispose();
     super.dispose();
   }
@@ -63,18 +75,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           .doc(_uid)
           .get();
       final data = doc.data() ?? {};
+      _role = data['role'] as String? ?? '';
+      _sportsOrganized =
+          (data['sportsOrganized'] as List?)?.cast<String>().toList() ?? [];
       _firstNameCtrl.text = data['firstName'] as String? ?? '';
       _lastNameCtrl.text = data['lastName'] as String? ?? '';
-      _positionCtrl.text = data['position'] as String? ?? '';
+      // Kept verbatim even when it's legacy free text that isn't in
+      // kSportPositions: the picker is how positions get corrected, but
+      // loading this screen shouldn't silently erase a value the user never
+      // touched. The UI flags an unrecognized one instead.
+      _position = data['position'] as String? ?? '';
       _heightCtrl.text = data['heightCm']?.toString() ?? '';
       _weightCtrl.text = data['weightKg']?.toString() ?? '';
-      _barangayCtrl.text = data['barangay'] as String? ?? '';
+      _barangay = data['barangay'] as String?;
       _bioCtrl.text = data['bio'] as String? ?? '';
-      _experience = data['yearsOfPlaying'] as String? ?? '';
+      // Reads _role, which is assigned above — keep that ordering.
+      _experience = data[_experienceField] as String? ?? '';
       _openToRecruitment = data['openToRecruitment'] as bool? ?? false;
       _existingPhotoUrl = data['photoUrl'] as String?;
-      final sports = (data['primarySports'] as List?)?.cast<String>();
-      _sport = sports != null && sports.isNotEmpty ? sports.first : '';
+      _sports = sportsOf(data);
     } catch (_) {
       // fields just stay blank; user can fill them in
     } finally {
@@ -111,14 +130,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await FirebaseFirestore.instance.collection('users').doc(_uid).update({
         'firstName': _firstNameCtrl.text.trim(),
         'lastName': _lastNameCtrl.text.trim(),
-        'position': _positionCtrl.text.trim(),
-        'heightCm': _heightCtrl.text.trim(),
-        'weightKg': _weightCtrl.text.trim(),
+        // Registration writes `fullName` and a lot of screens (leaderboard,
+        // events, admin review, the team carousel) read it in preference to
+        // the name parts. This screen used to leave it untouched, so renaming
+        // yourself changed first/last but every one of those screens kept
+        // showing whoever you used to be.
+        'fullName': '${_firstNameCtrl.text.trim()} '
+            '${_lastNameCtrl.text.trim()}'.trim(),
+        // Athlete-only, like openToRecruitment below: coaches and organizers
+        // never see these fields, so saving their profile shouldn't stamp
+        // three blank athlete values onto their document.
+        if (_role == 'athlete') ...{
+          'position': _position,
+          'heightCm': _heightCtrl.text.trim(),
+          'weightKg': _weightCtrl.text.trim(),
+        },
         'bio': _bioCtrl.text.trim(),
-        'barangay': _barangayCtrl.text.trim(),
-        'yearsOfPlaying': _experience,
-        'openToRecruitment': _openToRecruitment,
-        if (_sport.isNotEmpty) 'primarySports': [_sport],
+        'barangay': _barangay ?? '',
+        _experienceField: _experience,
+        // Recruitment is an athlete-only signal; coaches and organizers don't
+        // see the toggle, so don't write a field they can't control.
+        if (_role == 'athlete') 'openToRecruitment': _openToRecruitment,
+        // Left untouched when nothing is selected, rather than cleared: an
+        // empty list would hide an athlete from every coach's Scout, and
+        // stop a coach from scouting at all.
+        if (_sports.isNotEmpty) 'primarySports': _sports,
+        if (_role == 'organizer') 'sportsOrganized': _sportsOrganized,
         if (photoUrl != null) 'photoUrl': photoUrl,
       });
 
@@ -135,7 +172,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         duration: const Duration(seconds: 2),
       );
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -213,33 +250,38 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 8),
                 _field(_lastNameCtrl, 'e.g. Doe'),
                 const SizedBox(height: 14),
-                _label('Position'),
-                const SizedBox(height: 8),
-                _field(_positionCtrl, 'e.g. Setter'),
-                const SizedBox(height: 14),
-                Row(children: [
-                  Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _label('Height (cm)'),
-                        const SizedBox(height: 8),
-                        _field(_heightCtrl, '175',
-                            keyboardType: TextInputType.number),
-                      ])),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _label('Weight (kg)'),
-                        const SizedBox(height: 8),
-                        _field(_weightCtrl, '70',
-                            keyboardType: TextInputType.number),
-                      ])),
-                ]),
-                const SizedBox(height: 14),
+                // Athletes only. A coach has no playing position, height or
+                // weight — only athlete registration collects these, and only
+                // the athlete section of Settings displays them.
+                if (_role == 'athlete') ...[
+                  _label('Position'),
+                  const SizedBox(height: 8),
+                  _buildPositionPicker(),
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Height (cm)'),
+                          const SizedBox(height: 8),
+                          _field(_heightCtrl, '175',
+                              keyboardType: TextInputType.number),
+                        ])),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Weight (kg)'),
+                          const SizedBox(height: 8),
+                          _field(_weightCtrl, '70',
+                              keyboardType: TextInputType.number),
+                        ])),
+                  ]),
+                  const SizedBox(height: 14),
+                ],
                 _label('Barangay'),
                 const SizedBox(height: 8),
-                _field(_barangayCtrl, 'e.g. Legazpi'),
+                _buildBarangayPicker(),
                 const SizedBox(height: 14),
                 _label('Bio'),
                 const SizedBox(height: 8),
@@ -266,19 +308,63 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(_kRadius),
                         borderSide:
-                            BorderSide(color: AppTheme.accent, width: 1.5)),
+                            const BorderSide(color: AppTheme.accent, width: 1.5)),
                   ),
                 ),
                 const SizedBox(height: 20),
                 Align(
                     alignment: Alignment.centerLeft,
-                    child: _label('Sport')),
+                    child: _label(_role == 'coach'
+                        ? 'Sport You Coach'
+                        : 'Sport(s) You Play')),
+                const SizedBox(height: 4),
+                if (_role == 'coach')
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                        'Scouting only shows athletes from this sport.',
+                        style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                  ),
                 const SizedBox(height: 8),
+                // Single-select for coaches (one coach, one sport — see
+                // coach_register_screen.dart), multi-select for athletes, who
+                // may genuinely play several.
+                //
+                // The coach arm deliberately does NOT truncate on load. An
+                // older version of this screen was single-choice and saved
+                // `[_sport]`, so a coach who already had two sports silently
+                // lost one by editing anything on this page — and with
+                // scouting gated on this field, that cut them off from half
+                // their athletes. Here a legacy two-sport coach sees both
+                // chips lit, because that is what is stored; it collapses to
+                // one only when they tap, which is a choice they made.
                 Wrap(
                   spacing: 8,
+                  runSpacing: 8,
                   children: _kSports
-                      .map((s) => _chip(s, _sport == s,
-                          () => setState(() => _sport = s)))
+                      .map((s) => _chip(
+                          s,
+                          _sports.contains(s),
+                          () => setState(() {
+                                if (_role == 'coach') {
+                                  _sports = [s];
+                                } else if (_sports.contains(s)) {
+                                  _sports.remove(s);
+                                } else {
+                                  _sports.add(s);
+                                }
+                                // Dropping a sport can orphan the position
+                                // picked under it. Only clears a position the
+                                // picker itself produced — a legacy free-text
+                                // value is never in the list, and wiping it on
+                                // an unrelated sport tap would be the silent
+                                // data loss the load path avoids.
+                                if (_position.isNotEmpty &&
+                                    !isKnownPosition(_position, _sports) &&
+                                    isCatalogPosition(_position)) {
+                                  _position = '';
+                                }
+                              })))
                       .toList(),
                 ),
                 const SizedBox(height: 20),
@@ -294,35 +380,65 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           () => setState(() => _experience = e)))
                       .toList(),
                 ),
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                      color: AppTheme.card,
-                      borderRadius: BorderRadius.circular(_kRadius),
-                      border: Border.all(color: AppTheme.border)),
-                  child: Row(children: [
-                    Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text('Open to Recruitment',
-                              style: TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700)),
-                          Text('Let coaches know you\'re available',
-                              style: TextStyle(
-                                  color: AppTheme.sub, fontSize: 11)),
-                        ])),
-                    Switch(
-                      value: _openToRecruitment,
-                      activeColor: AppTheme.accent,
-                      onChanged: (v) =>
-                          setState(() => _openToRecruitment = v),
-                    ),
-                  ]),
-                ),
+                if (_role == 'organizer') ...[
+                  const SizedBox(height: 20),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: _label('Sports You Organize')),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                        'Event creation only offers sports selected here.',
+                        style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _kSports
+                        .map((s) => _chip(
+                            s,
+                            _sportsOrganized.contains(s),
+                            () => setState(() => _sportsOrganized.contains(s)
+                                ? _sportsOrganized.remove(s)
+                                : _sportsOrganized.add(s))))
+                        .toList(),
+                  ),
+                ],
+                // Athletes only — a coach or organizer is never the one being
+                // recruited, so the toggle would be meaningless to them.
+                if (_role == 'athlete') ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(_kRadius),
+                        border: Border.all(color: AppTheme.border)),
+                    child: Row(children: [
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text('Open to Recruitment',
+                                style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700)),
+                            Text('Let coaches know you\'re available',
+                                style: TextStyle(
+                                    color: AppTheme.sub, fontSize: 11)),
+                          ])),
+                      Switch(
+                        value: _openToRecruitment,
+                        activeThumbColor: AppTheme.accent,
+                        onChanged: (v) =>
+                            setState(() => _openToRecruitment = v),
+                      ),
+                    ]),
+                  ),
+                ],
                 const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,
@@ -330,7 +446,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   child: ElevatedButton(
                     onPressed: _isSaving ? null : _save,
                     child: _isSaving
-                        ? SizedBox(
+                        ? const SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
@@ -355,9 +471,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         Container(
           width: 104,
           height: 104,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [AppTheme.accent, AppTheme.accent2]),
@@ -428,9 +544,96 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(_kRadius),
-            borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+            borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       ),
     );
+  }
+
+  Widget _buildBarangayPicker() {
+    final hasValue = _barangay != null && _barangay!.isNotEmpty;
+    return GestureDetector(
+      onTap: () async {
+        final picked =
+            await showBarangayPickerSheet(context, selected: _barangay);
+        if (picked != null) setState(() => _barangay = picked);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(_kRadius),
+            border: Border.all(
+                color: hasValue ? AppTheme.accent : AppTheme.border,
+                width: 1.5)),
+        child: Row(children: [
+          Icon(Icons.location_on_outlined,
+              color: hasValue ? AppTheme.accent : AppTheme.muted, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(hasValue ? _barangay! : 'Select Barangay',
+                  style: TextStyle(
+                      color: hasValue ? AppTheme.textPrimary : AppTheme.muted,
+                      fontSize: 14))),
+          Icon(Icons.keyboard_arrow_down_rounded,
+              color: AppTheme.muted, size: 20),
+        ]),
+      ),
+    );
+  }
+
+  /// Twin of [_buildBarangayPicker], for the athlete-only Position field.
+  ///
+  /// Two states the barangay picker doesn't have: the tile is inert until a
+  /// sport is selected (the sheet is per-sport, so there'd be nothing to
+  /// show), and a stored value that isn't in the catalog gets a note under it.
+  /// That note is the whole legacy story — accounts created before the picker
+  /// keep their hand-typed position until the owner replaces it here.
+  Widget _buildPositionPicker() {
+    final hasValue = _position.isNotEmpty;
+    final hasSport = _sports.isNotEmpty;
+    final isLegacy = hasValue && !isCatalogPosition(_position);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      GestureDetector(
+        onTap: !hasSport
+            ? null
+            : () async {
+                final picked = await showPositionPickerSheet(context,
+                    sports: _sports, selected: _position);
+                if (picked != null) setState(() => _position = picked);
+              },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(_kRadius),
+              border: Border.all(
+                  color: hasValue ? AppTheme.accent : AppTheme.border,
+                  width: 1.5)),
+          child: Row(children: [
+            Icon(Icons.sports_basketball_outlined,
+                color: hasValue ? AppTheme.accent : AppTheme.muted, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Text(
+                    hasValue
+                        ? _position
+                        : hasSport
+                            ? 'Select Position'
+                            : 'Select your sport first',
+                    style: TextStyle(
+                        color: hasValue ? AppTheme.textPrimary : AppTheme.muted,
+                        fontSize: 14))),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                color: AppTheme.muted, size: 20),
+          ]),
+        ),
+      ),
+      if (isLegacy) ...[
+        const SizedBox(height: 6),
+        Text('Not a recognized position — tap to update.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+      ],
+    ]);
   }
 
   Widget _chip(String label, bool sel, VoidCallback onTap) {

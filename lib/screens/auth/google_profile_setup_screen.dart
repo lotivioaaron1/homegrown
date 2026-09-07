@@ -5,8 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import '../../constants/sport_positions.dart';
+import '../../services/contact_service.dart';
 import '../../theme/app_theme.dart';
-import '../../constants/legazpi_barangays.dart';
+import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/position_picker_sheet.dart';
+import '../../widgets/fill_viewport_scroll.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -41,12 +46,12 @@ class _GoogleProfileSetupScreenState
 
   // ── Athlete ───────────────────────────────
   final List<String> _selectedSports    = [];
-  final _positionCtrl                   = TextEditingController();
+  String _position                      = '';
   String _yearsOfPlaying                = '';
   final _heightCtrl                     = TextEditingController();
   final _weightCtrl                     = TextEditingController();
   final _bioCtrl                        = TextEditingController();
-  bool _isPublic           = true;
+  final bool _isPublic           = true;
   bool _openToRecruitment  = true;
 
   // ── Coach ─────────────────────────────────
@@ -65,7 +70,7 @@ class _GoogleProfileSetupScreenState
 
   @override
   void dispose() {
-    for (final c in [_positionCtrl, _heightCtrl, _weightCtrl,
+    for (final c in [_heightCtrl, _weightCtrl,
       _bioCtrl, _teamOrgCtrl, _coachBioCtrl, _certCtrl,
       _orgNameCtrl, _orgBioCtrl]) { c.dispose(); }
     super.dispose();
@@ -86,94 +91,18 @@ class _GoogleProfileSetupScreenState
 
   // ── Barangay picker ───────────────────────
 
-  void _pickBarangay() {
-    final search = TextEditingController();
-    List<String> filtered = List.from(kLegazpiBarangays);
+  Future<void> _pickBarangay() async {
+    final picked = await showBarangayPickerSheet(context,
+        selected: _selectedBarangay);
+    if (picked != null) setState(() => _selectedBarangay = picked);
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setModal) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize:     0.92,
-          builder: (_, ctrl) => Column(children: [
-            const SizedBox(height: 12),
-            Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(2))),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Text('Select Barangay', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 16,
-                  fontWeight: FontWeight.w800)),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: search,
-                autofocus: true,
-                style: TextStyle(color: AppTheme.textPrimary),
-                onChanged: (q) => setModal(() {
-                  filtered = kLegazpiBarangays
-                      .where((b) => b.toLowerCase()
-                          .contains(q.toLowerCase()))
-                      .toList();
-                }),
-                decoration: InputDecoration(
-                  hintText: 'Search barangay...',
-                  hintStyle: TextStyle(color: AppTheme.muted),
-                  prefixIcon: Icon(Icons.search_rounded,
-                      color: AppTheme.muted, size: 20),
-                  filled: true, fillColor: AppTheme.bg,
-                  contentPadding: const EdgeInsets.symmetric(
-                      vertical: 12, horizontal: 16),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.border)),
-                  focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: AppTheme.accent, width: 1.5)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: ListView.builder(
-              controller: ctrl,
-              itemCount: filtered.length,
-              itemBuilder: (_, i) {
-                final b   = filtered[i];
-                final sel = b == _selectedBarangay;
-                return ListTile(
-                  dense: true,
-                  title: Text(b, style: TextStyle(
-                    color: sel
-                        ? AppTheme.accentText : AppTheme.textPrimary,
-                    fontWeight:
-                        sel ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 14)),
-                  trailing: sel
-                      ? Icon(Icons.check_circle_rounded,
-                          color: AppTheme.accent, size: 20) : null,
-                  onTap: () {
-                    setState(() => _selectedBarangay = b);
-                    Navigator.pop(context);
-                  },
-                );
-              },
-            )),
-          ]),
-        ),
-      ),
-    );
+  // ── Position picker ───────────────────────
+
+  Future<void> _pickPosition() async {
+    final picked = await showPositionPickerSheet(context,
+        sports: _selectedSports, selected: _position);
+    if (picked != null) setState(() => _position = picked);
   }
 
   // ── Validation ────────────────────────────
@@ -183,7 +112,9 @@ class _GoogleProfileSetupScreenState
     if (_step == 1) {
       if (_selectedBarangay.isEmpty) return false;
       if (_role == 'athlete') {
-        return _selectedSports.isNotEmpty && _yearsOfPlaying.isNotEmpty;
+        return _selectedSports.isNotEmpty &&
+            _position.isNotEmpty &&
+            _yearsOfPlaying.isNotEmpty;
       }
       if (_role == 'coach') {
         return _coachSports.isNotEmpty &&
@@ -218,14 +149,15 @@ class _GoogleProfileSetupScreenState
     try {
       Map<String, dynamic> data = {
         'uid':       _uid,
-        'email':     _email,
         'firstName': _firstName,
         'lastName':  _lastName,
         'fullName':  _displayName,
         'role':      _role,
         'barangay':  _selectedBarangay,
         'authProvider': 'google',
-        'profileImageUrl':
+        // Every avatar in the app reads 'photoUrl' (home, profile,
+        // leaderboard, scout, team). Don't invent a second field name here.
+        'photoUrl':
             FirebaseAuth.instance.currentUser?.photoURL ?? '',
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -233,7 +165,7 @@ class _GoogleProfileSetupScreenState
       if (_role == 'athlete') {
         data.addAll({
           'primarySports':     _selectedSports,
-          'position':          _positionCtrl.text.trim(),
+          'position':          _position,
           'yearsOfPlaying':    _yearsOfPlaying,
           'heightCm':          _heightCtrl.text.trim(),
           'weightKg':          _weightCtrl.text.trim(),
@@ -262,10 +194,13 @@ class _GoogleProfileSetupScreenState
 
       await FirebaseFirestore.instance
           .collection('users').doc(_uid).update(data);
+      // Email is kept off the publicly-readable profile doc — see
+      // ContactService.
+      await ContactService.write(uid: _uid, email: _email);
 
       Get.offAllNamed('/home');
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -291,6 +226,12 @@ class _GoogleProfileSetupScreenState
         _buildProgressBar(),
         Expanded(child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
+          // Pin steps to the top — see coach_register_screen.dart for why
+          // the default centred layout made short steps float mid-screen.
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...previous, if (current != null) current],
+          ),
           transitionBuilder: (child, anim) => SlideTransition(
             position: Tween<Offset>(
                 begin: const Offset(0.08, 0), end: Offset.zero)
@@ -345,7 +286,7 @@ class _GoogleProfileSetupScreenState
   // ── Step 1 — Choose Role ──────────────────
 
   Widget _buildStep1() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // Welcome header
@@ -419,7 +360,7 @@ class _GoogleProfileSetupScreenState
         ),
 
         const SizedBox(height: 32),
-
+        const Spacer(),
         _PrimaryButton(
           label:  'Continue',
           onTap:  _canProceed() ? _nextStep : null),
@@ -441,7 +382,7 @@ class _GoogleProfileSetupScreenState
   // ── Athlete details ───────────────────────
 
   Widget _buildAthleteDetails() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionHeader(emoji: '🏃', title: 'Athlete Details',
@@ -461,17 +402,24 @@ class _GoogleProfileSetupScreenState
           children: _kSports.map((s) {
             final sel = _selectedSports.contains(s);
             return _Chip(label: s, sel: sel,
-              onTap: () => setState(() =>
-                  sel ? _selectedSports.remove(s)
-                      : _selectedSports.add(s)));
+              onTap: () => setState(() {
+                sel ? _selectedSports.remove(s)
+                    : _selectedSports.add(s);
+                // Dropping a sport can orphan the position picked under it —
+                // a Setter who stops playing volleyball isn't a Setter.
+                if (!isKnownPosition(_position, _selectedSports)) {
+                  _position = '';
+                }
+              }));
           }).toList()),
         const SizedBox(height: 16),
 
         const _Label('Position / Role'),
         const SizedBox(height: 8),
-        _Field(ctrl: _positionCtrl,
-            hint: 'e.g. Point Guard, Setter',
-            icon: Icons.sports_basketball_outlined),
+        _PositionButton(
+          value: _position,
+          hasSport: _selectedSports.isNotEmpty,
+          onTap: _pickPosition),
         const SizedBox(height: 16),
 
         const _Label('Years of Playing'),
@@ -516,6 +464,7 @@ class _GoogleProfileSetupScreenState
               onTap: () => setState(() => _openToRecruitment = false)),
         ]),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(
           label: _isLoading ? 'Saving...' : 'Finish Setup',
           onTap: _isLoading ? null : _nextStep),
@@ -526,7 +475,7 @@ class _GoogleProfileSetupScreenState
   // ── Coach details ─────────────────────────
 
   Widget _buildCoachDetails() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionHeader(emoji: '🧢', title: 'Coaching Info',
@@ -538,14 +487,17 @@ class _GoogleProfileSetupScreenState
         _BarangayButton(value: _selectedBarangay, onTap: _pickBarangay),
         const SizedBox(height: 16),
 
-        const _Label('Sport(s) You Coach'),
+        const _Label('Sport You Coach'),
         const SizedBox(height: 8),
+        // Single-select — see coach_register_screen.dart for why a coach gets
+        // one sport. Still written as a one-element list, so `primarySports`
+        // keeps the same shape every consumer already queries.
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
             final sel = _coachSports.contains(s);
             return _Chip(label: s, sel: sel,
               onTap: () => setState(() =>
-                  sel ? _coachSports.remove(s) : _coachSports.add(s)));
+                  _coachSports..clear()..add(s)));
           }).toList()),
         const SizedBox(height: 16),
 
@@ -573,7 +525,7 @@ class _GoogleProfileSetupScreenState
             hint: 'e.g. Legazpi City Basketball Team',
             icon: Icons.groups_outlined),
         const SizedBox(height: 32),
-
+        const Spacer(),
         _PrimaryButton(
           label: _isLoading ? 'Saving...' : 'Finish Setup',
           onTap: _isLoading ? null : _nextStep),
@@ -584,7 +536,7 @@ class _GoogleProfileSetupScreenState
   // ── Organizer details ─────────────────────
 
   Widget _buildOrganizerDetails() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionHeader(emoji: '📋', title: 'Organization Info',
@@ -622,7 +574,7 @@ class _GoogleProfileSetupScreenState
                   sel ? _orgSports.remove(s) : _orgSports.add(s)));
           }).toList()),
         const SizedBox(height: 32),
-
+        const Spacer(),
         _PrimaryButton(
           label: _isLoading ? 'Saving...' : 'Finish Setup',
           onTap: _isLoading ? null : _nextStep),
@@ -676,7 +628,7 @@ class _RoleCard extends StatelessWidget {
               color: AppTheme.sub, fontSize: 12, height: 1.4)),
         ])),
         if (isSelected)
-          Icon(Icons.check_circle_rounded,
+          const Icon(Icons.check_circle_rounded,
               color: AppTheme.accent, size: 22),
       ]),
     ),
@@ -747,6 +699,50 @@ class _BarangayButton extends StatelessWidget {
   );
 }
 
+/// The position field, styled as a twin of [_BarangayButton] so the two
+/// pickers in this form look alike. Kept as its own widget rather than adding
+/// parameters to [_BarangayButton], to avoid touching that widget's existing
+/// call sites.
+///
+/// [hasSport] gates the tap: the sheet lists positions per sport, so there is
+/// nothing to show until at least one sport is selected above.
+class _PositionButton extends StatelessWidget {
+  final String value;
+  final bool hasSport;
+  final VoidCallback onTap;
+  const _PositionButton(
+      {required this.value, required this.hasSport, required this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: hasSport ? onTap : null,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(_kRadius),
+        border: Border.all(
+          color: value.isNotEmpty ? AppTheme.accent : AppTheme.border,
+          width: 1.5)),
+      child: Row(children: [
+        Icon(Icons.sports_basketball_outlined,
+          color: value.isNotEmpty ? AppTheme.accent : AppTheme.muted,
+          size: 20),
+        const SizedBox(width: 12),
+        Expanded(child: Text(
+          value.isNotEmpty
+              ? value
+              : hasSport ? 'Select Position' : 'Select your sport first',
+          style: TextStyle(
+            color: value.isNotEmpty
+                ? AppTheme.textPrimary : AppTheme.muted,
+            fontSize: 14))),
+        Icon(Icons.keyboard_arrow_down_rounded,
+            color: AppTheme.muted, size: 20),
+      ]),
+    ),
+  );
+}
+
 class _Chip extends StatelessWidget {
   final String label; final bool sel; final VoidCallback onTap;
   const _Chip({required this.label, required this.sel,
@@ -798,7 +794,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
     ),
   );
 }

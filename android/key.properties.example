@@ -1,0 +1,23 @@
+# Copy this file to android/key.properties and fill in your own values.
+# key.properties is gitignored — never commit the real one, and never commit
+# the .jks file it points at.
+#
+# Generate the keystore with (run from anywhere OUTSIDE this repo):
+#
+#   keytool -genkey -v -keystore upload-keystore.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# On Windows, keytool ships with the Android Studio JDK:
+#   "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe"
+#
+# Back the .jks up in two places you control and put the passwords in a
+# password manager. This key cannot be rotated: lose it and the app can never
+# be updated again under com.homegrown.homegrown.
+
+storePassword=yourStorePassword
+keyPassword=yourKeyPassword
+keyAlias=upload
+
+# Absolute path to the keystore, forward slashes even on Windows.
+# Keep it outside the repository.
+storeFile=C:/Users/you/keys/homegrown-upload-keystore.jks

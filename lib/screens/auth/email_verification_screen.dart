@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_messages.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({super.key});
@@ -80,7 +81,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       await FirebaseAuth.instance.currentUser?.sendEmailVerification();
       Get.snackbar(
         'Email Sent ✉️',
-        'A new verification link was sent to $_email',
+        'A new link was sent to $_email — check your spam folder too',
         snackPosition:   SnackPosition.BOTTOM,
         backgroundColor: AppTheme.accentSurface,
         colorText:       AppTheme.accentText,
@@ -91,7 +92,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     } catch (e) {
       Get.snackbar(
         'Error',
-        e.toString(),
+        friendlyError(e),
         snackPosition:   SnackPosition.BOTTOM,
         backgroundColor: const Color(0xFF2A1A1A),
         colorText:       const Color(0xFFFF5C5C),
@@ -155,7 +156,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                             color: AppTheme.accentSurface,
                             shape: BoxShape.circle,
                             border: Border.all(color: AppTheme.accent, width: 2)),
-                          child: Center(
+                          child: const Center(
                               child: Icon(LucideIcons.mailCheck,
                                   color: AppTheme.accent, size: 42)),
                         ),
@@ -178,7 +179,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(_email, textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: const TextStyle(
                             color:      AppTheme.accent,
                             fontSize:   15,
                             fontWeight: FontWeight.w700)),
@@ -196,9 +197,18 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                               Icon(LucideIcons.info,
                                   color: AppTheme.muted, size: 18),
                               const SizedBox(width: 10),
+                              // Firebase sends these from a firebaseapp.com
+                              // address the project does not own, which Gmail
+                              // routinely files as spam. Until a verified
+                              // sender domain is configured, saying so up front
+                              // is the difference between a 10-second detour
+                              // and someone concluding the app is broken.
                               Expanded(child: Text(
                                 "Click the link in your email, then return here. "
-                                "This screen will update automatically once verified.",
+                                "This screen will update automatically once verified.\n\n"
+                                "Not in your inbox? Check your spam or junk "
+                                "folder — and mark it 'not spam' so future "
+                                "emails arrive normally.",
                                 style: TextStyle(
                                     color: AppTheme.sub, fontSize: 12, height: 1.5))),
                             ]),
@@ -228,7 +238,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             child: _isResending
-                                ? SizedBox(width: 18, height: 18,
+                                ? const SizedBox(width: 18, height: 18,
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2, color: AppTheme.accent))
                                 : Text(

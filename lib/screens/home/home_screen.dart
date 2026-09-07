@@ -1,17 +1,25 @@
 // lib/screens/home/home_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import '../../constants/query_limits.dart';
 import '../../theme/app_theme.dart';
 import '../../controllers/auth_controller.dart';
 import '../../models/app_notification.dart';
 import '../../models/team_invite.dart';
+import '../../models/tournament.dart';
 import '../../services/notification_service.dart';
+import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
+import '../../services/tournament_service.dart';
+import '../../widgets/team_carousel.dart';
+import '../../widgets/skeleton.dart';
 import '../../utils/firestore_helpers.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,7 +31,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-  bool _bannerDismissed = false;
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -45,10 +52,24 @@ class _HomeScreenState extends State<HomeScreen> {
     return 0;
   }
 
+  // Memoised so the hero card's rebuilds reuse one aggregation query instead of
+  // issuing a fresh one each time. Keyed on points, the only input the rank
+  // depends on, so earning points still refreshes it.
+  int? _cityRankPoints;
+  Future<int>? _cityRankResult;
+
+  Future<int> _cityRankFuture(int points) {
+    if (_cityRankResult == null || _cityRankPoints != points) {
+      _cityRankPoints = points;
+      _cityRankResult = RankingService.cityRank(points: points);
+    }
+    return _cityRankResult!;
+  }
+
   // ── Avatar menu ───────────────────────────
 
   void _showAvatarMenu(BuildContext context,
-      String firstName, String lastName, String role) {
+      String firstName, String lastName, String role, String? photoUrl) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.card,
@@ -62,6 +83,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 20),
           Row(children: [
+            // Mirrors the header avatar in _buildHeader — this sheet used to
+            // render initials unconditionally because it never received the
+            // photo URL, so the menu disagreed with the header above it.
             Container(
               width: 48, height: 48,
               decoration: BoxDecoration(
@@ -69,9 +93,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   begin: Alignment.topLeft, end: Alignment.bottomRight,
                   colors: [AppTheme.accent, AppTheme.accent2]),
                 borderRadius: BorderRadius.circular(14)),
-              child: Center(child: Text(_initials(firstName, lastName),
-                style: const TextStyle(color: AppTheme.buttonFg,
-                    fontSize: 16, fontWeight: FontWeight.w800))),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: photoUrl != null && photoUrl.isNotEmpty
+                    ? Image.network(photoUrl, fit: BoxFit.cover,
+                        width: 48, height: 48,
+                        errorBuilder: (_, __, ___) => Center(
+                            child: Text(_initials(firstName, lastName),
+                                style: const TextStyle(
+                                    color: AppTheme.buttonFg,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800))))
+                    : Center(child: Text(_initials(firstName, lastName),
+                        style: const TextStyle(color: AppTheme.buttonFg,
+                            fontSize: 16, fontWeight: FontWeight.w800))),
+              ),
             ),
             const SizedBox(width: 14),
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -91,15 +127,15 @@ class _HomeScreenState extends State<HomeScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
               decoration: BoxDecoration(
-                color: const Color(0xFF2A1A1A),
+                color: AppTheme.errorSurface,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: const Color(0xFFFF5C5C).withValues(alpha: 0.4))),
-              child: const Row(children: [
-                Icon(LucideIcons.logOut, color: Color(0xFFFF5C5C), size: 20),
-                SizedBox(width: 12),
+                    color: AppTheme.errorText.withValues(alpha: 0.4))),
+              child: Row(children: [
+                Icon(LucideIcons.logOut, color: AppTheme.errorText, size: 20),
+                const SizedBox(width: 12),
                 Text('Sign Out', style: TextStyle(
-                  color: Color(0xFFFF5C5C), fontSize: 15,
+                  color: AppTheme.errorText, fontSize: 15,
                   fontWeight: FontWeight.w600)),
               ]),
             ),
@@ -291,17 +327,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ? FirebaseFirestore.instance
             .collection('events')
             .where('organizerId', isEqualTo: _uid)
+            .limit(kMaxListQuery)
             .snapshots()
         : role == 'athlete'
             ? FirebaseFirestore.instance
                 .collection('events')
                 .where('playerUids', arrayContains: _uid)
-                .where('status', isEqualTo: 'upcoming')
+                .limit(kMaxListQuery)
                 .snapshots()
             : FirebaseFirestore.instance
                 .collection('events')
                 .where('isPublic', isEqualTo: true)
-                .where('status', isEqualTo: 'upcoming')
+                .limit(kMaxListQuery)
                 .snapshots();
 
     showModalBottomSheet(
@@ -315,61 +352,83 @@ class _HomeScreenState extends State<HomeScreen> {
         minChildSize: 0.4,
         maxChildSize: 0.92,
         expand: false,
-        builder: (context, scrollController) => Column(children: [
-          const SizedBox(height: 12),
-          Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: AppTheme.border,
-                  borderRadius: BorderRadius.circular(2))),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Row(children: [
-              Text(role == 'organizer' ? 'Your Events' : 'Upcoming Games',
-                  style: TextStyle(color: AppTheme.textPrimary,
-                      fontSize: 17, fontWeight: FontWeight.w800)),
-            ]),
-          ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: stream,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(
-                      color: AppTheme.accent, strokeWidth: 2));
-                }
-                var docs = snapshot.data?.docs.toList() ?? [];
-                if (role != 'organizer') {
-                  final now = Timestamp.now();
-                  docs = docs.where((doc) {
-                    final t = asTimestamp((doc.data() as Map)['eventDate']);
-                    return t == null || t.compareTo(now) >= 0;
-                  }).toList();
-                }
-                docs.sort((a, b) {
-                  final field = role == 'organizer' ? 'createdAt' : 'eventDate';
-                  final aT = asTimestamp((a.data() as Map)[field]);
-                  final bT = asTimestamp((b.data() as Map)[field]);
-                  if (aT == null || bT == null) return 0;
-                  return role == 'organizer'
-                      ? bT.compareTo(aT)
-                      : aT.compareTo(bT);
-                });
-                if (docs.isEmpty) {
-                  return Center(
-                    child: Text('Nothing here yet', style: TextStyle(
-                        color: AppTheme.sub, fontSize: 13)),
-                  );
-                }
-                return SingleChildScrollView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                  child: _EventList(events: docs),
-                );
-              },
-            ),
-          ),
-        ]),
-      ),
-    );
+        builder: (context, scrollController) {
+          var showHistory = false;
+          return StatefulBuilder(
+            builder: (context, setState) => Column(children: [
+                const SizedBox(height: 12),
+                Container(width: 40, height: 4,
+                    decoration: BoxDecoration(color: AppTheme.border,
+                        borderRadius: BorderRadius.circular(2))),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Row(children: [
+                    Expanded(
+                      child: Text(
+                          showHistory
+                              ? 'Game History'
+                              : (role == 'organizer'
+                                  ? 'Your Events'
+                                  : 'Upcoming Games'),
+                          style: TextStyle(color: AppTheme.textPrimary,
+                              fontSize: 17, fontWeight: FontWeight.w800)),
+                    ),
+                    _EventTabToggle(
+                      showHistory: showHistory,
+                      onChanged: (value) => setState(() => showHistory = value),
+                    ),
+                  ]),
+                ),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: stream,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator(
+                            color: AppTheme.accent, strokeWidth: 2));
+                      }
+                      var docs = (snapshot.data?.docs ?? []).where((doc) {
+                        final ev = doc.data() as Map<String, dynamic>;
+                        // Drafts are organizer-only regardless of role; for
+                        // non-organizers the server-side query no longer
+                        // filters status (see isEventUpcoming's cancelled
+                        // handling), so exclude drafts here instead.
+                        if (role != 'organizer' && ev['status'] == 'draft') {
+                          return false;
+                        }
+                        return isEventUpcoming(ev) != showHistory;
+                      }).toList();
+                      docs.sort((a, b) {
+                        final aT = asTimestamp((a.data() as Map)['eventDate']);
+                        final bT = asTimestamp((b.data() as Map)['eventDate']);
+                        if (aT == null || bT == null) return 0;
+                        return showHistory
+                            ? bT.compareTo(aT)
+                            : aT.compareTo(bT);
+                      });
+                      if (docs.isEmpty) {
+                        return Center(
+                          child: Text(
+                              showHistory
+                                  ? 'No past games yet'
+                                  : 'Nothing here yet',
+                              style: TextStyle(
+                                  color: AppTheme.sub, fontSize: 13)),
+                        );
+                      }
+                      return SingleChildScrollView(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                        child: _EventList(events: docs),
+                      );
+                    },
+                  ),
+                ),
+              ]),
+            );
+          },
+        ),
+      );
   }
 
   void _showAllActivitySheet(BuildContext context) {
@@ -403,6 +462,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   .collection('stats')
                   .where('athleteId', isEqualTo: _uid)
                   .orderBy('createdAt', descending: true)
+                  .limit(kMaxListQuery)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -545,9 +605,14 @@ class _HomeScreenState extends State<HomeScreen> {
           .collection('users').doc(_uid).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(backgroundColor: AppTheme.bg,
-            body: Center(child: CircularProgressIndicator(
-                color: AppTheme.accent, strokeWidth: 2.5)));
+          // This is the first thing shown after the splash, so a spinner on
+          // an empty screen reads as a second loading screen. A skeleton
+          // shaped like the dashboard makes the handoff feel continuous and
+          // stops the layout jumping when the document arrives.
+          return Scaffold(
+            backgroundColor: AppTheme.bg,
+            body: const SafeArea(child: HomeSkeleton()),
+          );
         }
         final data      = snapshot.data?.data()
             as Map<String, dynamic>? ?? {};
@@ -557,16 +622,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Scaffold(
           backgroundColor: AppTheme.bg,
-          floatingActionButton: role == 'organizer'
-              ? FloatingActionButton(
-                  onPressed: () => Get.toNamed('/events/create'),
-                  backgroundColor: AppTheme.accent,
-                  foregroundColor: AppTheme.buttonFg,
-                  child: const Icon(LucideIcons.plus))
-              : null,
           body: SafeArea(child: Column(children: [
-            // ── Verification banner ───────────
-            _buildVerificationBanner(),
             Expanded(child: RefreshIndicator(
               color:        AppTheme.accent,
               backgroundColor: AppTheme.card,
@@ -584,71 +640,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildVerificationBanner() {
-    final user = FirebaseAuth.instance.currentUser;
-    // Don't show for Google users or verified users or if dismissed
-    if (user == null || _bannerDismissed) return const SizedBox.shrink();
-    final isGoogle = user.providerData
-        .any((p) => p.providerId == 'google.com');
-    if (isGoogle || user.emailVerified) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1200),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: AppTheme.accent.withValues(alpha: 0.6))),
-      child: Row(children: [
-        const Text('✉️', style: TextStyle(fontSize: 16)),
-        const SizedBox(width: 10),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Verify your email', style: TextStyle(
-              color: AppTheme.accentText, fontSize: 12,
-              fontWeight: FontWeight.w700)),
-            Text('Check your inbox and click the link we sent.',
-              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
-          ])),
-        const SizedBox(width: 8),
-        // Resend button
-        GestureDetector(
-          onTap: () async {
-            try {
-              await FirebaseAuth.instance.currentUser
-                  ?.sendEmailVerification();
-              Get.snackbar('Email Sent ✉️',
-                'Verification link sent to ${user.email}',
-                snackPosition:   SnackPosition.BOTTOM,
-                backgroundColor: AppTheme.accentSurface,
-                colorText:       AppTheme.accentText,
-                margin:          const EdgeInsets.all(16),
-                borderRadius:    12);
-            } catch (_) {}
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppTheme.accentSurface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppTheme.accent)),
-            child: Text('Resend', style: TextStyle(
-              color: AppTheme.accentText, fontSize: 11,
-              fontWeight: FontWeight.w700))),
-        ),
-        const SizedBox(width: 6),
-        // Dismiss button
-        GestureDetector(
-          onTap: () => setState(() => _bannerDismissed = true),
-          child: Icon(LucideIcons.x,
-              color: AppTheme.muted, size: 18)),
-      ]),
-    );
-  }
-
   Widget _buildBody(Map<String, dynamic> data, String role,
       String firstName, String lastName) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -659,10 +650,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _buildHeroCard(data, role),
       if (role == 'athlete') ...[
         _buildSectionTitle('My Team'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _buildAthleteTeamSection(),
-        ),
+        // No horizontal padding here: the team deck runs to the screen edges
+        // so the cards either side of the focused one stay visible. It pads
+        // its own header and footer to the 20pt gutter.
+        _buildAthleteTeamSection(),
       ],
       // CHANGED: athlete's Features grid duplicated the bottom nav
       // tab-for-tab (Dashboard=Stats, Leaderboard=Discover, Find
@@ -682,15 +673,18 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildRecentActivity(data),
       ] else if (role == 'coach') ...[
         _buildSectionTitle('My Team'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _buildCoachTeamSection(data),
-        ),
+        _buildCoachTeamSection(data),
       ] else if (role == 'organizer') ...[
         _buildSectionTitle('Next Event'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: _buildOrganizerNextEventSection(),
+        ),
+        _buildSectionTitle('Tournaments',
+            onViewAll: () => Get.toNamed('/tournaments')),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: _buildOrganizerTournamentSection(),
         ),
       ] else ...[
         _buildSectionTitle('Features'),
@@ -793,7 +787,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
             icon: LucideIcons.barChart2,
             title: 'No stats yet',
             subtitle:
@@ -847,7 +841,8 @@ class _HomeScreenState extends State<HomeScreen> {
         // back to initials) instead of always being initials-only,
         // and instead of sitting on the far right.
         GestureDetector(
-          onTap: () => _showAvatarMenu(context, firstName, lastName, role),
+          onTap: () =>
+              _showAvatarMenu(context, firstName, lastName, role, photoUrl),
           child: Container(
             width: 44, height: 44,
             decoration: BoxDecoration(
@@ -988,7 +983,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('TOTAL POINTS', style: TextStyle(color: AppTheme.sub,
               fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
           const SizedBox(height: 4),
-          Text('$points', style: TextStyle(color: AppTheme.accent,
+          Text('$points', style: const TextStyle(color: AppTheme.accent,
               fontSize: 36, fontWeight: FontWeight.w900, height: 1)),
           const SizedBox(height: 2),
           Text('Earn points by playing games',
@@ -996,22 +991,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
         const Spacer(),
         // ── Real city rank ──
-        FutureBuilder<QuerySnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('users')
-              .where('role', isEqualTo: 'athlete')
-              .get(),
+        FutureBuilder<int>(
+          future: _cityRankFuture(points),
           builder: (context, snap) {
-            String rank = '#—';
-            if (snap.hasData) {
-              final list = snap.data!.docs
-                  .map((d) => d.data() as Map<String, dynamic>)
-                  .toList()
-                ..sort((a, b) =>
-                    _toInt(b['points']).compareTo(_toInt(a['points'])));
-              final idx = list.indexWhere((a) => a['uid'] == _uid);
-              if (idx >= 0) rank = '#${idx + 1}';
-            }
+            final rank = snap.hasData ? '#${snap.data}' : '#—';
             return Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 10),
@@ -1052,7 +1035,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('COACHING LEVEL', style: TextStyle(color: AppTheme.sub,
               fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
           const SizedBox(height: 4),
-          Text(level, style: TextStyle(color: AppTheme.accent,
+          Text(level, style: const TextStyle(color: AppTheme.accent,
               fontSize: 24, fontWeight: FontWeight.w900, height: 1.1)),
         ]),
         const Spacer(),
@@ -1087,7 +1070,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('ORGANIZATION', style: TextStyle(color: AppTheme.sub,
               fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
           const SizedBox(height: 4),
-          Text(org, style: TextStyle(color: AppTheme.accent,
+          Text(org, style: const TextStyle(color: AppTheme.accent,
               fontSize: 20, fontWeight: FontWeight.w900, height: 1.1)),
         ]),
         const Spacer(),
@@ -1125,7 +1108,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (onViewAll != null)
           GestureDetector(
             onTap: onViewAll,
-            child: Text('View All', style: TextStyle(
+            child: const Text('View All', style: TextStyle(
                 color: AppTheme.accent, fontSize: 11,
                 fontWeight: FontWeight.w700)),
           ),
@@ -1159,108 +1142,114 @@ class _HomeScreenState extends State<HomeScreen> {
           stream: TeamService.streamReceivedPending(_uid),
           builder: (context, pendingSnap) {
             final pendingDocs = pendingSnap.data?.docs ?? [];
+            // Only the deck runs full-bleed; the single-card states keep the
+            // 20pt gutter every other home section uses.
             if (teams.isNotEmpty) {
               return _buildOnTeamCard(teams, pendingDocs.length);
+            }
+            // Both streams start out empty, which is indistinguishable from
+            // "has no team" — without this an athlete who does have one is
+            // shown "No Team Yet" until Firestore answers.
+            if (teamsSnap.connectionState == ConnectionState.waiting ||
+                pendingSnap.connectionState == ConnectionState.waiting) {
+              return const TeamCarouselSkeleton();
             }
             if (pendingDocs.isNotEmpty) {
               final first = TeamInvite.fromMap(pendingDocs.first.id,
                   pendingDocs.first.data() as Map<String, dynamic>);
-              return _buildInvitedCard(pendingDocs.length, first);
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _buildInvitedCard(pendingDocs.length, first),
+              );
             }
-            return _buildNoTeamCard();
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: _buildNoTeamCard(),
+            );
           },
         );
       },
     );
   }
 
+  /// The athlete's team as a swipeable deck: their coach first, then every
+  /// teammate. Tapping any card expands the deck in place into the full
+  /// roster; the footer still routes to the dedicated team screen.
+  ///
+  /// The teammate count now comes off the same roster stream that feeds the
+  /// cards, rather than a separate `rosterCountFor` aggregate — one less read,
+  /// and it stays live when someone joins or leaves.
   Widget _buildOnTeamCard(List<TeamInvite> teams, int pendingCount) {
     final team = teams.first;
-    final initials = team.coachName.trim().split(' ')
-        .where((p) => p.isNotEmpty).take(2)
-        .map((p) => p[0]).join().toUpperCase();
 
-    return GestureDetector(
-      onTap: () {
-        if (teams.length == 1 && pendingCount == 0) {
-          Get.toNamed('/team/mine', arguments: {
-            'coachId': team.coachId,
-            'coachName': team.coachName,
-            'teamName': team.teamName,
-          });
-        } else {
-          Get.toNamed('/team/invites');
+    return StreamBuilder<QuerySnapshot>(
+      stream: TeamService.streamRoster(team.coachId),
+      builder: (context, rosterSnap) {
+        // The team name is already known here, so the placeholder keeps it and
+        // only the deck below is stubbed out.
+        if (rosterSnap.connectionState == ConnectionState.waiting) {
+          return TeamCarouselSkeleton(title: team.teamName);
         }
+        final everyone = (rosterSnap.data?.docs ?? [])
+            .map((d) =>
+                TeamInvite.fromMap(d.id, d.data() as Map<String, dynamic>));
+        final self = everyone.where((m) => m.athleteId == _uid).firstOrNull;
+        final teammates = everyone.where((m) => m.athleteId != _uid).toList()
+          ..sort((a, b) => (b.respondedAt ?? DateTime(0))
+              .compareTo(a.respondedAt ?? DateTime(0)));
+
+        return TeamCarouselLoader(
+          title: team.teamName,
+          countLabel: '${teammates.length} '
+              'teammate${teammates.length == 1 ? '' : 's'}',
+          seeds: [
+            TeamMemberSeed(
+              uid: team.coachId,
+              fallbackName: team.coachName,
+              fallbackSubtitle: 'Head Coach',
+              isCoach: true,
+            ),
+            // Right after the coach: the deck opens centred on the coach, so
+            // this is the peek card visible at rest, without swiping — the
+            // roster used to leave the viewer out of their own team entirely.
+            TeamMemberSeed(
+              uid: _uid,
+              isSelf: true,
+              fallbackName: self?.athleteName ?? 'You',
+              fallbackPhotoUrl: self?.athletePhotoUrl,
+              fallbackSubtitle: 'You',
+            ),
+            ...teammates.map((m) => TeamMemberSeed(
+                  uid: m.athleteId,
+                  fallbackName: m.athleteName,
+                  fallbackPhotoUrl: m.athletePhotoUrl,
+                  fallbackSubtitle: 'Teammate',
+                )),
+          ],
+          footer: GestureDetector(
+            onTap: () {
+              if (teams.length == 1 && pendingCount == 0) {
+                Get.toNamed('/team/mine', arguments: {
+                  'coachId': team.coachId,
+                  'coachName': team.coachName,
+                  'teamName': team.teamName,
+                });
+              } else {
+                Get.toNamed('/team/invites');
+              }
+            },
+            behavior: HitTestBehavior.opaque,
+            child: const Row(children: [
+              Text('View Team', style: TextStyle(
+                  color: AppTheme.accent, fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+              SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.accent, size: 16),
+            ]),
+          ),
+        );
       },
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-            color: AppTheme.card,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.border)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Text(team.teamName, style: TextStyle(
-                color: AppTheme.textPrimary, fontSize: 15,
-                fontWeight: FontWeight.w800),
-                overflow: TextOverflow.ellipsis)),
-            const SizedBox(width: 8),
-            FutureBuilder<int>(
-              future: TeamService.rosterCountFor(team.coachId),
-              builder: (context, snap) {
-                final teammates = ((snap.data ?? 1) - 1).clamp(0, 999);
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                      color: AppTheme.accentSurface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.accent)),
-                  child: Text(
-                      '$teammates teammate${teammates == 1 ? '' : 's'}',
-                      style: TextStyle(color: AppTheme.accentText,
-                          fontSize: 11, fontWeight: FontWeight.w800)),
-                );
-              },
-            ),
-          ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Container(
-              width: 40, height: 40,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                    begin: Alignment.topLeft, end: Alignment.bottomRight,
-                    colors: [AppTheme.accent, AppTheme.accent2]),
-                shape: BoxShape.circle),
-              child: Center(child: Text(initials, style: const TextStyle(
-                  color: AppTheme.buttonFg, fontSize: 14,
-                  fontWeight: FontWeight.w800))),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(team.coachName, style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 14,
-                    fontWeight: FontWeight.w700),
-                    overflow: TextOverflow.ellipsis),
-                Text('Your Coach',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-              ],
-            )),
-          ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Text('View Team', style: TextStyle(
-                color: AppTheme.accent, fontSize: 13,
-                fontWeight: FontWeight.w700)),
-            const SizedBox(width: 4),
-            Icon(Icons.chevron_right_rounded,
-                color: AppTheme.accent, size: 16),
-          ]),
-        ]),
-      ),
     );
   }
 
@@ -1280,7 +1269,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppTheme.card,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppTheme.accent)),
-              child: Icon(LucideIcons.userPlus,
+              child: const Icon(LucideIcons.userPlus,
                   color: AppTheme.accent, size: 20)),
           const SizedBox(width: 12),
           Expanded(child: Column(
@@ -1360,40 +1349,30 @@ class _HomeScreenState extends State<HomeScreen> {
             .toList();
         final isFull = roster.length >= TeamService.maxPlayers;
 
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-              color: AppTheme.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.border)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text(teamName, style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 15,
-                  fontWeight: FontWeight.w800),
-                  overflow: TextOverflow.ellipsis)),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                    color: isFull
-                        ? const Color(0xFFFF5C5C).withValues(alpha: 0.12)
-                        : AppTheme.accentSurface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: isFull
-                            ? const Color(0xFFFF5C5C)
-                            : AppTheme.accent)),
-                child: Text('${roster.length}/${TeamService.maxPlayers}', style: TextStyle(
-                    color: isFull
-                        ? const Color(0xFFFF5C5C)
-                        : AppTheme.accentText,
-                    fontSize: 12, fontWeight: FontWeight.w800)),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            if (roster.isEmpty)
-              Column(children: [
+        // Same trap as the athlete's section: a still-connecting stream looks
+        // exactly like an empty roster, so a coach who has players would be
+        // told they have none until Firestore answers.
+        if (rosterSnap.connectionState == ConnectionState.waiting) {
+          return TeamCarouselSkeleton(title: teamName);
+        }
+
+        // An empty roster keeps the compact prompt card — a lone "add player"
+        // tile floating in a 232pt deck reads as a layout bug, not an invite.
+        if (roster.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                  color: AppTheme.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.border)),
+              child: Column(children: [
+                Text(teamName, style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 15,
+                    fontWeight: FontWeight.w800),
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 12),
                 Icon(Icons.groups_outlined, color: AppTheme.muted, size: 28),
                 const SizedBox(height: 8),
                 Text('No athletes on your roster yet', style: TextStyle(
@@ -1402,88 +1381,62 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 2),
                 GestureDetector(
                   onTap: () => Get.toNamed('/scout'),
-                  child: Text('Invite athletes from Scout', style: TextStyle(
+                  child: const Text('Invite athletes from Scout', style: TextStyle(
                       color: AppTheme.accent, fontSize: 12,
                       fontWeight: FontWeight.w700)),
                 ),
-              ])
-            else
-              SizedBox(
-                height: 40,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: roster.length > 6 ? 7 : roster.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, i) {
-                    if (roster.length > 6 && i == 6) {
-                      return Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                            color: AppTheme.cardNested,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: AppTheme.border)),
-                        child: Center(child: Text('+${roster.length - 6}',
-                            style: TextStyle(color: AppTheme.sub,
-                                fontSize: 11, fontWeight: FontWeight.w800))));
-                    }
-                    final m = roster[i];
-                    final initials = m.athleteName.trim().split(' ')
-                        .where((p) => p.isNotEmpty).take(2)
-                        .map((p) => p[0]).join().toUpperCase();
-                    return Container(
-                      width: 36, height: 36,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [AppTheme.accent, AppTheme.accent2]),
-                        shape: BoxShape.circle),
-                      child: ClipOval(
-                        child: m.athletePhotoUrl != null &&
-                                m.athletePhotoUrl!.isNotEmpty
-                            ? Image.network(m.athletePhotoUrl!,
-                                fit: BoxFit.cover, width: 36, height: 36,
-                                errorBuilder: (_, __, ___) => Center(
-                                    child: Text(initials, style: const TextStyle(
-                                        color: AppTheme.buttonFg, fontSize: 12,
-                                        fontWeight: FontWeight.w800))))
-                            : Center(child: Text(initials, style: const TextStyle(
-                                color: AppTheme.buttonFg, fontSize: 12,
-                                fontWeight: FontWeight.w800))),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            const SizedBox(height: 12),
-            StreamBuilder<QuerySnapshot>(
-              stream: TeamService.streamSentPending(_uid),
-              builder: (context, pendingSnap) {
-                final pending = pendingSnap.data?.docs.length ?? 0;
-                if (pending == 0) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(children: [
-                    Icon(LucideIcons.mail, color: AppTheme.muted, size: 14),
-                    const SizedBox(width: 6),
-                    Text('$pending pending invite${pending == 1 ? '' : 's'}',
-                        style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-                  ]),
-                );
-              },
-            ),
-            GestureDetector(
-              onTap: () => Get.toNamed('/team/roster'),
-              child: Row(children: [
-                Text('View Full Roster', style: TextStyle(
-                    color: AppTheme.accent, fontSize: 13,
-                    fontWeight: FontWeight.w700)),
-                const SizedBox(width: 4),
-                Icon(Icons.chevron_right_rounded,
-                    color: AppTheme.accent, size: 16),
               ]),
             ),
-          ]),
+          );
+        }
+
+        return TeamCarouselLoader(
+          title: teamName,
+          countLabel: '${roster.length}/${TeamService.maxPlayers}',
+          countIsWarning: isFull,
+          seeds: roster
+              .map((m) => TeamMemberSeed(
+                    uid: m.athleteId,
+                    fallbackName: m.athleteName,
+                    fallbackPhotoUrl: m.athletePhotoUrl,
+                  ))
+              .toList(),
+          // A full roster has nowhere to put another player, so the tile that
+          // would only lead to a "team is full" error is dropped instead.
+          onAddPlayer: isFull ? null : () => Get.toNamed('/scout'),
+          footer: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              StreamBuilder<QuerySnapshot>(
+                stream: TeamService.streamSentPending(_uid),
+                builder: (context, pendingSnap) {
+                  final pending = pendingSnap.data?.docs.length ?? 0;
+                  if (pending == 0) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(children: [
+                      Icon(LucideIcons.mail, color: AppTheme.muted, size: 14),
+                      const SizedBox(width: 6),
+                      Text('$pending pending invite${pending == 1 ? '' : 's'}',
+                          style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                    ]),
+                  );
+                },
+              ),
+              GestureDetector(
+                onTap: () => Get.toNamed('/team/roster'),
+                behavior: HitTestBehavior.opaque,
+                child: const Row(children: [
+                  Text('View Full Roster', style: TextStyle(
+                      color: AppTheme.accent, fontSize: 13,
+                      fontWeight: FontWeight.w700)),
+                  SizedBox(width: 4),
+                  Icon(Icons.chevron_right_rounded,
+                      color: AppTheme.accent, size: 16),
+                ]),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1505,7 +1458,9 @@ class _HomeScreenState extends State<HomeScreen> {
           .limit(10)
           .snapshots(),
       builder: (context, snapshot) {
-        final docs = (snapshot.data?.docs ?? []).toList()
+        final docs = (snapshot.data?.docs ?? [])
+            .where((doc) => isEventUpcoming(doc.data() as Map<String, dynamic>))
+            .toList()
           ..sort((a, b) {
             final aT = asTimestamp((a.data() as Map)['eventDate']);
             final bT = asTimestamp((b.data() as Map)['eventDate']);
@@ -1531,7 +1486,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 2),
               GestureDetector(
                 onTap: () => Get.toNamed('/events/create'),
-                child: Text('Create your first event', style: TextStyle(
+                child: const Text('Create your first event', style: TextStyle(
                     color: AppTheme.accent, fontSize: 12,
                     fontWeight: FontWeight.w700)),
               ),
@@ -1592,11 +1547,11 @@ class _HomeScreenState extends State<HomeScreen> {
               GestureDetector(
                 onTap: () => Get.toNamed('/events/detail',
                     arguments: {'eventId': doc.id}),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
                   Text('View Roster', style: TextStyle(
                       color: AppTheme.accent, fontSize: 13,
                       fontWeight: FontWeight.w700)),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Icon(Icons.chevron_right_rounded,
                       color: AppTheme.accent, size: 16),
                 ]),
@@ -1610,6 +1565,90 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ]),
           ]),
+        );
+      },
+    );
+  }
+
+  // ── Tournaments section (organizer only) ──
+  // A running bracket is the organizer's other live workflow alongside the
+  // next event, so it gets the same treatment: the one that matters right
+  // now, with a way into the full list.
+
+  Widget _buildOrganizerTournamentSection() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: TournamentService.forOrganizer(_uid).map((s) => s),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border)),
+            child: Column(children: [
+              Icon(LucideIcons.trophy, color: AppTheme.muted, size: 28),
+              const SizedBox(height: 8),
+              Text('No tournaments yet', style: TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              GestureDetector(
+                onTap: () => Get.toNamed('/tournaments/create'),
+                child: const Text('Draw your first bracket', style: TextStyle(
+                    color: AppTheme.accent, fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+              ),
+            ]),
+          );
+        }
+
+        final t = Tournament.fromMap(
+            docs.first.id, docs.first.data() as Map<String, dynamic>);
+        return GestureDetector(
+          onTap: () => Get.toNamed('/tournaments/detail',
+              arguments: {'tournamentId': t.id}),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: t.isCompleted ? AppTheme.accent : AppTheme.border)),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(child: Text(t.name, style: TextStyle(
+                        color: AppTheme.textPrimary, fontSize: 15,
+                        fontWeight: FontWeight.w800),
+                        overflow: TextOverflow.ellipsis)),
+                    const SizedBox(width: 8),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.muted, size: 20),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text('${t.sport} · ${t.entrantCount} teams · ${t.venue}',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12),
+                      overflow: TextOverflow.ellipsis),
+                  if (t.championTeamName != null) ...[
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      const Icon(Icons.emoji_events_rounded,
+                          color: AppTheme.accent, size: 15),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text('${t.championTeamName} — champion',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: AppTheme.accent, fontSize: 13,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                    ]),
+                  ],
+                ]),
+          ),
         );
       },
     );
@@ -1672,17 +1711,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: AppTheme.accent, strokeWidth: 2)));
             }
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return _EmptyCard(
+              return const _EmptyCard(
                   icon: LucideIcons.calendar,
                   title: 'No events yet',
                   subtitle: 'Tap + to create your first event');
             }
-            final events = snapshot.data!.docs.toList()..sort((a, b) {
-              final aT = asTimestamp((a.data() as Map)['createdAt']);
-              final bT = asTimestamp((b.data() as Map)['createdAt']);
-              if (aT == null || bT == null) return 0;
-              return bT.compareTo(aT);
-            });
+            final events = snapshot.data!.docs
+                .where((doc) =>
+                    isEventUpcoming(doc.data() as Map<String, dynamic>))
+                .toList()
+              ..sort((a, b) {
+                final aT = asTimestamp((a.data() as Map)['createdAt']);
+                final bT = asTimestamp((b.data() as Map)['createdAt']);
+                if (aT == null || bT == null) return 0;
+                return bT.compareTo(aT);
+              });
+            if (events.isEmpty) {
+              return const _EmptyCard(
+                  icon: LucideIcons.calendar,
+                  title: 'No upcoming events',
+                  subtitle: 'Past events have moved to History');
+            }
             return _EventList(events: events.take(3).toList());
           },
         ),
@@ -1692,11 +1741,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final stream = role == 'athlete'
         ? FirebaseFirestore.instance.collection('events')
             .where('playerUids', arrayContains: _uid)
-            .where('status', isEqualTo: 'upcoming')
             .limit(10).snapshots()
         : FirebaseFirestore.instance.collection('events')
             .where('isPublic', isEqualTo: true)
-            .where('status', isEqualTo: 'upcoming')
             .limit(10).snapshots();
 
     return Padding(
@@ -1719,16 +1766,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? 'An organizer will add you to events'
                   : 'Check back soon');
           }
-          // CHANGED: 'status' is a field the organizer sets manually
-          // and doesn't update itself once the event date passes, so
-          // a game stayed "upcoming" indefinitely after it happened.
-          // Filtering by the real eventDate here removes anything
-          // that's already occurred, regardless of that field.
-          final now = Timestamp.now();
-          final events = snapshot.data!.docs.where((doc) {
-            final t = asTimestamp((doc.data() as Map)['eventDate']);
-            return t == null || t.compareTo(now) >= 0;
-          }).toList()..sort((a, b) {
+          final events = snapshot.data!.docs
+              .where((doc) {
+                final ev = doc.data() as Map<String, dynamic>;
+                return ev['status'] != 'draft' && isEventUpcoming(ev);
+              })
+              .toList()
+            ..sort((a, b) {
             final aT = asTimestamp((a.data() as Map)['eventDate']);
             final bT = asTimestamp((b.data() as Map)['eventDate']);
             if (aT == null || bT == null) return 0;
@@ -1778,22 +1822,10 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: List.generate(items.length, (i) {
             final active = i == _navIndex;
-            return GestureDetector(
+            return _BottomNavItem(
+              icon: items[i]['icon'] as IconData,
+              active: active,
               onTap: () => _onNavTap(i, role),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: active ? AppTheme.accent : Colors.transparent,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  items[i]['icon'] as IconData,
-                  color: active ? AppTheme.buttonFg : AppTheme.muted,
-                  size: 22,
-                ),
-              ),
             );
           }),
         ),
@@ -1833,6 +1865,66 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // ── Shared widgets ────────────────────────────────────────────
 
+// Adds real press feedback (a quick scale-down/release on tap) and, for
+// pointer-driven platforms like the Windows/web builds, a hover tint —
+// on top of the existing active-tab color fill, which stays untouched.
+class _BottomNavItem extends StatefulWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _BottomNavItem({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  State<_BottomNavItem> createState() => _BottomNavItemState();
+}
+
+class _BottomNavItemState extends State<_BottomNavItem> {
+  bool _pressed = false;
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed ? 0.86 : 1.0,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: widget.active
+                  ? AppTheme.accent
+                  : _hovering
+                      ? AppTheme.accent.withValues(alpha: 0.12)
+                      : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              widget.icon,
+              color: widget.active ? AppTheme.buttonFg : AppTheme.muted,
+              size: 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _EventList extends StatelessWidget {
   final List<QueryDocumentSnapshot> events;
   const _EventList({required this.events});
@@ -1846,7 +1938,16 @@ class _EventList extends StatelessWidget {
       child: Column(children: events.asMap().entries.map((e) {
         final isLast = e.key == events.length - 1;
         final ev     = e.value.data() as Map<String, dynamic>;
-        final status = ev['status'] as String? ?? 'upcoming';
+        // The raw `status` field is only ever 'draft' or 'upcoming' and
+        // never updates itself once a game happens, so the displayed
+        // label is derived from the real eventDate instead of trusted
+        // as-is — see isEventUpcoming() in firestore_helpers.dart.
+        final isCancelled = ev['status'] == 'cancelled';
+        final isDraft     = ev['status'] == 'draft';
+        final isCompleted = !isCancelled && !isDraft && !isEventUpcoming(ev);
+        final badgeLabel  = isCancelled ? 'CANCELLED'
+            : isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
+        final isNeutral   = isCancelled || isDraft || isCompleted;
         final date   = asTimestamp(ev['eventDate']);
         final fmtDate = date != null
             ? DateFormat('MMM dd').format(date.toDate()) : '—';
@@ -1871,20 +1972,60 @@ class _EventList extends StatelessWidget {
               padding: const EdgeInsets.symmetric(
                   horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: status == 'draft'
+                color: isNeutral
                     ? AppTheme.cardNested : AppTheme.accentSurface,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: status == 'draft'
+                  color: isNeutral
                       ? AppTheme.border : AppTheme.accent)),
-              child: Text(status.toUpperCase(), style: TextStyle(
-                color: status == 'draft'
+              child: Text(badgeLabel, style: TextStyle(
+                color: isNeutral
                     ? AppTheme.muted : AppTheme.accentText,
                 fontSize: 9, fontWeight: FontWeight.w700)),
             ),
           ),
         );
       }).toList()),
+    );
+  }
+}
+
+/// Segmented Upcoming/History toggle for the "View All Events" sheet.
+class _EventTabToggle extends StatelessWidget {
+  final bool showHistory;
+  final ValueChanged<bool> onChanged;
+  const _EventTabToggle({required this.showHistory, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+          color: AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.border)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _buildOption('Upcoming', selected: !showHistory,
+            onTap: () => onChanged(false)),
+        _buildOption('History', selected: showHistory,
+            onTap: () => onChanged(true)),
+      ]),
+    );
+  }
+
+  Widget _buildOption(String label,
+      {required bool selected, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+            color: selected ? AppTheme.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(17)),
+        child: Text(label, style: TextStyle(
+            color: selected ? AppTheme.buttonFg : AppTheme.sub,
+            fontSize: 11, fontWeight: FontWeight.w700)),
+      ),
     );
   }
 }
@@ -2002,7 +2143,7 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
               ),
               const SizedBox(width: 8),
               Text('+$pts',
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppTheme.accent,
                       fontSize: 14,
                       fontWeight: FontWeight.w800)),

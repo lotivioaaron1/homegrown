@@ -8,11 +8,15 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../models/media_item.dart';
 import '../../services/media_service.dart';
+import '../../services/team_service.dart';
+import '../../widgets/photo_viewer_dialog.dart';
+import '../../widgets/video_player_sheet.dart';
 import '../settings/settings_screen.dart';
+import 'widgets/media_section.dart';
 
 /// Portfolio-style profile. Header + avatar + bio, then Video/Photo
-/// highlights. Phase 2 wires the Photo grid to live uploads; Video stays
-/// an empty state until Phase 3.
+/// highlights, both backed by live uploads and capped per athlete by
+/// MediaService.maxPhotos / maxVideos.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -23,6 +27,12 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
   bool _uploadingPhoto = false;
+
+  // Videos are transcoded then uploaded, which takes long enough that a bare
+  // spinner reads as a hang — so the phase and its progress are both tracked.
+  bool _uploadingVideo = false;
+  MediaUploadPhase _videoPhase = MediaUploadPhase.compressing;
+  double _videoProgress = 0;
 
   String _initials(String first, String last) {
     final f = first.isNotEmpty ? first[0].toUpperCase() : '';
@@ -42,7 +52,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               .snapshots(),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
-              return Center(
+              return const Center(
                 child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2.5),
               );
@@ -51,7 +61,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final role = data['role'] as String? ?? 'athlete';
             final firstName = data['firstName'] as String? ?? '';
             final lastName = data['lastName'] as String? ?? '';
-            final teamName = data['teamName'] as String? ?? '';
+            // Coaches write their team name to `teamOrganization` and
+            // organizers write theirs to `organization` at registration,
+            // neither of which is the generic `teamName` field, so fall
+            // back to those here — otherwise this subtitle silently shows
+            // nothing useful for a coach or organizer.
+            final teamName = (role == 'coach'
+                    ? data['teamOrganization'] as String?
+                    : role == 'organizer'
+                        ? data['organization'] as String?
+                        : data['teamName'] as String?) ??
+                '';
             final bio = data['bio'] as String? ?? '';
             final photoUrl = data['photoUrl'] as String?;
             final sport = (data['primarySports'] as List?)?.isNotEmpty == true
@@ -123,44 +143,208 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 4),
 
                 // Portfolio (athlete only)
-                if (role == 'athlete') ...[
+                if (role == 'athlete') _portfolio(context),
+
+                // Team identity hub (coach only) — My Team and Scout stay
+                // the real roster/scouting tools; this is a summary plus
+                // quick entry points into them, not a second copy.
+                if (role == 'coach') ...[
+                  GestureDetector(
+                    onTap: () => Get.toNamed('/team/roster'),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                          color: AppTheme.card,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.border)),
+                      child: Row(children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                              color: AppTheme.cardNested,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppTheme.border)),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(11),
+                            child: (data['teamLogoUrl'] as String?)
+                                        ?.isNotEmpty ==
+                                    true
+                                ? CachedNetworkImage(
+                                    imageUrl: data['teamLogoUrl'] as String,
+                                    fit: BoxFit.cover,
+                                    memCacheWidth: 150,
+                                    errorWidget: (_, __, ___) => Icon(
+                                        Icons.shield_outlined,
+                                        color: AppTheme.muted,
+                                        size: 22))
+                                : Icon(Icons.shield_outlined,
+                                    color: AppTheme.muted, size: 22),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    teamName.isNotEmpty
+                                        ? teamName
+                                        : 'Your Team',
+                                    style: TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 2),
+                                StreamBuilder<QuerySnapshot>(
+                                  stream: TeamService.streamRoster(_uid),
+                                  builder: (context, rosterSnap) {
+                                    final count =
+                                        rosterSnap.data?.docs.length ?? 0;
+                                    return Text(
+                                        '$count / ${TeamService.maxPlayers} players',
+                                        style: TextStyle(
+                                            color: AppTheme.sub,
+                                            fontSize: 12));
+                                  },
+                                ),
+                              ]),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            color: AppTheme.muted, size: 20),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   Row(children: [
                     Expanded(
-                      child: _addButton(
-                        LucideIcons.video,
-                        'Add Video',
-                        () => _comingSoon('Video upload'),
-                      ),
-                    ),
+                        child: _credentialBox(
+                            'Experience',
+                            (data['yearsOfExperience'] as String?)
+                                        ?.isNotEmpty ==
+                                    true
+                                ? data['yearsOfExperience'] as String
+                                : '—')),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: _credentialBox(
+                            'Level',
+                            (data['coachingLevel'] as String?)?.isNotEmpty ==
+                                    true
+                                ? data['coachingLevel'] as String
+                                : '—')),
+                  ]),
+                  if ((data['coachingBio'] as String? ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(data['coachingBio'] as String,
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 13,
+                            height: 1.5)),
+                  ],
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    Expanded(
+                        child: _addButton(Icons.groups_outlined,
+                            'Manage Roster', () => Get.toNamed('/team/roster'))),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: _addButton(
-                        LucideIcons.image,
-                        _uploadingPhoto ? 'Uploading...' : 'Add Photo',
-                        _uploadingPhoto ? null : () => _addPhoto(context),
-                        busy: _uploadingPhoto,
-                      ),
-                    ),
+                        child: _addButton(Icons.search_rounded,
+                            'Scout Players', () => Get.toNamed('/scout'))),
                   ]),
-                  const SizedBox(height: 26),
+                ],
 
-                  // Video Highlights (Phase 3)
-                  _sectionHeader(LucideIcons.video, 'Video Highlights'),
-                  const SizedBox(height: 12),
-                  _emptyState(
-                    LucideIcons.video,
-                    'No highlights yet',
-                    'Upload short game highlights to showcase your play.',
+                // Organization identity hub (organizer only) — a condensed
+                // summary card; Settings remains the full-detail view (also
+                // showing certifications/barangay, deliberately left out
+                // here to match the coach section's restraint above).
+                if (role == 'organizer') ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.border)),
+                    child: Row(children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                            color: AppTheme.cardNested,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppTheme.border)),
+                        child: Icon(Icons.business_rounded,
+                            color: AppTheme.muted, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  teamName.isNotEmpty
+                                      ? teamName
+                                      : 'Your Organization',
+                                  style: TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800)),
+                              if ((data['organizationType'] as String?)
+                                      ?.isNotEmpty ==
+                                  true) ...[
+                                const SizedBox(height: 2),
+                                Text(data['organizationType'] as String,
+                                    style: TextStyle(
+                                        color: AppTheme.sub, fontSize: 12)),
+                              ],
+                            ]),
+                      ),
+                      const SizedBox(width: 8),
+                      _organizerStatusBadge(
+                          data['organizerStatus'] as String?),
+                    ]),
                   ),
-                  const SizedBox(height: 26),
-
-                  // Photo Highlights (live)
-                  _sectionHeader(LucideIcons.image, 'Photo Highlights'),
-                  const SizedBox(height: 12),
-                  _PhotoHighlights(
-                    uid: _uid,
-                    onTapItem: (item) => _openPhotoViewer(context, item),
+                  const SizedBox(height: 14),
+                  if ((data['sportsOrganized'] as List?)?.isNotEmpty ==
+                      true) ...[
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: (data['sportsOrganized'] as List)
+                          .map((s) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                    color: AppTheme.cardNested,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border:
+                                        Border.all(color: AppTheme.border)),
+                                child: Text(s.toString(),
+                                    style: TextStyle(
+                                        color: AppTheme.sub, fontSize: 11)),
+                              ))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  FutureBuilder<AggregateQuerySnapshot>(
+                    // Only the number is shown, so a count aggregation costs
+                    // one read instead of one per event created.
+                    future: FirebaseFirestore.instance
+                        .collection('events')
+                        .where('organizerId', isEqualTo: _uid)
+                        .count()
+                        .get(),
+                    builder: (context, eventsSnap) {
+                      final count = eventsSnap.data?.count;
+                      return _credentialBox(
+                          'Events Created', count == null ? '—' : '$count');
+                    },
                   ),
+                  const SizedBox(height: 20),
+                  _addButton(LucideIcons.plus, 'Create Event',
+                      () => Get.toNamed('/events/create')),
                 ],
               ],
             );
@@ -168,6 +352,124 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
     );
+  }
+
+  /// The athlete portfolio: both Add buttons and both media sections, driven
+  /// by one listener on users/{uid}/media. The buttons need the same counts
+  /// the section headers show, so they share a stream rather than each
+  /// opening their own and risking a moment where they disagree.
+  Widget _portfolio(BuildContext context) {
+    return StreamBuilder<List<MediaItem>>(
+      stream: MediaService.streamMedia(_uid),
+      builder: (context, snap) {
+        final loading = snap.connectionState == ConnectionState.waiting;
+        final all = snap.data ?? const <MediaItem>[];
+        final photos =
+            all.where((m) => m.type == MediaType.photo).toList(growable: false);
+        final videos =
+            all.where((m) => m.type == MediaType.video).toList(growable: false);
+
+        // While loading, treat nothing as at-cap: greying the buttons out on
+        // an unknown count would look like the feature is broken.
+        final photosFull = !loading && photos.length >= MediaService.maxPhotos;
+        final videosFull = !loading && videos.length >= MediaService.maxVideos;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(
+                child: _addButton(
+                  LucideIcons.video,
+                  _uploadingVideo
+                      ? _videoBusyLabel()
+                      : videosFull
+                          ? 'Highlights full'
+                          : 'Add Video',
+                  (_uploadingVideo || videosFull)
+                      ? null
+                      : () => _addVideo(context),
+                  busy: _uploadingVideo,
+                  disabled: videosFull,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _addButton(
+                  LucideIcons.image,
+                  _uploadingPhoto
+                      ? 'Uploading...'
+                      : photosFull
+                          ? 'Photos full'
+                          : 'Add Photo',
+                  (_uploadingPhoto || photosFull)
+                      ? null
+                      : () => _addPhoto(context),
+                  busy: _uploadingPhoto,
+                  disabled: photosFull,
+                ),
+              ),
+            ]),
+            if (_uploadingVideo) ...[
+              const SizedBox(height: 12),
+              _videoProgressBar(),
+            ],
+            const SizedBox(height: 26),
+            MediaSection(
+              items: videos,
+              loading: loading,
+              type: MediaType.video,
+              title: 'Video Highlights',
+              icon: LucideIcons.video,
+              max: MediaService.maxVideos,
+              onTapItem: (item) => showVideoHighlight(
+                context,
+                item,
+                onDelete: () => _confirmDelete(context, item),
+              ),
+            ),
+            const SizedBox(height: 26),
+            MediaSection(
+              items: photos,
+              loading: loading,
+              type: MediaType.photo,
+              title: 'Photo Highlights',
+              icon: LucideIcons.image,
+              max: MediaService.maxPhotos,
+              onTapItem: (item) => showPhotoViewer(
+                context,
+                item,
+                onDelete: () => _confirmDelete(context, item),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _videoBusyLabel() =>
+      _videoPhase == MediaUploadPhase.compressing ? 'Compressing...' : 'Uploading...';
+
+  Widget _videoProgressBar() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(3),
+        child: LinearProgressIndicator(
+          value: _videoProgress,
+          minHeight: 5,
+          backgroundColor: AppTheme.cardNested,
+          valueColor: const AlwaysStoppedAnimation(AppTheme.accent),
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        _videoPhase == MediaUploadPhase.compressing
+            ? 'Shrinking your clip so it uploads faster — keep this screen open.'
+            : 'Uploading your highlight...',
+        style: TextStyle(color: AppTheme.sub, fontSize: 11),
+      ),
+    ]);
   }
 
   // Upload flow
@@ -197,7 +499,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<_PhotoChoice?> _pickCategorySheet(BuildContext context) {
+  Future<void> _addVideo(BuildContext context) async {
+    final choice = await _pickCategorySheet(
+      context,
+      title: 'Add Highlight',
+      subtitle:
+          'Pick a category, then choose a clip. Max ${MediaService.maxVideoSeconds} seconds.',
+      icon: LucideIcons.video,
+      actionLabel: 'Choose Video',
+    );
+    if (choice == null) return;
+
+    setState(() {
+      _uploadingVideo = true;
+      _videoPhase = MediaUploadPhase.compressing;
+      _videoProgress = 0;
+    });
+    try {
+      final item = await MediaService.pickAndUploadVideo(
+        uid: _uid,
+        category: choice.category,
+        caption: choice.caption,
+        onProgress: (phase, progress) {
+          if (!mounted) return;
+          setState(() {
+            _videoPhase = phase;
+            _videoProgress = progress;
+          });
+        },
+      );
+      if (item != null) {
+        _snack('Highlight added',
+            'Your ${item.categoryLabel.toLowerCase()} clip is now on your profile.');
+      }
+    } on MediaException catch (e) {
+      _snack('Could not add highlight', e.message, isError: true);
+    } catch (e) {
+      _snack('Upload failed',
+          'Something went wrong. Check your connection and try again.',
+          isError: true);
+    } finally {
+      if (mounted) setState(() => _uploadingVideo = false);
+    }
+  }
+
+  /// Shared by both upload flows — they differ only in wording and icon, so
+  /// forking this into a near-identical video sheet would just guarantee the
+  /// two drift apart.
+  Future<_PhotoChoice?> _pickCategorySheet(
+    BuildContext context, {
+    String title = 'Add Photo',
+    String subtitle = 'Pick a category, then choose an image.',
+    IconData icon = LucideIcons.image,
+    String actionLabel = 'Choose from Gallery',
+  }) {
     MediaCategory selected = MediaCategory.game;
     final captionCtrl = TextEditingController();
     return showModalBottomSheet<_PhotoChoice>(
@@ -225,13 +580,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('Add Photo',
+                Text(title,
                     style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontSize: 17,
                         fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
-                Text('Pick a category, then choose an image.',
+                Text(subtitle,
                     style: TextStyle(color: AppTheme.sub, fontSize: 12)),
                 const SizedBox(height: 16),
                 Wrap(
@@ -288,7 +643,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide:
-                            BorderSide(color: AppTheme.accent, width: 1.5)),
+                            const BorderSide(color: AppTheme.accent, width: 1.5)),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -302,11 +657,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(LucideIcons.image,
-                            color: AppTheme.buttonFg, size: 18),
+                        Icon(icon, color: AppTheme.buttonFg, size: 18),
                         const SizedBox(width: 8),
-                        const Text('Choose from Gallery',
-                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        Text(actionLabel,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w700)),
                       ],
                     ),
                   ),
@@ -319,96 +674,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // Photo viewer + delete
-  void _openPhotoViewer(BuildContext context, MediaItem item) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.85),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: CachedNetworkImage(
-                imageUrl: item.url,
-                fit: BoxFit.contain,
-                placeholder: (_, __) => Container(
-                  height: 220,
-                  color: AppTheme.cardNested,
-                  alignment: Alignment.center,
-                  child: CircularProgressIndicator(
-                      color: AppTheme.accent, strokeWidth: 2),
-                ),
-                errorWidget: (_, __, ___) => Container(
-                  height: 220,
-                  color: AppTheme.cardNested,
-                  alignment: Alignment.center,
-                  child: Icon(LucideIcons.imageOff,
-                      color: AppTheme.muted, size: 32),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                  color: AppTheme.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.border)),
-              child: Row(children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                      color: AppTheme.accentSurface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppTheme.accent)),
-                  child: Text(item.categoryLabel,
-                      style: TextStyle(
-                          color: AppTheme.accentText,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    item.caption.isNotEmpty ? item.caption : 'No caption',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    Get.back();
-                    _confirmDelete(context, item);
-                  },
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                        color: const Color(0xFF2A1A1A),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color: const Color(0xFFFF5C5C)
-                                .withValues(alpha: 0.4))),
-                    child: const Icon(LucideIcons.trash2,
-                        color: Color(0xFFFF5C5C), size: 16),
-                  ),
-                ),
-              ]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _confirmDelete(BuildContext context, MediaItem item) {
+    final isVideo = item.type == MediaType.video;
+    final noun = isVideo ? 'highlight' : 'photo';
     showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.card,
@@ -426,7 +694,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 20),
           const Icon(LucideIcons.trash2, color: Color(0xFFFF5C5C), size: 30),
           const SizedBox(height: 12),
-          Text('Delete photo?',
+          Text('Delete $noun?',
               style: TextStyle(
                   color: AppTheme.textPrimary,
                   fontSize: 18,
@@ -457,10 +725,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Get.back();
                       try {
                         await MediaService.deleteMedia(_uid, item);
-                        _snack('Deleted', 'Photo removed from your profile.');
+                        _snack('Deleted',
+                            '${isVideo ? 'Highlight' : 'Photo'} removed from your profile.');
                       } catch (_) {
                         _snack('Delete failed',
-                            'Could not remove that photo. Try again.',
+                            'Could not remove that $noun. Try again.',
                             isError: true);
                       }
                     },
@@ -528,85 +797,75 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
 
   Widget _addButton(IconData icon, String label, VoidCallback? onTap,
-      {bool busy = false}) {
+      {bool busy = false, bool disabled = false}) {
+    // A quota-blocked button drops the gold entirely rather than dimming it:
+    // at a glance it should read as "not available", not "tap harder".
+    final fg = disabled ? AppTheme.muted : AppTheme.accentText;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         height: 44,
         decoration: BoxDecoration(
-            color: AppTheme.accentSurface,
+            color: disabled ? AppTheme.cardNested : AppTheme.accentSurface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.accent)),
+            border: Border.all(
+                color: disabled ? AppTheme.border : AppTheme.accent)),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           if (busy)
             SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(
-                  color: AppTheme.accentText, strokeWidth: 2),
+              child: CircularProgressIndicator(color: fg, strokeWidth: 2),
             )
           else
-            Icon(icon, color: AppTheme.accentText, size: 16),
+            Icon(disabled ? LucideIcons.circleSlash : icon, color: fg, size: 16),
           const SizedBox(width: 8),
           Text(label,
               style: TextStyle(
-                  color: AppTheme.accentText,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700)),
+                  color: fg, fontSize: 13, fontWeight: FontWeight.w700)),
         ]),
       ),
     );
   }
 
-  Widget _sectionHeader(IconData icon, String title) {
-    return Row(children: [
-      Container(
-        width: 30,
-        height: 30,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-            color: AppTheme.accentSurface,
-            borderRadius: BorderRadius.circular(8)),
-        child: Icon(icon, color: AppTheme.accent, size: 16),
-      ),
-      const SizedBox(width: 10),
-      Text(title,
-          style: TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 15,
-              fontWeight: FontWeight.w800)),
-    ]);
-  }
-
-  Widget _emptyState(IconData icon, String title, String subtitle) {
+  Widget _credentialBox(String label, String value) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-          color: AppTheme.card,
-          borderRadius: BorderRadius.circular(14),
+          color: AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: AppTheme.border)),
       child: Column(children: [
-        Container(
-          width: 48,
-          height: 48,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-              color: AppTheme.cardNested,
-              borderRadius: BorderRadius.circular(12)),
-          child: Icon(icon, color: AppTheme.muted, size: 22),
-        ),
-        const SizedBox(height: 12),
-        Text(title,
+        Text(value,
             style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 14,
-                fontWeight: FontWeight.w700)),
-        const SizedBox(height: 4),
-        Text(subtitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.sub, fontSize: 12, height: 1.4)),
+                fontWeight: FontWeight.w800),
+            overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 2),
+        Text(label,
+            style: TextStyle(color: AppTheme.muted, fontSize: 10),
+            overflow: TextOverflow.ellipsis),
       ]),
+    );
+  }
+
+  Widget _organizerStatusBadge(String? status) {
+    final (label, color) = switch (status) {
+      'approved' => ('Approved', AppTheme.success),
+      'rejected' => ('Rejected', AppTheme.error),
+      'revoked' => ('Revoked', AppTheme.error),
+      _ => ('Pending Review', AppTheme.warning),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.4))),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 11, fontWeight: FontWeight.w700)),
     );
   }
 
@@ -625,16 +884,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _comingSoon(String what) {
-    Get.snackbar('Coming next', '$what will be added in the next step.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: AppTheme.card,
-        colorText: AppTheme.textPrimary,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-        duration: const Duration(seconds: 2));
-  }
-
   void _snack(String title, String msg, {bool isError = false}) {
     Get.snackbar(title, msg,
         snackPosition: SnackPosition.BOTTOM,
@@ -646,107 +895,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-/// Result of the "Add Photo" category sheet.
+/// Result of the category sheet, shared by the photo and video flows.
 class _PhotoChoice {
   final MediaCategory category;
   final String caption;
   _PhotoChoice(this.category, this.caption);
 }
 
-/// Live photo grid backed by users/{uid}/media (type == photo).
-class _PhotoHighlights extends StatelessWidget {
-  final String uid;
-  final void Function(MediaItem) onTapItem;
-  const _PhotoHighlights({required this.uid, required this.onTapItem});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<MediaItem>>(
-      stream: MediaService.streamMedia(uid, type: MediaType.photo),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return Container(
-            height: 120,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.border)),
-            child: CircularProgressIndicator(
-                color: AppTheme.accent, strokeWidth: 2),
-          );
-        }
-        final items = snap.data ?? [];
-        if (items.isEmpty) {
-          return Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
-            decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.border)),
-            child: Column(children: [
-              Container(
-                width: 48,
-                height: 48,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    color: AppTheme.cardNested,
-                    borderRadius: BorderRadius.circular(12)),
-                child:
-                    Icon(LucideIcons.image, color: AppTheme.muted, size: 22),
-              ),
-              const SizedBox(height: 12),
-              Text('No photos yet',
-                  style: TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text('Add game, team, and tournament photos to your portfolio.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: AppTheme.sub, fontSize: 12, height: 1.4)),
-            ]),
-          );
-        }
-        return GridView.count(
-          crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          children: items.map((m) {
-            return GestureDetector(
-              onTap: () => onTapItem(m),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: CachedNetworkImage(
-                  imageUrl: m.thumbnailUrl,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 300,
-                  placeholder: (_, __) => Container(
-                    color: AppTheme.cardNested,
-                    alignment: Alignment.center,
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          color: AppTheme.accent, strokeWidth: 2),
-                    ),
-                  ),
-                  errorWidget: (_, __, ___) => Container(
-                    color: AppTheme.cardNested,
-                    alignment: Alignment.center,
-                    child: Icon(LucideIcons.imageOff,
-                        color: AppTheme.muted, size: 20),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-}

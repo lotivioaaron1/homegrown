@@ -2,6 +2,51 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    // Hand-provisioned super-admin account(s) — there is no in-app way to
+    // become admin (see splash_screen.dart's routing branch), so this list
+    // only ever grows by someone manually adding a UID here and
+    // redeploying. Kept as a list, not a single value, so a second admin
+    // can be added later without restructuring anything.
+    //
+    // This exists instead of checking `role == 'admin'` via a live Firestore
+    // lookup (the cross-service `firestore.get()` rules feature), because
+    // that path returned `unauthorized` in this project even with a
+    // correctly-set role field and the right database path.
+    //
+    // The cause is now known, and the earlier guess here — that the missing
+    // IAM grant "isn't provisionable from the Firebase CLI" — was wrong. The
+    // CLI does provision it: deploying storage rules prompts "Cloud Storage
+    // for Firebase needs an IAM Role to use cross-service rules. Grant the
+    // new role?", and that grant is what makes `firestore.get()` work here.
+    // It has since been granted on this project.
+    //
+    // The hardcoded list is kept anyway, for now. Switching to a live lookup
+    // is a behaviour change worth testing on its own, because a Storage rule
+    // that misfires locks the admin out of the verification photos the
+    // approval queue exists to show. Doing it would let this agree with
+    // firestore.rules' isAdmin() and remove the two-places-to-update problem.
+    //
+    // It is a list, not a single `==` comparison, as the paragraph above
+    // always claimed it was. It genuinely was a single comparison until the
+    // admin console landed, which meant a second admin created in the console
+    // would pass every Firestore rule (those check `role == 'admin'` live)
+    // and then fail here — surfacing only as "Couldn't load photo" on the
+    // approval queue's verification document, with nothing to point at the
+    // cause. Add a UID to this list when provisioning another admin.
+    function isAdminUid(uid) {
+      return uid in ['HjtB738VdObEoei73u2e2Oy7uy62'];
+    }
+
+    // Every `allow write` below guards on request.resource.size and
+    // contentType, which is correct for uploads but silently makes deletion
+    // impossible: on a delete, request.resource is null, so those conditions
+    // can never hold. Each path therefore gets an explicit delete rule.
+    // Account deletion (AccountDeletionService) depends on the owner being
+    // able to remove their own objects.
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
     // Single profile avatar per user (see lib/services/storage_service.dart).
     match /profile_photos/{uid}/{fileName} {
       allow read: if request.auth != null;
@@ -9,6 +54,34 @@ service firebase.storage {
                    && request.auth.uid == uid
                    && request.resource.size < 10 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner(uid);
+    }
+
+    // Single team logo per coach (see lib/services/team_service.dart).
+    match /team_logos/{coachId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == coachId
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner(coachId);
+    }
+
+    // Optional organizer proof-of-legitimacy photo, reviewed by a
+    // super-admin before approving them (see storage_service.dart's
+    // uploadOrganizerVerificationDoc/fetchOrganizerVerificationDoc and
+    // admin_review_screen.dart). Can contain a government ID, so unlike
+    // every other path here this is NOT world-readable to any signed-in
+    // user — only the uploader or an admin account (checked against their
+    // own Firestore role) can read it.
+    match /organizer_verification/{uid}/{fileName} {
+      allow read: if request.auth != null
+                   && (request.auth.uid == uid || isAdminUid(request.auth.uid));
+      allow write: if request.auth != null
+                   && request.auth.uid == uid
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner(uid);
     }
 
     // Portfolio photos/videos (see lib/services/media_service.dart).
@@ -19,6 +92,7 @@ service firebase.storage {
                    && request.resource.size < 25 * 1024 * 1024
                    && (request.resource.contentType.matches('image/.*')
                        || request.resource.contentType.matches('video/.*'));
+      allow delete: if isOwner(uid);
     }
 
     // Deny everything else by default.

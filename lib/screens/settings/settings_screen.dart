@@ -1,27 +1,64 @@
 // lib/screens/settings/settings_screen.dart
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../constants/app_links.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/onboarding_flag.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/theme_controller.dart';
+import '../../services/ranking_service.dart';
 import '../profile/edit_profile_screen.dart';
 
 /// Everything that used to sit on the profile screen: Edit Profile,
 /// role-specific details, Performance, Best Game, Dark Mode, and Sign Out.
 /// Firestore queries are the same ones the old profile used — this is a
 /// relocation, not new logic.
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+// Stateful only so the two aggregation queries below can be memoised. The outer
+// StreamBuilder rebuilds this screen on every write to the user's document, and
+// a Future built inline in build() is a *new* Future each time — which re-issues
+// the query and flickers the value back to its placeholder.
+class _SettingsScreenState extends State<SettingsScreen> {
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   int _toInt(dynamic v) {
     if (v is int) return v;
     if (v is double) return v.toInt();
     return 0;
+  }
+
+  int? _cityRankPoints;
+  Future<int>? _cityRankResult;
+
+  Future<int> _cityRankFuture(int points) {
+    if (_cityRankResult == null || _cityRankPoints != points) {
+      _cityRankPoints = points;
+      _cityRankResult = RankingService.cityRank(points: points);
+    }
+    return _cityRankResult!;
+  }
+
+  Future<int>? _gamesPlayedResult;
+
+  /// Only the number of games is shown, so a count aggregation replaces
+  /// downloading every stats document to call `.length` on the list.
+  Future<int> _gamesPlayedFuture() {
+    return _gamesPlayedResult ??= FirebaseFirestore.instance
+        .collection('stats')
+        .where('athleteId', isEqualTo: _uid)
+        .count()
+        .get()
+        .then((snap) => snap.count ?? 0);
   }
 
   @override
@@ -36,7 +73,7 @@ class SettingsScreen extends StatelessWidget {
               .snapshots(),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
-              return Center(
+              return const Center(
                 child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2.5),
               );
@@ -91,6 +128,8 @@ class SettingsScreen extends StatelessWidget {
                 _buildSettingsSection(),
                 const SizedBox(height: 16),
                 _buildSignOutSection(context),
+                const SizedBox(height: 12),
+                _buildDeleteAccountRow(),
               ],
             );
           },
@@ -117,7 +156,7 @@ class SettingsScreen extends StatelessWidget {
             decoration: BoxDecoration(
                 color: AppTheme.accentSurface,
                 borderRadius: BorderRadius.circular(10)),
-            child: Icon(LucideIcons.pencil, color: AppTheme.accent, size: 16),
+            child: const Icon(LucideIcons.pencil, color: AppTheme.accent, size: 16),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -190,11 +229,11 @@ class SettingsScreen extends StatelessWidget {
               value: barangay),
           _infoRow(
               icon: isOpen ? LucideIcons.checkCircle : LucideIcons.xCircle,
-              iconBg: isOpen ? const Color(0xFF0D2E20) : AppTheme.cardNested,
-              iconColor: isOpen ? AppTheme.success : AppTheme.muted,
+              iconBg: isOpen ? AppTheme.successSurface : AppTheme.cardNested,
+              iconColor: isOpen ? AppTheme.successText : AppTheme.muted,
               label: 'Open to Recruitment',
               value: isOpen ? 'Yes' : 'No',
-              valueColor: isOpen ? AppTheme.success : AppTheme.muted,
+              valueColor: isOpen ? AppTheme.successText : AppTheme.muted,
               isLast: bio.isEmpty),
           if (bio.isNotEmpty) _bioRow(bio),
         ]),
@@ -205,29 +244,14 @@ class SettingsScreen extends StatelessWidget {
   // ── Performance ────────────────────────────────────────────────────────
   Widget _buildStatsSection(Map<String, dynamic> data) {
     final pts = _toInt(data['points']);
-    return FutureBuilder<QuerySnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'athlete')
-          .get(),
+    return FutureBuilder<int>(
+      future: _cityRankFuture(pts),
       builder: (context, rankSnap) {
-        String rank = '#—';
-        if (rankSnap.hasData) {
-          final list = rankSnap.data!.docs
-              .map((d) => d.data() as Map<String, dynamic>)
-              .toList()
-            ..sort((a, b) =>
-                _toInt(b['points']).compareTo(_toInt(a['points'])));
-          final idx = list.indexWhere((a) => a['uid'] == _uid);
-          if (idx >= 0) rank = '#${idx + 1}';
-        }
-        return FutureBuilder<QuerySnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('stats')
-              .where('athleteId', isEqualTo: _uid)
-              .get(),
+        final rank = rankSnap.hasData ? '#${rankSnap.data}' : '#—';
+        return FutureBuilder<int>(
+          future: _gamesPlayedFuture(),
           builder: (context, snap) {
-            final games = snap.data?.docs.length ?? 0;
+            final games = snap.data ?? 0;
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -245,14 +269,14 @@ class SettingsScreen extends StatelessWidget {
                           iconColor: AppTheme.accent,
                           label: 'Total Points',
                           value: '$pts pts',
-                          valueColor: AppTheme.accent),
+                          valueColor: AppTheme.accentText),
                       _infoRow(
                           icon: LucideIcons.trophy,
                           iconBg: AppTheme.accentSurface,
                           iconColor: AppTheme.accent,
                           label: 'City Rank',
                           value: rank,
-                          valueColor: AppTheme.accent),
+                          valueColor: AppTheme.accentText),
                       _infoRow(
                           icon: LucideIcons.gamepad2,
                           iconBg: AppTheme.cardNested,
@@ -307,7 +331,7 @@ class SettingsScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: AppTheme.accent)),
                 child:
-                    Icon(LucideIcons.flame, color: AppTheme.accent, size: 18),
+                    const Icon(LucideIcons.flame, color: AppTheme.accent, size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -358,7 +382,7 @@ class SettingsScreen extends StatelessWidget {
               iconColor: AppTheme.accent,
               label: 'Coaching Level',
               value: level,
-              valueColor: AppTheme.accent),
+              valueColor: AppTheme.accentText),
           _infoRow(
               icon: LucideIcons.clock,
               iconBg: AppTheme.cardNested,
@@ -432,7 +456,7 @@ class SettingsScreen extends StatelessWidget {
                   iconColor: AppTheme.accent,
                   label: 'Organization',
                   value: org,
-                  valueColor: AppTheme.accent),
+                  valueColor: AppTheme.accentText),
               _infoRow(
                   icon: LucideIcons.tag,
                   iconBg: AppTheme.cardNested,
@@ -444,7 +468,7 @@ class SettingsScreen extends StatelessWidget {
                   iconColor: AppTheme.accent,
                   label: 'Events Created',
                   value: '$eventCount events',
-                  valueColor: AppTheme.accent),
+                  valueColor: AppTheme.accentText),
               _infoRow(
                   icon: LucideIcons.volleyball,
                   iconBg: AppTheme.cardNested,
@@ -496,13 +520,43 @@ class SettingsScreen extends StatelessWidget {
               trailing: Switch(
                 value: isDark,
                 onChanged: (_) => ThemeController.to.toggleTheme(),
-                activeColor: AppTheme.accent,
+                activeThumbColor: AppTheme.accent,
                 inactiveThumbColor: AppTheme.muted,
                 inactiveTrackColor: AppTheme.border,
               ),
-              isLast: true,
             );
           }),
+          // Play requires the privacy policy to be reachable from inside the
+          // app, not only from the store listing.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openPrivacyPolicy,
+            child: _settingsRow(
+              icon: LucideIcons.shieldCheck,
+              label: 'Privacy Policy',
+              sub: 'What we collect, and how to delete it',
+              trailing: Icon(LucideIcons.externalLink,
+                  color: AppTheme.muted, size: 16),
+              isLast: !kDebugMode,
+            ),
+          ),
+          // The splash CTA is the only route to /onboarding, and it stops
+          // appearing once you have signed in — so checking the intro
+          // otherwise means wiping app data. Debug builds only; this is a
+          // development affordance, not a feature.
+          if (kDebugMode)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _replayOnboarding,
+              child: _settingsRow(
+                icon: LucideIcons.rotateCcw,
+                label: 'View intro again',
+                sub: 'Debug only — replays the onboarding panels',
+                trailing:
+                    Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 16),
+                isLast: true,
+              ),
+            ),
         ]),
       ),
     ]);
@@ -515,39 +569,84 @@ class SettingsScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-            color: const Color(0xFF2A1A1A),
+            color: AppTheme.errorSurface,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-                color: const Color(0xFFFF5C5C).withValues(alpha: 0.4))),
+            border:
+                Border.all(color: AppTheme.errorText.withValues(alpha: 0.4))),
         child: Row(children: [
           Container(
             width: 36,
             height: 36,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-                color: const Color(0xFF3A1A1A),
+                color: AppTheme.errorSurfaceStrong,
                 borderRadius: BorderRadius.circular(10)),
-            child: const Icon(LucideIcons.logOut,
-                color: Color(0xFFFF5C5C), size: 18),
+            child:
+                Icon(LucideIcons.logOut, color: AppTheme.errorText, size: 18),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Sign Out',
                     style: TextStyle(
-                        color: Color(0xFFFF5C5C),
+                        color: AppTheme.errorText,
                         fontSize: 14,
                         fontWeight: FontWeight.w700)),
                 Text('Return to login screen',
-                    style: TextStyle(color: Color(0xFF8888AA), fontSize: 11)),
+                    style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ],
             ),
           ),
-          const Icon(LucideIcons.chevronRight,
-              color: Color(0xFFFF5C5C), size: 20),
+          Icon(LucideIcons.chevronRight, color: AppTheme.errorText, size: 20),
         ]),
+      ),
+    );
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    final opened = await AppLinks.open(AppLinks.privacyPolicy);
+    if (!opened) {
+      Get.snackbar(
+        'Could not open the link',
+        'Visit ${AppLinks.privacyPolicy} in your browser.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: AppTheme.card,
+        colorText: AppTheme.textPrimary,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
+        duration: const Duration(seconds: 5),
+      );
+    }
+  }
+
+  /// Clears the "onboarding done" flag and reopens the intro. Debug builds
+  /// only — the alternative while developing is wiping the app's data.
+  ///
+  /// Pushed rather than replaced so backing out returns here. Note that the
+  /// intro's own Get Started still routes on to /register, which is a little
+  /// odd when you are already signed in; acceptable for a debug shortcut.
+  Future<void> _replayOnboarding() async {
+    await clearOnboardingComplete();
+    Get.toNamed('/onboarding');
+  }
+
+  // ── Delete account ─────────────────────────────────────────────────────
+  // Deliberately understated next to Sign Out: Google Play requires this to
+  // be reachable in-app, but it is permanent, so it should not compete for
+  // attention with the action almost everyone actually wants.
+  Widget _buildDeleteAccountRow() {
+    return Center(
+      child: TextButton(
+        onPressed: () => Get.toNamed('/account/delete'),
+        child: Text('Delete my account',
+            style: TextStyle(
+                color: AppTheme.muted,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                decoration: TextDecoration.underline,
+                decorationColor: AppTheme.muted)),
       ),
     );
   }

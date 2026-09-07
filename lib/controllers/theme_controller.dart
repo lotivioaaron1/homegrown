@@ -12,6 +12,18 @@ class ThemeController extends GetxController {
 
   final RxBool isDark = false.obs; // default: light mode
 
+  /// Reads the saved preference without needing the controller to exist yet.
+  ///
+  /// main() calls this before runApp so GetMaterialApp can be built with the
+  /// correct themeMode from the very first frame. Loading it only in onInit
+  /// meant the app rendered light, then snapped to dark a moment later — and
+  /// because AppTheme's getters read Get.isDarkMode, widgets built during
+  /// that gap kept light-mode colours even after the theme changed.
+  static Future<ThemeMode> savedThemeMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getBool(_key) ?? false) ? ThemeMode.dark : ThemeMode.light;
+  }
+
   @override
   void onInit() {
     super.onInit();

@@ -46,6 +46,34 @@ app.*.map.json
 
 # Claude / AI assistant files
 .claude/
+.worktrees/
 
 # Android generated reports
 android/build/reports/
+
+# Signing material — NEVER commit these.
+# The upload keystore cannot be rotated: if it leaks, anyone can publish an
+# update impersonating this app, and if it is lost the app can never be
+# updated again under this package name. Keep the .jks outside the repo
+# entirely; key.properties only points at it and holds the passwords.
+*.jks
+*.keystore
+key.properties
+android/key.properties
+
+# Secrets / local API keys
+.env
+.env.*
+!.env.example
+
+# Firebase Admin SDK service-account keys, used by the one-off scripts in
+# functions/scripts. These bypass security rules entirely — a leaked key is
+# full read/write on every user's data, so it must never be committed. Prefer
+# keeping the file outside the repo altogether; this is the safety net for
+# when it lands here anyway.
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+
+# Build-time --dart-define values (the Maps web-services key).
+# The .example file is the tracked template; the real one never is.
+dart_defines.json

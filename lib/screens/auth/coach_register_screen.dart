@@ -1,11 +1,21 @@
 // lib/screens/auth/coach_register_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../theme/app_theme.dart';
-import '../../constants/legazpi_barangays.dart';
+import '../../widgets/privacy_consent_text.dart';
+import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/profile_photo_picker.dart';
+import '../../widgets/fill_viewport_scroll.dart';
+import '../../services/contact_service.dart';
+import '../../services/storage_service.dart';
+import '../../utils/auth_routing.dart';
+import '../../utils/registration_rollback.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -39,6 +49,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   final _teamOrgCtrl = TextEditingController();
 
   // Step 3
+  File? _profileImage;
   final _coachingBioCtrl   = TextEditingController();
   final _certificationsCtrl = TextEditingController();
 
@@ -50,94 +61,45 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
     super.dispose();
   }
 
+  // ── Profile photo ─────────────────────────
+
+  Future<void> _pickImage() async {
+    // maxWidth matters: without it a modern phone camera shot uploads at
+    // full resolution, which blows past the "max 5MB" the UI promises.
+    // Matches edit_profile_screen.dart's avatar picker.
+    final p = await ImagePicker().pickImage(
+        source: ImageSource.gallery, maxWidth: 1000, imageQuality: 80);
+    if (p != null && mounted) setState(() => _profileImage = File(p.path));
+  }
+
+  /// Uploads the avatar picked in step 3 and points the user's doc at it.
+  /// Must run *after* account creation: storage.rules requires
+  /// `request.auth.uid == uid`, which only holds once the new user is
+  /// signed in.
+  ///
+  /// Deliberately swallows its own failures rather than letting them reach
+  /// _onCreateAccount's catch. By this point the account already exists, so
+  /// bouncing the user back to the form is a dead end — their retry would
+  /// just fail with 'email-already-in-use'. A missing photo is recoverable
+  /// from Edit Profile; a stranded account is not.
+  Future<void> _uploadProfilePhoto(String uid) async {
+    if (_profileImage == null) return;
+    try {
+      final url = await StorageService.uploadProfilePhoto(uid, _profileImage!);
+      await FirebaseFirestore.instance
+          .collection('users').doc(uid).update({'photoUrl': url});
+    } catch (_) {
+      _snack('Photo not uploaded',
+          'Your account was created. You can add a photo from Edit Profile.');
+    }
+  }
+
   // ── Barangay picker ───────────────────────
 
-  void _pickBarangay() {
-    final search = TextEditingController();
-    List<String> filtered = List.from(kLegazpiBarangays);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setModal) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize:     0.92,
-          builder: (_, ctrl) => Column(children: [
-            const SizedBox(height: 12),
-            Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(2))),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Text('Select Barangay', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 16,
-                  fontWeight: FontWeight.w800)),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: search,
-                autofocus: true,
-                style: TextStyle(color: AppTheme.textPrimary),
-                onChanged: (q) => setModal(() {
-                  filtered = kLegazpiBarangays
-                      .where((b) => b.toLowerCase()
-                          .contains(q.toLowerCase()))
-                      .toList();
-                }),
-                decoration: InputDecoration(
-                  hintText: 'Search barangay...',
-                  hintStyle: TextStyle(color: AppTheme.muted),
-                  prefixIcon: Icon(Icons.search_rounded,
-                      color: AppTheme.muted, size: 20),
-                  filled: true, fillColor: AppTheme.bg,
-                  contentPadding: const EdgeInsets.symmetric(
-                      vertical: 12, horizontal: 16),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.border)),
-                  focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: AppTheme.accent, width: 1.5)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: ListView.builder(
-              controller: ctrl,
-              itemCount: filtered.length,
-              itemBuilder: (_, i) {
-                final b = filtered[i];
-                final sel = b == _selectedBarangay;
-                return ListTile(
-                  dense: true,
-                  title: Text(b, style: TextStyle(
-                    color: sel ? AppTheme.accentText : AppTheme.textPrimary,
-                    fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 14)),
-                  trailing: sel
-                      ? Icon(Icons.check_circle_rounded,
-                          color: AppTheme.accent, size: 20) : null,
-                  onTap: () {
-                    setState(() => _selectedBarangay = b);
-                    Navigator.pop(context);
-                  },
-                );
-              },
-            )),
-          ]),
-        ),
-      ),
-    );
+  Future<void> _pickBarangay() async {
+    final picked = await showBarangayPickerSheet(context,
+        selected: _selectedBarangay);
+    if (picked != null) setState(() => _selectedBarangay = picked);
   }
 
   // ── Navigation ────────────────────────────
@@ -151,7 +113,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
     }
     if (_step == 1) {
       if (_selectedSports.isEmpty) {
-        _snack('Select Sport', 'Please select at least one sport.'); return;
+        _snack('Select Sport', 'Please select the sport you coach.'); return;
       }
       if (_coachingLevel.isEmpty) {
         _snack('Coaching Level', 'Please select your coaching level.'); return;
@@ -173,30 +135,44 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         email:    _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      await FirebaseFirestore.instance
-          .collection('users').doc(cred.user!.uid).set({
-        'uid':               cred.user!.uid,
-        'firstName':         _firstNameCtrl.text.trim(),
-        'lastName':          _lastNameCtrl.text.trim(),
-        'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'email':             _emailCtrl.text.trim(),
-        'role':              'coach',
-        'barangay':          _selectedBarangay,
-        'primarySports':     _selectedSports,
-        'coachingLevel':     _coachingLevel,
-        'yearsOfExperience': _yearsOfExperience,
-        'teamOrganization':  _teamOrgCtrl.text.trim(),
-        'coachingBio':       _coachingBioCtrl.text.trim(),
-        'certifications':    _certificationsCtrl.text.trim(),
-        'profileImageUrl':   '',
-        'createdAt':         FieldValue.serverTimestamp(),
-      });
+      // See athlete_register_screen.dart — both writes are required, so a
+      // failure has to take the Auth account with it rather than strand the
+      // email address.
+      await withRegistrationRollback(
+        deleteAccount: () => cred.user!.delete(),
+        writes: () async {
+          await FirebaseFirestore.instance
+              .collection('users').doc(cred.user!.uid).set({
+            'uid':               cred.user!.uid,
+            'firstName':         _firstNameCtrl.text.trim(),
+            'lastName':          _lastNameCtrl.text.trim(),
+            'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+            'role':              'coach',
+            'barangay':          _selectedBarangay,
+            'primarySports':     _selectedSports,
+            'coachingLevel':     _coachingLevel,
+            'yearsOfExperience': _yearsOfExperience,
+            'teamOrganization':  _teamOrgCtrl.text.trim(),
+            'coachingBio':       _coachingBioCtrl.text.trim(),
+            'certifications':    _certificationsCtrl.text.trim(),
+            // Every avatar in the app reads 'photoUrl' (home, profile,
+            // leaderboard, scout, team). Don't invent a second field name here.
+            'photoUrl':          '',
+            'createdAt':         FieldValue.serverTimestamp(),
+          });
+          // Email is kept off the publicly-readable profile doc — see
+          // ContactService.
+          await ContactService.write(
+              uid: cred.user!.uid, email: _emailCtrl.text.trim());
+        },
+      );
       await cred.user?.sendEmailVerification();
+      await _uploadProfilePhoto(cred.user!.uid);
       if (mounted) setState(() => _showSuccess = true);
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -211,14 +187,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       duration: const Duration(seconds: 3));
   }
 
-  String _mapError(String code) {
-    switch (code) {
-      case 'email-already-in-use': return 'An account already exists with this email.';
-      case 'weak-password':        return 'Password is too weak.';
-      case 'invalid-email':        return 'Please enter a valid email.';
-      default:                     return 'Registration failed. Please try again.';
-    }
-  }
+  /// See athlete_register_screen.dart — one shared mapping across all three
+  /// role registrations and sign-in.
+  String _mapError(String code) =>
+      authErrorMessage(code) ?? 'Registration failed. Please try again.';
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +204,15 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         _buildProgressBar(),
         Expanded(child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
+          // Pin steps to the top. AnimatedSwitcher's default layout stacks
+          // its children centred, and a SingleChildScrollView shrink-wraps
+          // under a Stack's loose constraints — so a short step floated in
+          // the middle of the screen while a long one sat at the top, and
+          // the header jumped between steps.
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...previous, if (current != null) current],
+          ),
           transitionBuilder: (child, anim) => SlideTransition(
             position: Tween<Offset>(
                 begin: const Offset(0.08, 0), end: Offset.zero).animate(anim),
@@ -285,7 +266,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   // ── Step 1 — Personal Info ────────────────
 
   Widget _buildStep1() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Form(key: _step1Key,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -357,10 +338,12 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
             validator: (v) {
               if (v!.isEmpty) return 'Password is required';
               if (v.length < 8) return 'At least 8 characters';
-              if (!RegExp(r'[A-Z]').hasMatch(v))
+              if (!RegExp(r'[A-Z]').hasMatch(v)) {
                 return 'Add at least one uppercase letter';
-              if (!RegExp(r'[0-9]').hasMatch(v))
+              }
+              if (!RegExp(r'[0-9]').hasMatch(v)) {
                 return 'Add at least one number';
+              }
               return null;
             }),
           const SizedBox(height: 12),
@@ -379,7 +362,12 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
               if (v != _passwordCtrl.text) return 'Passwords do not match';
               return null;
             }),
-          const SizedBox(height: 262),
+          const SizedBox(height: 32),
+          // Takes up whatever the fields leave, so the button sits at the
+          // bottom on a tall screen and the step simply scrolls on a short
+          // one. This used to be a fixed 262px gap, which only landed
+          // correctly on the screen it was measured against.
+          const Spacer(),
           _PrimaryButton(label: 'Next', onTap: _nextStep),
         ]),
       ),
@@ -389,20 +377,31 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   // ── Step 2 — Coaching Details ─────────────
 
   Widget _buildStep2() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '🏅', title: 'Coaching Info',
             subtitle: 'Step 2 of 3 — Your experience'),
         const SizedBox(height: 24),
-        const _SectionLabel(label: 'Sport(s) You Coach'),
+        const _SectionLabel(label: 'Sport You Coach'),
         const SizedBox(height: 8),
+        // Single-select: a coach handles one sport. Everything else about a
+        // coach's team is singular too — one `teamOrganization`, one logo, one
+        // roster in `teamMemberships` (which carries no sport of its own), and
+        // one 15-player cap — so a second sport would share all of them rather
+        // than getting a team of its own. Stored as a one-element list because
+        // `primarySports` stays a list: Scout's `arrayContainsAny` and the
+        // event team picker's `arrayContains` both read it that way.
+        //
+        // Assign rather than toggle, matching Coaching Level below: tapping
+        // the selected chip keeps it selected, so there's no way to land back
+        // on an empty selection once a sport is chosen.
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
             final sel = _selectedSports.contains(s);
             return _Chip(label: s, sel: sel,
               onTap: () => setState(() =>
-                  sel ? _selectedSports.remove(s) : _selectedSports.add(s)));
+                  _selectedSports..clear()..add(s)));
           }).toList()),
         const SizedBox(height: 20),
         const _SectionLabel(label: 'Coaching Level'),
@@ -426,6 +425,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           icon: Icons.groups_outlined,
           cap: TextCapitalization.words),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(label: 'Next', onTap: _nextStep),
       ]),
     );
@@ -434,11 +434,13 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
   // ── Step 3 — Bio & Certifications ─────────
 
   Widget _buildStep3() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '📋', title: 'Your Profile',
-            subtitle: 'Step 3 of 3 — Bio & certifications'),
+            subtitle: 'Step 3 of 3 — Photo, bio & certifications'),
+        const SizedBox(height: 24),
+        ProfilePhotoPicker(image: _profileImage, onTap: _pickImage),
         const SizedBox(height: 24),
         const _SectionLabel(label: 'Coaching Bio'),
         const SizedBox(height: 8),
@@ -455,7 +457,10 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
           hint: 'e.g. FIBA Level 1, PhilSports Certified',
           icon: Icons.workspace_premium_outlined,
           cap: TextCapitalization.sentences),
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
+        const PrivacyConsentText(),
+        const SizedBox(height: 14),
+        const Spacer(),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))
@@ -478,7 +483,7 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
         borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
     focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_kRadius),
-        borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+        borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
   );
 }
 
@@ -510,7 +515,9 @@ class _SuccessView extends StatelessWidget {
           style: TextStyle(color: AppTheme.sub, fontSize: 15, height: 1.6)),
         const Spacer(),
         _PrimaryButton(label: 'Go to Home',
-            onTap: () => Get.offAllNamed('/home')),
+            // See athlete_register_screen.dart — a new account must clear the
+            // verification gate before it can reach /home.
+            onTap: () => Get.offAllNamed(kRouteVerifyEmail)),
         const SizedBox(height: 40),
       ]),
     )),
@@ -599,7 +606,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
           borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

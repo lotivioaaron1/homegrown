@@ -1,23 +1,22 @@
 // lib/screens/venues/venue_locator_screen.dart
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../constants/query_limits.dart';
+import '../../services/directions_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/error_messages.dart';
 
 // ─────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────
 
-// Directions API key (unrestricted — for HTTP calls)
-const _kDirectionsApiKey = 'AIzaSyANxN_-pADVGhenw5VdLZe9_O-620BAFuo';
 const _kCenter       = LatLng(13.1391, 123.7438);
 const _kDefaultZoom  = 13.5;
 
@@ -63,19 +62,26 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
   String _routeDur   = '';
 
   // User location — starts at Legazpi center,
-  // updated with real GPS if permission granted
+  // continuously updated with real GPS if permission granted
   LatLng _userLoc = _kCenter;
+  StreamSubscription<Position>? _positionSub;
 
   @override
   void initState() {
     super.initState();
     _loadEvents();
-    _getUserLocation();
+    _startLocationUpdates();
   }
 
-  // ── Get real GPS location ─────────────────
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    super.dispose();
+  }
 
-  Future<void> _getUserLocation() async {
+  // ── Live GPS location ──────────────────────
+
+  Future<void> _startLocationUpdates() async {
     try {
       final permission = await Geolocator.checkPermission();
       LocationPermission perm = permission;
@@ -84,14 +90,21 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
       }
       if (perm == LocationPermission.deniedForever) return;
 
-      final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-
-      if (mounted) {
-        setState(() {
-          _userLoc = LatLng(pos.latitude, pos.longitude);
-        });
-      }
+      _positionSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen(
+        // No setState: _userLoc is only read on demand in
+        // _getDirections, never during build, so rebuilding the whole
+        // screen every ~10m of movement would be wasted work.
+        (pos) => _userLoc = LatLng(pos.latitude, pos.longitude),
+        // Permission revoked or location services turned off mid-session
+        // arrive as async stream errors — absorb them and keep the last
+        // known location (Legazpi center by default).
+        onError: (_) {},
+      );
     } catch (_) {
       // Falls back to Legazpi center if GPS unavailable
     }
@@ -106,15 +119,23 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           .collection('events')
           .where('status',   isEqualTo: 'upcoming')
           .where('isPublic', isEqualTo: true)
+          .limit(kMaxMapQuery)
           .get();
-      if (mounted) setState(() {
-        _events    = snap.docs.map((d) => d.data()).toList();
+      if (mounted) {
+        setState(() {
+        _events    = snap.docs
+            .map((d) => d.data())
+            .where(isEventUpcoming)
+            .toList();
         _isLoading = false;
       });
+      }
     } catch (e) {
-      if (mounted) setState(() {
-        _error = e.toString(); _isLoading = false;
+      if (mounted) {
+        setState(() {
+        _error = friendlyError(e); _isLoading = false;
       });
+      }
     }
   }
 
@@ -158,120 +179,45 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
       ));
     }
 
-    // User location marker
-    markers.add(Marker(
-      markerId: const MarkerId('user_location'),
-      position: _userLoc,
-      icon: BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueAzure),
-      infoWindow: const InfoWindow(title: '📍 Your Location'),
-    ));
-
     return markers;
   }
 
-  // ── Directions via OSRM (free fallback) ──
-  // Using OSRM since Google Directions API
-  // requires billing to be fully activated
+  // ── Directions via Google Directions API ──
 
   Future<void> _getDirections(LatLng dest) async {
     setState(() { _isRouting = true; _polylines = {}; });
     try {
-      // OSRM — free, no billing needed, real roads
-      final url = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/'
-        '${_userLoc.longitude},${_userLoc.latitude};'
-        '${dest.longitude},${dest.latitude}'
-        '?overview=full&geometries=geojson',
+      final result = await DirectionsService.fetchDrivingRoute(
+          origin: _userLoc, destination: dest);
+
+      final polyline = Polyline(
+        polylineId: const PolylineId('route'),
+        points:     result.points,
+        color:      AppTheme.accent,
+        width:      5,
       );
 
-      final res = await http.get(url, headers: {
-        'Accept': 'application/json',
-      }).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      setState(() {
+        _polylines = {polyline};
+        _routeDist = result.distanceText;
+        _routeDur  = result.durationText;
+        _isRouting = false;
+      });
 
-      if (res.statusCode == 200) {
-        final data   = jsonDecode(res.body);
-        final routes = data['routes'] as List;
-        if (routes.isEmpty) throw Exception('No route found');
-
-        final route  = routes[0];
-        final coords = route['geometry']['coordinates'] as List;
-        final distM  = (route['distance'] as num).toDouble();
-        final durSec = (route['duration'] as num).toDouble();
-
-        final points = coords.map((c) =>
-            LatLng((c[1] as num).toDouble(),
-                   (c[0] as num).toDouble())).toList();
-
-        final distKm = distM >= 1000
-            ? '${(distM / 1000).toStringAsFixed(1)} km'
-            : '${distM.toInt()} m';
-        final durMin = (durSec / 60).ceil();
-        final durStr = durMin >= 60
-            ? '${durMin ~/ 60}h ${durMin % 60}min'
-            : '$durMin min';
-
-        final polyline = Polyline(
-          polylineId: const PolylineId('route'),
-          points:     points,
-          color:      AppTheme.accent,
-          width:      5,
-        );
-
-        if (!mounted) return;
-        setState(() {
-          _polylines = {polyline};
-          _routeDist = distKm;
-          _routeDur  = durStr;
-          _isRouting = false;
-        });
-
-        // Fit camera to show full route
-        final ctrl = await _mapCompleter.future;
-        final bounds = _boundsFromLatLngList(
-            [_userLoc, dest, ...points]);
-        ctrl.animateCamera(
-            CameraUpdate.newLatLngBounds(bounds, 60));
-
-      } else {
-        throw Exception('HTTP ${res.statusCode}');
-      }
+      // Fit camera to show full route
+      final ctrl = await _mapCompleter.future;
+      final bounds = _boundsFromLatLngList(
+          [_userLoc, dest, ...result.points]);
+      ctrl.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 60));
     } catch (e) {
       if (mounted) setState(() { _isRouting = false; });
-      _snack('Directions Error',
-          'Could not get route. Check internet connection.');
+      final msg = e is DirectionsException
+          ? e.message
+          : 'Could not get route. Check internet connection.';
+      _snack('Directions Error', msg);
     }
-  }
-
-  // ── Google Polyline Decoder ───────────────
-
-  List<LatLng> _decodePolyline(String encoded) {
-    final points = <LatLng>[];
-    int index = 0, len = encoded.length;
-    int lat = 0, lng = 0;
-
-    while (index < len) {
-      int b, shift = 0, result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      final dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      lat += dlat;
-
-      shift = 0; result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      final dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-      lng += dlng;
-
-      points.add(LatLng(lat / 1e5, lng / 1e5));
-    }
-    return points;
   }
 
   // ── LatLngBounds helper ───────────────────
@@ -397,7 +343,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppTheme.accent)),
               child: Row(children: [
-                Icon(Icons.directions_car_rounded,
+                const Icon(Icons.directions_car_rounded,
                     color: AppTheme.accent, size: 18),
                 const SizedBox(width: 8),
                 Expanded(child: Text(
@@ -458,7 +404,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
         _buildTopBar(),
         _buildFilters(),
         Expanded(child: _isLoading
-            ? Center(child: CircularProgressIndicator(
+            ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))
             : _error != null
                 ? _buildError()
@@ -495,12 +441,12 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
             width: 38, height: 38,
             margin: const EdgeInsets.only(right: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF2A1A1A),
+              color: AppTheme.errorSurface,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                  color: AppTheme.error.withValues(alpha: 0.5))),
+                  color: AppTheme.errorText.withValues(alpha: 0.5))),
             child: Icon(Icons.route_rounded,
-                color: AppTheme.error, size: 20)),
+                color: AppTheme.errorText, size: 20)),
         ),
       GestureDetector(
         onTap: _loadEvents,
@@ -509,7 +455,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           decoration: BoxDecoration(color: AppTheme.card,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppTheme.border)),
-          child: Icon(Icons.refresh_rounded,
+          child: const Icon(Icons.refresh_rounded,
               color: AppTheme.accent, size: 20)),
       ),
     ]),
@@ -610,7 +556,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppTheme.accent)),
             child: Row(children: [
-              Icon(Icons.directions_car_rounded,
+              const Icon(Icons.directions_car_rounded,
                   color: AppTheme.accent, size: 18),
               const SizedBox(width: 8),
               Expanded(child: Text(
@@ -706,7 +652,7 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           fontWeight: FontWeight.w700)),
       const SizedBox(height: 8),
       GestureDetector(onTap: _loadEvents,
-        child: Text('Tap to retry', style: TextStyle(
+        child: const Text('Tap to retry', style: TextStyle(
             color: AppTheme.accent, fontSize: 13,
             fontWeight: FontWeight.w600))),
     ]),
@@ -810,7 +756,7 @@ class _EventTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis)),
               if (hasGps) ...[
                 const SizedBox(width: 4),
-                Icon(Icons.gps_fixed_rounded,
+                const Icon(Icons.gps_fixed_rounded,
                     color: AppTheme.success, size: 10),
               ],
             ]),

@@ -85,7 +85,7 @@ class _AchievementCard extends StatelessWidget {
                       color: AppTheme.sub, fontSize: 12, height: 1.3)),
               const SizedBox(height: 4),
               Text(DateFormat.yMMMd().format(achievement.date),
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: AppTheme.muted,
                       fontSize: 10.5,
                       fontWeight: FontWeight.w600)),

@@ -8,7 +8,17 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../theme/app_theme.dart';
-import '../../constants/legazpi_barangays.dart';
+import '../../widgets/privacy_consent_text.dart';
+import '../../widgets/barangay_picker_sheet.dart';
+import '../../widgets/profile_photo_picker.dart';
+import '../../widgets/fill_viewport_scroll.dart';
+import '../../constants/sport_positions.dart';
+import '../../widgets/position_picker_sheet.dart';
+import '../../services/contact_service.dart';
+import '../../services/storage_service.dart';
+import '../../utils/auth_routing.dart';
+import '../../utils/registration_rollback.dart';
+import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -34,7 +44,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   bool _obscurePw = true; bool _obscureConfirm = true;
 
   final List<String> _selectedSports = [];
-  final _positionCtrl = TextEditingController();
+  String _position = '';
   String _yearsOfPlaying = '';
   final _heightCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
@@ -46,100 +56,25 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   @override
   void dispose() {
     for (final c in [_firstNameCtrl, _lastNameCtrl, _emailCtrl,
-      _passwordCtrl, _confirmCtrl, _positionCtrl,
+      _passwordCtrl, _confirmCtrl,
       _heightCtrl, _weightCtrl, _bioCtrl]) { c.dispose(); }
     super.dispose();
   }
 
   // ── Barangay picker ───────────────────────
 
-  void _pickBarangay() {
-    final search = TextEditingController();
-    List<String> filtered = List.from(kLegazpiBarangays);
+  Future<void> _pickBarangay() async {
+    final picked = await showBarangayPickerSheet(context,
+        selected: _selectedBarangay);
+    if (picked != null) setState(() => _selectedBarangay = picked);
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setModal) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.75,
-          maxChildSize:     0.92,
-          builder: (_, ctrl) => Column(children: [
-            const SizedBox(height: 12),
-            Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: AppTheme.border,
-                    borderRadius: BorderRadius.circular(2))),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Text('Select Barangay', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 16,
-                  fontWeight: FontWeight.w800)),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: search,
-                autofocus: true,
-                style: TextStyle(color: AppTheme.textPrimary),
-                onChanged: (q) => setModal(() {
-                  filtered = kLegazpiBarangays
-                      .where((b) => b.toLowerCase()
-                          .contains(q.toLowerCase()))
-                      .toList();
-                }),
-                decoration: InputDecoration(
-                  hintText: 'Search barangay...',
-                  hintStyle: TextStyle(color: AppTheme.muted),
-                  prefixIcon: Icon(Icons.search_rounded,
-                      color: AppTheme.muted, size: 20),
-                  filled: true, fillColor: AppTheme.bg,
-                  contentPadding: const EdgeInsets.symmetric(
-                      vertical: 12, horizontal: 16),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.border)),
-                  focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: AppTheme.accent, width: 1.5)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: ListView.builder(
-              controller: ctrl,
-              itemCount: filtered.length,
-              itemBuilder: (_, i) {
-                final b = filtered[i];
-                final sel = b == _selectedBarangay;
-                return ListTile(
-                  dense: true,
-                  title: Text(b, style: TextStyle(
-                    color: sel ? AppTheme.accentText : AppTheme.textPrimary,
-                    fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 14)),
-                  trailing: sel
-                      ? Icon(Icons.check_circle_rounded,
-                          color: AppTheme.accent, size: 20)
-                      : null,
-                  onTap: () {
-                    setState(() => _selectedBarangay = b);
-                    Navigator.pop(context);
-                  },
-                );
-              },
-            )),
-          ]),
-        ),
-      ),
-    );
+  // ── Position picker ───────────────────────
+
+  Future<void> _pickPosition() async {
+    final picked = await showPositionPickerSheet(context,
+        sports: _selectedSports, selected: _position);
+    if (picked != null) setState(() => _position = picked);
   }
 
   // ── Navigation ────────────────────────────
@@ -154,6 +89,9 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
       if (_selectedSports.isEmpty) {
         _snack('Select Sport', 'Please select at least one sport.'); return;
       }
+      if (_position.isEmpty) {
+        _snack('Position', 'Please select your position.'); return;
+      }
       if (_yearsOfPlaying.isEmpty) {
         _snack('Years', 'Please select your years of playing.'); return;
       }
@@ -164,8 +102,11 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   void _prevStep() { if (_step > 0) setState(() => _step--); }
 
   Future<void> _pickImage() async {
-    final p = await ImagePicker()
-        .pickImage(source: ImageSource.gallery, imageQuality: 80);
+    // maxWidth matters: without it a modern phone camera shot uploads at
+    // full resolution, which blows past the "max 5MB" the UI promises.
+    // Matches edit_profile_screen.dart's avatar picker.
+    final p = await ImagePicker().pickImage(
+        source: ImageSource.gallery, maxWidth: 1000, imageQuality: 80);
     if (p != null && mounted) setState(() => _profileImage = File(p.path));
   }
 
@@ -177,36 +118,73 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      await FirebaseFirestore.instance
-          .collection('users').doc(cred.user!.uid).set({
-        'uid':               cred.user!.uid,
-        'firstName':         _firstNameCtrl.text.trim(),
-        'lastName':          _lastNameCtrl.text.trim(),
-        'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
-        'email':             _emailCtrl.text.trim(),
-        'role':              'athlete',
-        'barangay':          _selectedBarangay,
-        'primarySports':     _selectedSports,
-        'position':          _positionCtrl.text.trim(),
-        'yearsOfPlaying':    _yearsOfPlaying,
-        'heightCm':          _heightCtrl.text.trim(),
-        'weightKg':          _weightCtrl.text.trim(),
-        'bio':               _bioCtrl.text.trim(),
-        'isPublic':          _isPublic,
-        'openToRecruitment': _openToRecruitment,
-        'profileImageUrl':   '',
-        'points':            0,
-        'createdAt':         FieldValue.serverTimestamp(),
-      });
+      // Both writes are required for a usable account, so a failure in either
+      // has to take the Auth account with it — otherwise the email is stranded
+      // and every retry hits 'email-already-in-use'. See
+      // utils/registration_rollback.dart.
+      await withRegistrationRollback(
+        deleteAccount: () => cred.user!.delete(),
+        writes: () async {
+          await FirebaseFirestore.instance
+              .collection('users').doc(cred.user!.uid).set({
+            'uid':               cred.user!.uid,
+            'firstName':         _firstNameCtrl.text.trim(),
+            'lastName':          _lastNameCtrl.text.trim(),
+            'fullName': '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+            'role':              'athlete',
+            'barangay':          _selectedBarangay,
+            'primarySports':     _selectedSports,
+            'position':          _position,
+            'yearsOfPlaying':    _yearsOfPlaying,
+            'heightCm':          _heightCtrl.text.trim(),
+            'weightKg':          _weightCtrl.text.trim(),
+            'bio':               _bioCtrl.text.trim(),
+            'isPublic':          _isPublic,
+            'openToRecruitment': _openToRecruitment,
+            // Every avatar in the app reads 'photoUrl' (home, profile,
+            // leaderboard, scout, team). Don't invent a second field name here.
+            'photoUrl':          '',
+            'points':            0,
+            'createdAt':         FieldValue.serverTimestamp(),
+          });
+          // Email is kept off the publicly-readable profile doc — see
+          // ContactService.
+          await ContactService.write(
+              uid: cred.user!.uid, email: _emailCtrl.text.trim());
+        },
+      );
       // Send verification email right after account creation
       await cred.user?.sendEmailVerification();
+      await _uploadProfilePhoto(cred.user!.uid);
       if (mounted) setState(() => _showSuccess = true);
     } on FirebaseAuthException catch (e) {
       _snack('Registration Failed', _mapError(e.code), isError: true);
     } catch (e) {
-      _snack('Error', e.toString(), isError: true);
+      _snack('Error', friendlyError(e), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Uploads the avatar picked in step 3 and points the user's doc at it.
+  /// Must run *after* account creation: storage.rules requires
+  /// `request.auth.uid == uid`, which only holds once the new user is
+  /// signed in.
+  ///
+  /// Deliberately swallows its own failures rather than letting them reach
+  /// _onCreateAccount's catch. By this point the account already exists, so
+  /// bouncing the user back to the form is a dead end — their retry would
+  /// just fail with 'email-already-in-use'. A missing photo is recoverable
+  /// from Edit Profile; a stranded account is not.
+  Future<void> _uploadProfilePhoto(String uid) async {
+    if (_profileImage == null) return;
+    try {
+      final url = await StorageService.uploadProfilePhoto(uid, _profileImage!);
+      await FirebaseFirestore.instance
+          .collection('users').doc(uid).update({'photoUrl': url});
+    } catch (_) {
+      _snack('Photo not uploaded',
+          'Your account was created. You can add a photo from Edit Profile.');
     }
   }
 
@@ -219,14 +197,11 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
       duration: const Duration(seconds: 3));
   }
 
-  String _mapError(String code) {
-    switch (code) {
-      case 'email-already-in-use': return 'An account already exists with this email.';
-      case 'weak-password':        return 'Password is too weak.';
-      case 'invalid-email':        return 'Please enter a valid email.';
-      default:                     return 'Registration failed. Please try again.';
-    }
-  }
+  /// Shared with the other two role registrations and with sign-in, so that a
+  /// wording change lands everywhere at once — these four screens each used to
+  /// carry their own copy of this switch and had already drifted apart.
+  String _mapError(String code) =>
+      authErrorMessage(code) ?? 'Registration failed. Please try again.';
 
   @override
   Widget build(BuildContext context) {
@@ -238,6 +213,12 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
         _buildProgressBar(),
         Expanded(child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
+          // Pin steps to the top — see coach_register_screen.dart for why
+          // the default centred layout made short steps float mid-screen.
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.topCenter,
+            children: [...previous, if (current != null) current],
+          ),
           transitionBuilder: (child, anim) => SlideTransition(
             position: Tween<Offset>(
                 begin: const Offset(0.08, 0), end: Offset.zero).animate(anim),
@@ -291,11 +272,11 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   // ── Step 1 ────────────────────────────────
 
   Widget _buildStep1() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Form(key: _step1Key,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _StepHeader(emoji: '👤', title: 'Personal Info',
+          const _StepHeader(emoji: '👤', title: 'Personal Info',
               subtitle: 'Step 1 of 3 — Your information'),
           const SizedBox(height: 24),
           Row(children: [
@@ -364,10 +345,12 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
             validator: (v) {
               if (v!.isEmpty) return 'Password is required';
               if (v.length < 8) return 'At least 8 characters required';
-              if (!RegExp(r'[A-Z]').hasMatch(v))
+              if (!RegExp(r'[A-Z]').hasMatch(v)) {
                 return 'Add at least one uppercase letter';
-              if (!RegExp(r'[0-9]').hasMatch(v))
+              }
+              if (!RegExp(r'[0-9]').hasMatch(v)) {
                 return 'Add at least one number';
+              }
               return null;
             }),
           const SizedBox(height: 12),
@@ -386,7 +369,10 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
               if (v != _passwordCtrl.text) return 'Passwords do not match';
               return null;
             }),
-          const SizedBox(height: 262),
+          const SizedBox(height: 32),
+          // See coach_register_screen.dart — replaces a fixed 262px gap that
+          // only positioned the button correctly on one screen size.
+          const Spacer(),
           _PrimaryButton(label: 'Next', onTap: _nextStep),
         ]),
       ),
@@ -396,7 +382,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   // ── Step 2 ────────────────────────────────
 
   Widget _buildStep2() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '🏅', title: 'Your Sport',
@@ -408,16 +394,54 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           children: _kSports.map((s) {
             final sel = _selectedSports.contains(s);
             return _Chip(label: s, sel: sel,
-              onTap: () => setState(() =>
-                  sel ? _selectedSports.remove(s) : _selectedSports.add(s)));
+              onTap: () => setState(() {
+                sel ? _selectedSports.remove(s) : _selectedSports.add(s);
+                // Dropping a sport can orphan the position picked under it —
+                // a Setter who stops playing volleyball isn't a Setter.
+                if (!isKnownPosition(_position, _selectedSports)) {
+                  _position = '';
+                }
+              }));
           }).toList()),
         const SizedBox(height: 20),
         const _SectionLabel(label: 'Position / Role'),
         const SizedBox(height: 8),
-        _Field(ctrl: _positionCtrl,
-          hint: 'e.g. Point Guard, Setter, Singles',
-          icon: Icons.sports_basketball_outlined,
-          cap: TextCapitalization.words),
+        // Mirrors the barangay picker in step 1 rather than a text field:
+        // position is now chosen from a fixed per-sport list so it can't
+        // arrive misspelled or lowercased.
+        GestureDetector(
+          onTap: _selectedSports.isEmpty ? null : _pickPosition,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 15),
+            decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(_kRadius),
+              border: Border.all(
+                color: _position.isNotEmpty
+                    ? AppTheme.accent : AppTheme.border,
+                width: 1.5)),
+            child: Row(children: [
+              Icon(Icons.sports_basketball_outlined,
+                  color: _position.isNotEmpty
+                      ? AppTheme.accent : AppTheme.muted,
+                  size: 20),
+              const SizedBox(width: 12),
+              Expanded(child: Text(
+                _position.isNotEmpty
+                    ? _position
+                    : _selectedSports.isEmpty
+                        ? 'Select your sport first'
+                        : 'Select Position',
+                style: TextStyle(
+                  color: _position.isNotEmpty
+                      ? AppTheme.textPrimary : AppTheme.muted,
+                  fontSize: 14))),
+              Icon(Icons.keyboard_arrow_down_rounded,
+                  color: AppTheme.muted, size: 20),
+            ]),
+          ),
+        ),
         const SizedBox(height: 20),
         const _SectionLabel(label: 'Years of Playing'),
         const SizedBox(height: 8),
@@ -448,6 +472,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           ])),
         ]),
         const SizedBox(height: 32),
+        const Spacer(),
         _PrimaryButton(label: 'Next', onTap: _nextStep),
       ]),
     );
@@ -456,43 +481,13 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
   // ── Step 3 ────────────────────────────────
 
   Widget _buildStep3() {
-    return SingleChildScrollView(
+    return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _StepHeader(emoji: '🪪', title: 'Profile',
             subtitle: 'Step 3 of 3 — Photo & visibility'),
         const SizedBox(height: 24),
-        Center(child: GestureDetector(
-          onTap: _pickImage,
-          child: Stack(children: [
-            Container(
-              width: 110, height: 110,
-              decoration: BoxDecoration(
-                color: AppTheme.card, shape: BoxShape.circle,
-                border: Border.all(color: AppTheme.border, width: 2),
-                image: _profileImage != null
-                    ? DecorationImage(image: FileImage(_profileImage!),
-                        fit: BoxFit.cover) : null),
-              child: _profileImage == null ? Column(
-                mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(Icons.add_a_photo_outlined,
-                    color: AppTheme.muted, size: 28),
-                const SizedBox(height: 6),
-                Text('Upload Photo', style: TextStyle(
-                    color: AppTheme.muted, fontSize: 11)),
-                Text('PNG or JPG, max 5MB', style: TextStyle(
-                    color: AppTheme.muted.withValues(alpha: 0.6),
-                    fontSize: 10)),
-              ]) : null),
-            Positioned(bottom: 4, right: 4,
-              child: Container(width: 28, height: 28,
-                decoration: BoxDecoration(color: AppTheme.accent,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppTheme.bg, width: 2)),
-                child: const Icon(Icons.edit_rounded,
-                    color: AppTheme.buttonFg, size: 14))),
-          ]),
-        )),
+        ProfilePhotoPicker(image: _profileImage, onTap: _pickImage),
         const SizedBox(height: 24),
         const _SectionLabel(label: 'Bio (Optional)'),
         const SizedBox(height: 8),
@@ -513,7 +508,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
                 borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
             focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(_kRadius),
-                borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+                borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
           ),
         ),
         const SizedBox(height: 16),
@@ -536,7 +531,10 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           _Chip(label: '❌  Not now', sel: !_openToRecruitment,
               onTap: () => setState(() => _openToRecruitment = false)),
         ]),
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
+        const PrivacyConsentText(),
+        const SizedBox(height: 14),
+        const Spacer(),
         _isLoading
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))
@@ -587,8 +585,12 @@ class _SuccessView extends StatelessWidget {
                   fontSize: 13, fontWeight: FontWeight.w600)),
           ])),
         const Spacer(),
-        _PrimaryButton(label: 'Go to Home',
-            onTap: () => Get.offAllNamed('/home')),
+        // A freshly registered account has not verified its email yet, so it
+        // goes to the verification screen, not home — that screen polls and
+        // forwards to /home itself once the link is clicked. Routing straight
+        // to /home here would walk right past the gate in landingRoute.
+        _PrimaryButton(label: 'Continue',
+            onTap: () => Get.offAllNamed(kRouteVerifyEmail)),
         const SizedBox(height: 40),
       ]),
     )),
@@ -682,7 +684,7 @@ class _Field extends StatelessWidget {
           borderSide: BorderSide(color: AppTheme.border, width: 1.5)),
       focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
-          borderSide: BorderSide(color: AppTheme.accent, width: 1.5)),
+          borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
       errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kRadius),
           borderSide: const BorderSide(color: _kErrorRed, width: 1.5)),

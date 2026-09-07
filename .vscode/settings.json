@@ -1,0 +1,14 @@
+{
+  // Applies to every `flutter run` the Dart/Flutter extension starts, however
+  // it was started — the play button, the device toolbar, or Run and Debug.
+  // launch.json alone only covers the last of those, which is why venue search
+  // could still come up unconfigured after launch.json was added.
+  //
+  // Without this the app builds and runs fine but MapsConfig.apiKey is the
+  // empty string, so venue search and the map picker's address lookup fail with
+  // REQUEST_DENIED. Dart-defines are compile-time: a hot reload or hot restart
+  // will NOT pick this up, only a full stop and relaunch.
+  "dart.flutterRunAdditionalArgs": [
+    "--dart-define-from-file=dart_defines.json"
+  ]
+}

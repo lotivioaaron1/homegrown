@@ -38,6 +38,20 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
           margin: const EdgeInsets.all(16),
           borderRadius: 12,
           duration: const Duration(seconds: 3));
+    } on AlreadyOnTeamException catch (e) {
+      // One team per sport. Both coaches can invite before either invite is
+      // answered, so this is where a conflicting pair gets resolved — the
+      // athlete keeps whichever they accepted first, and leaving that team
+      // from "My Teams" below frees them to accept this one.
+      Get.snackbar('Already on a Team',
+          "You're already playing for ${e.teamName}. Leave that team first "
+          'if you want to join this one.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.card,
+          colorText: AppTheme.textPrimary,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+          duration: const Duration(seconds: 4));
     }
   }
 
@@ -121,7 +135,7 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
               .compareTo(a.createdAt ?? DateTime(0)));
 
         if (invites.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
               icon: Icons.mail_outline_rounded,
               title: 'No pending invites',
               subtitle: 'Coaches who invite you will show up here');
@@ -157,7 +171,7 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
               .compareTo(a.respondedAt ?? DateTime(0)));
 
         if (teams.isEmpty) {
-          return _EmptyCard(
+          return const _EmptyCard(
               icon: Icons.groups_outlined,
               title: "You're not on a team yet",
               subtitle: 'Accept an invite above to join one');
