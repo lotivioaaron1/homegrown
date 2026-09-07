@@ -156,12 +156,14 @@ class _SplashScreenState extends State<SplashScreen>
       final refreshed = FirebaseAuth.instance.currentUser ?? user;
 
       String role = '';
+      bool suspended = false;
       try {
         final doc = await FirebaseFirestore.instance
             .collection('users')
             .doc(refreshed.uid)
             .get();
         role = doc.data()?['role'] as String? ?? '';
+        suspended = doc.data()?['suspended'] == true;
       } catch (_) {
         // Same reasoning: an unreachable Firestore should not pin a signed-in
         // user to the splash. landingRoute sends a roleless account to /home
@@ -175,6 +177,7 @@ class _SplashScreenState extends State<SplashScreen>
         emailVerified: refreshed.emailVerified,
         hasPasswordProvider: hasPasswordProvider(
             refreshed.providerData.map((p) => p.providerId)),
+        suspended: suspended,
       );
     }
 

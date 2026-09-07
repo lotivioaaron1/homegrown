@@ -6,10 +6,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../../models/match_result.dart';
+import '../../models/report.dart';
 import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/report_dialog.dart';
 
 class EventDetailScreen extends StatelessWidget {
   const EventDetailScreen({super.key});
@@ -44,7 +46,7 @@ class EventDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTopBar(String title) => Padding(
+  Widget _buildTopBar(String title, {Widget? action}) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
     child: Row(children: [
       GestureDetector(
@@ -63,8 +65,31 @@ class EventDetailScreen extends StatelessWidget {
           color: AppTheme.textPrimary, fontSize: 18,
           fontWeight: FontWeight.w800),
           overflow: TextOverflow.ellipsis)),
+      if (action != null) ...[const SizedBox(width: 8), action],
     ]),
   );
+
+  /// Files a complaint about this event into the admin console's Reports
+  /// queue. Not offered to the event's own organizer, who can edit or cancel
+  /// it directly instead.
+  Widget _reportButton(BuildContext context, String eventName) =>
+      GestureDetector(
+        onTap: () => showReportDialog(
+          context,
+          targetType: Report.targetEvent,
+          targetId: _eventId,
+          targetLabel: eventName,
+        ),
+        child: Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.border)),
+          child: Icon(Icons.flag_outlined,
+              color: AppTheme.textPrimary, size: 17),
+        ),
+      );
 
   Widget _buildMatchResults(String? teamAName, String? teamBName) {
     return StreamBuilder<QuerySnapshot>(
@@ -137,7 +162,8 @@ class EventDetailScreen extends StatelessWidget {
     final isBracketMatch = tournamentId != null;
 
     return Column(children: [
-      _buildTopBar(name),
+      _buildTopBar(name,
+          action: isOrganizer ? null : _reportButton(context, name)),
       Expanded(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),

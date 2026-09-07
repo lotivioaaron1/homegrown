@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
 import '../../controllers/auth_controller.dart';
 import '../../services/contact_service.dart';
 import '../../services/notification_service.dart';
@@ -27,7 +28,12 @@ class AdminReviewScreen extends StatefulWidget {
 }
 
 class _AdminReviewScreenState extends State<AdminReviewScreen> {
-  bool _showApproved = false;
+  /// 'pending' | 'approved' | 'declined', where 'declined' covers both
+  /// 'rejected' and 'revoked'. Was a bool over pending/approved, which meant a
+  /// rejected or revoked organizer matched neither filter and disappeared from
+  /// this screen for good — with no way to reinstate someone turned down by
+  /// mistake, despite that being the whole reason the revoke path exists.
+  String _status = 'pending';
 
   @override
   Widget build(BuildContext context) {
@@ -41,12 +47,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
           const SizedBox(height: 12),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .where('role', isEqualTo: 'organizer')
-                  .where('organizerStatus',
-                      isEqualTo: _showApproved ? 'approved' : 'pending')
-                  .snapshots(),
+              stream: _query().snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator(
@@ -59,10 +60,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                       Icon(Icons.verified_user_outlined,
                           color: AppTheme.muted, size: 40),
                       const SizedBox(height: 12),
-                      Text(
-                          _showApproved
-                              ? 'No approved organizers yet'
-                              : 'No pending organizer approvals',
+                      Text(_emptyMessage(),
                           style: TextStyle(
                               color: AppTheme.sub, fontSize: 13)),
                     ]),
@@ -90,7 +88,10 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                       organization: u['organization'] as String? ?? '',
                       sportsOrganized:
                           (u['sportsOrganized'] as List?)?.cast<String>() ?? [],
-                      isApproved: _showApproved,
+                      // The document's own status, not the selected filter —
+                      // the Declined tab holds both 'rejected' and 'revoked',
+                      // so the tab alone can't tell the card which it is.
+                      status: u['organizerStatus'] as String? ?? 'pending',
                     );
                   },
                 );
@@ -100,6 +101,31 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
         ]),
       ),
     );
+  }
+
+  /// 'declined' fans out to the two statuses a turned-down organizer can
+  /// hold. They share a tab because the distinction — never approved versus
+  /// approved and later revoked — matters when making the decision, not when
+  /// looking back at it.
+  Query<Map<String, dynamic>> _query() {
+    final organizers = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'organizer');
+    return _status == 'declined'
+        ? organizers
+            .where('organizerStatus', whereIn: ['rejected', 'revoked'])
+        : organizers.where('organizerStatus', isEqualTo: _status);
+  }
+
+  String _emptyMessage() {
+    switch (_status) {
+      case 'approved':
+        return 'No approved organizers yet';
+      case 'declined':
+        return 'No declined organizers';
+      default:
+        return 'No pending organizer approvals';
+    }
   }
 
   Widget _buildTopBar() => Padding(
@@ -153,8 +179,12 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppTheme.border)),
         child: Row(children: [
-          seg('Pending', !_showApproved, () => setState(() => _showApproved = false)),
-          seg('Approved', _showApproved, () => setState(() => _showApproved = true)),
+          seg('Pending', _status == 'pending',
+              () => setState(() => _status = 'pending')),
+          seg('Approved', _status == 'approved',
+              () => setState(() => _status = 'approved')),
+          seg('Declined', _status == 'declined',
+              () => setState(() => _status = 'declined')),
         ]),
       ),
     );
@@ -167,7 +197,10 @@ class _OrganizerCard extends StatefulWidget {
   final Map<String, dynamic> legacyProfile;
   final String organization;
   final List<String> sportsOrganized;
-  final bool isApproved;
+
+  /// This organizer's own `organizerStatus`: 'pending', 'approved',
+  /// 'rejected' or 'revoked'. Decides which actions the card offers.
+  final String status;
 
   const _OrganizerCard({
     super.key,
@@ -176,7 +209,7 @@ class _OrganizerCard extends StatefulWidget {
     required this.legacyProfile,
     required this.organization,
     required this.sportsOrganized,
-    required this.isApproved,
+    required this.status,
   });
 
   @override
@@ -193,7 +226,27 @@ class _OrganizerCardState extends State<_OrganizerCard> {
 
   String get uid => widget.uid;
 
+  /// Guards the two awaits below. Without it a failed write was silent — the
+  /// card simply stayed put with no explanation — and the buttons remained
+  /// live throughout, so a decision could be submitted twice.
+  bool _busy = false;
+
   Future<void> _decide(String status) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await _write(status);
+    } catch (_) {
+      if (mounted) {
+        Get.snackbar('Something went wrong',
+            "That decision didn't save. Check your connection and try again.");
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _write(String status) async {
     await FirebaseFirestore.instance.collection('users').doc(uid)
         .update({'organizerStatus': status});
     await NotificationService.create(
@@ -315,11 +368,11 @@ class _OrganizerCardState extends State<_OrganizerCard> {
         const SizedBox(height: 10),
         _VerificationDoc(uid: uid),
         const SizedBox(height: 12),
-        if (widget.isApproved)
+        if (widget.status == 'approved')
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: () => _confirmRevoke(context),
+              onPressed: _busy ? null : () => _confirmRevoke(context),
               style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: AppTheme.error),
                   shape: RoundedRectangleBorder(
@@ -328,11 +381,24 @@ class _OrganizerCardState extends State<_OrganizerCard> {
                   style: TextStyle(color: AppTheme.error, fontSize: 13)),
             ),
           )
+        // Already turned down, so there is nothing left to reject. What this
+        // card exists for is the way back: approving from here is how a
+        // decision made in error gets undone.
+        else if (widget.status == 'rejected' || widget.status == 'revoked')
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _busy ? null : () => _decide('approved'),
+              child: Text(widget.status == 'revoked'
+                  ? 'Restore access'
+                  : 'Approve after all'),
+            ),
+          )
         else
           Row(children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () => _decide('rejected'),
+                onPressed: _busy ? null : () => _decide('rejected'),
                 style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: AppTheme.error),
                     shape: RoundedRectangleBorder(
@@ -344,7 +410,7 @@ class _OrganizerCardState extends State<_OrganizerCard> {
             const SizedBox(width: 10),
             Expanded(
               child: ElevatedButton(
-                onPressed: () => _decide('approved'),
+                onPressed: _busy ? null : () => _decide('approved'),
                 child: const Text('Approve'),
               ),
             ),

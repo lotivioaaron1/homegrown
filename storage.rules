@@ -15,8 +15,14 @@ service firebase.storage {
     // missing IAM grant between Storage and Firestore that isn't
     // provisionable from the Firebase CLI. A hardcoded UID sidesteps that
     // entirely and is simple to reason about for a single-admin setup.
+    // Actually a list, as the comment above always claimed. It was a single
+    // `==` comparison, which meant a second admin created in the console
+    // would pass every Firestore rule (those check `role == 'admin'` live)
+    // and then fail here — surfacing only as "Couldn't load photo" on the
+    // approval queue's verification document, with nothing to point at the
+    // cause. Add a UID to this list when provisioning another admin.
     function isAdminUid(uid) {
-      return uid == 'HjtB738VdObEoei73u2e2Oy7uy62';
+      return uid in ['HjtB738VdObEoei73u2e2Oy7uy62'];
     }
 
     // Every `allow write` below guards on request.resource.size and

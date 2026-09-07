@@ -74,6 +74,22 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['organizerStatus']);
 
+      // Cross-user exception #3: the super-admin suspending or reinstating an
+      // account from the console's user directory — see
+      // admin_user_service.dart. Kept as its own rule rather than widening
+      // #2's key list, so the approval path keeps its narrow guarantee: an
+      // admin acting on the queue still cannot touch anything but the status.
+      //
+      // Suspension is enforced by the app at sign-in (see landingRoute), not
+      // by these rules. Checking !suspended on every write in the app would
+      // add a get() on the user document to each one; as with the email
+      // verification gate, this is an in-app gate for UX rather than a
+      // security boundary.
+      allow update: if isSignedIn() && request.auth.uid != uid &&
+        isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['suspended', 'suspendedAt', 'suspendedReason']);
+
       // The profile document stays readable by any signed-in account, because
       // leaderboards, Scout, rosters and profile sheets all legitimately show
       // a stranger's name, role, sport and barangay. Contact details are the
@@ -127,6 +143,17 @@ service cloud.firestore {
       allow update: if isSignedIn() &&
         resource.data.organizerId == request.auth.uid &&
         request.resource.data.organizerId == resource.data.organizerId;
+
+      // The super-admin moderating content — see admin_content_screen.dart.
+      // Restricted to `status`, which in practice means cancelling: the admin
+      // can take an event off the board but cannot rewrite its venue, date,
+      // roster or organizer. Cancelling rather than deleting is deliberate —
+      // 'cancelled' is a status the app already renders everywhere, the
+      // organizer already gets an event_cancelled notification for it, and
+      // any recorded results stay attached to a real event document.
+      allow update: if isSignedIn() && isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']);
 
       // hasMatchData is set by rating_service.dart the moment a match is
       // recorded, specifically so this check doesn't need an arbitrary
@@ -253,6 +280,14 @@ service cloud.firestore {
         resource.data.organizerId == request.auth.uid &&
         request.resource.data.organizerId == resource.data.organizerId;
 
+      // The super-admin cancelling a tournament, on the same terms as the
+      // events rule above: status only, nothing else. The bracket's slots are
+      // left alone — a cancelled tournament keeps its history rather than
+      // unwinding rounds that were already played.
+      allow update: if isSignedIn() && isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']);
+
       // Same guard as events: hasMatchData is set the first time any
       // matchup's result is recorded, so a tournament that has already been
       // played cannot be deleted out from under its results.
@@ -291,6 +326,42 @@ service cloud.firestore {
 
         allow read: if isSignedIn();
       }
+    }
+
+    // ── reports ────────────────────────────────────────
+    // Complaints about a user or an event, filed from the report sheet and
+    // worked through on the admin console's Reports tab.
+    match /reports/{reportId} {
+      // Attributed to the account actually filing it, opened in the 'open'
+      // state, and limited to the target types the queue knows how to render
+      // — the same authorship-and-shape validation the notifications rule
+      // uses, and for the same reason: fully validating that the target
+      // exists would cost a get() per report and still not stop a determined
+      // reporter from filing a groundless one.
+      allow create: if isSignedIn() &&
+        request.resource.data.reporterUid == request.auth.uid &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.targetType in ['user', 'event'];
+
+      // The queue is the admin's. A reporter can read back only their own
+      // reports, which is what lets the sheet check for a duplicate before
+      // filing a second one — and stops anyone learning who reported whom.
+      allow read: if isSignedIn() && (
+        isAdmin(request.auth.uid) ||
+        resource.data.reporterUid == request.auth.uid
+      );
+
+      // Only the admin closes a report, and only by moving its status: the
+      // original complaint text is never editable, by the reporter or by the
+      // admin reviewing it.
+      allow update: if isSignedIn() && isAdmin(request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'resolvedBy', 'resolvedAt']) &&
+        request.resource.data.status in ['open', 'resolved', 'dismissed'];
+
+      // Nothing deletes a report. A dismissed one stays on the Closed tab as
+      // the record that somebody looked at it and decided.
+      allow delete: if false;
     }
 
     // Anything not explicitly matched above is denied — a forgotten

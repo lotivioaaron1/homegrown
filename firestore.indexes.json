@@ -63,6 +63,24 @@
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "read", "order": "ASCENDING" }
       ]
+    },
+    {
+      "//": "The super-admin overview's 'Recent activity' list: one user's notifications, newest first. Until the admin console existed nothing ordered this collection by time — the home-screen bell reads it unordered.",
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "The admin console's report queue, newest first. Covers both tabs: the Open tab filters status == 'open', the Closed tab uses whereIn over the two closed values, and an 'in' filter uses the same index as an equality one. The duplicate-report check in the report sheet needs no index — equality-only queries are served by merging single-field indexes.",
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -11,6 +11,7 @@
 const String kRouteHome        = '/home';
 const String kRouteAdmin       = '/admin';
 const String kRouteVerifyEmail = '/verify-email';
+const String kRouteSuspended   = '/suspended';
 
 /// Whether the account holds a password credential, given the provider ids on
 /// a `FirebaseAuth` user (`user.providerData.map((p) => p.providerId)`).
@@ -23,18 +24,36 @@ bool hasPasswordProvider(Iterable<String> providerIds) =>
 /// Resolves the landing route for a user who has just authenticated.
 ///
 /// [role] is the `role` field on their Firestore user doc, [emailVerified] is
-/// `FirebaseAuth`'s flag for the current user, and [hasPasswordProvider] is
-/// whether they hold a password credential (as opposed to Google-only).
+/// `FirebaseAuth`'s flag for the current user, [hasPasswordProvider] is
+/// whether they hold a password credential (as opposed to Google-only), and
+/// [suspended] is the `suspended` field the super-admin sets from the account
+/// directory.
+///
+/// The branch order below is load-bearing; see each comment for why.
 String landingRoute({
   required String role,
   required bool emailVerified,
   required bool hasPasswordProvider,
+  required bool suspended,
 }) {
-  // Admin is resolved before the verification gate on purpose. There is no
-  // in-app way to become an admin — the role is hand-set in the Firestore
-  // console — so gating it buys no security, while a locked-out super-admin
-  // would have no way back into the approval queue.
+  // Admin is resolved before every other gate on purpose. There is no in-app
+  // way to become an admin — the role is hand-set in the Firestore console —
+  // so gating it buys no security, while a locked-out super-admin would have
+  // no way back into the approval queue. That applies doubly to suspension:
+  // only an admin can lift one, so an admin who landed on /suspended could
+  // never reach the screen that would undo it.
   if (role == 'admin') return kRouteAdmin;
+
+  // Ahead of the verification gate, because a suspended account has nothing
+  // to gain from verifying its email — /suspended is the more accurate and
+  // more actionable dead end of the two.
+  //
+  // Like the verification gate below, this is an in-app gate rather than a
+  // security boundary: a script holding the same credentials still reads and
+  // writes whatever the Firestore rules allow that account. Enforcing it in
+  // the rules would mean an extra get() on the user document for every write
+  // in the app, which is not a cost worth paying here.
+  if (suspended) return kRouteSuspended;
 
   // Only password accounts can act on the verification screen. A Google-only
   // account has no password credential, so sendEmailVerification does nothing

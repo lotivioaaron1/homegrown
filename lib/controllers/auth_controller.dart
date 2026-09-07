@@ -63,6 +63,7 @@ class AuthController extends GetxController {
         emailVerified: user.emailVerified,
         hasPasswordProvider:
             hasPasswordProvider(user.providerData.map((p) => p.providerId)),
+        suspended: doc.data()?['suspended'] == true,
       ));
 
     } on FirebaseAuthException catch (e) {
@@ -131,10 +132,21 @@ class AuthController extends GetxController {
   // Returns the role string if account already exists with a role set,
   // otherwise returns null (caller should route to role-selection).
 
+  /// Whether the account that just finished a Google sign-in is suspended.
+  ///
+  /// [signInWithGoogle] returns only the role, and uses a null role to mean
+  /// "brand-new account, send them to role selection" — so its return value
+  /// has nowhere to carry suspension. LoginScreen reads this immediately after
+  /// awaiting that call and feeds it to `landingRoute`, which stays the single
+  /// place the landing decision is made. Reset at the start of every attempt
+  /// so a stale true can never outlive the sign-in that set it.
+  bool lastSignInSuspended = false;
+
   Future<String?> signInWithGoogle() async {
     try {
       isGoogleLoading.value = true;
       errorMessage.value    = '';
+      lastSignInSuspended   = false;
 
       final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
@@ -195,6 +207,8 @@ class AuthController extends GetxController {
       if ((data['photoUrl'] as String? ?? '').isEmpty && legacyUrl.isNotEmpty) {
         await docRef.update({'photoUrl': legacyUrl});
       }
+
+      lastSignInSuspended = data['suspended'] == true;
 
       final role = data['role'] as String? ?? '';
       return role.isEmpty ? null : role;

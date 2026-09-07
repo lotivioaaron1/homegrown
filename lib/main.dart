@@ -16,6 +16,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/auth/email_verification_screen.dart';
 import 'screens/auth/google_profile_setup_screen.dart';
 import 'screens/auth/forgot_password_screen.dart';
+import 'screens/auth/suspended_screen.dart';
 import 'screens/venues/venue_locator_screen.dart';
 import 'screens/scout/scout_screen.dart';
 import 'screens/auth/register_screen.dart';
@@ -39,7 +40,7 @@ import 'screens/profile/profile_screen.dart';
 import 'screens/team/team_invites_screen.dart';
 import 'screens/team/my_team_screen.dart';
 import 'screens/team/athlete_team_screen.dart';
-import 'screens/admin/admin_review_screen.dart';
+import 'screens/admin/admin_shell_screen.dart';
 import 'screens/settings/delete_account_screen.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/theme_controller.dart';
@@ -173,6 +174,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/onboarding',          page: () => const OnboardingScreen()),
         GetPage(name: '/login',              page: () => const LoginScreen()),
         GetPage(name: '/verify-email',            page: () => const EmailVerificationScreen()),
+        GetPage(name: '/suspended',               page: () => const SuspendedScreen()),
         GetPage(name: '/google-profile-setup',    page: () => const GoogleProfileSetupScreen()),
         GetPage(name: '/forgot-password',         page: () => const ForgotPasswordScreen()),
         GetPage(name: '/venues',                  page: () => const VenueLocatorScreen()),
@@ -200,7 +202,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/team/invites',        page: () => const TeamInvitesScreen()),
         GetPage(name: '/team/roster',         page: () => const MyTeamScreen()),
         GetPage(name: '/team/mine',           page: () => const AthleteTeamScreen()),
-        GetPage(name: '/admin',               page: () => const AdminReviewScreen()),
+        GetPage(name: '/admin',               page: () => const AdminShellScreen()),
         GetPage(name: '/account/delete',       page: () => const DeleteAccountScreen()),
       ],
     );

@@ -1,16 +1,19 @@
 // lib/screens/profile/athlete_profile_view_screen.dart
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../models/media_item.dart';
+import '../../models/report.dart';
 import '../../services/media_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/sports.dart';
 import '../../widgets/athlete_profile_parts.dart';
 import '../../widgets/photo_viewer_dialog.dart';
+import '../../widgets/report_dialog.dart';
 import '../../widgets/video_player_sheet.dart';
 import 'widgets/media_section.dart';
 
@@ -117,6 +120,20 @@ class AthleteProfileViewScreen extends StatelessWidget {
                   color: AppTheme.textPrimary,
                   fontSize: 18,
                   fontWeight: FontWeight.w800)),
+          // Files a complaint into the admin console's Reports queue. Hidden
+          // on your own profile, where there is nothing to report.
+          if (FirebaseAuth.instance.currentUser?.uid != athleteId) ...[
+            const Spacer(),
+            _iconButton(
+              LucideIcons.flag,
+              () => showReportDialog(
+                context,
+                targetType: Report.targetUser,
+                targetId: athleteId,
+                targetLabel: '$firstName $lastName'.trim(),
+              ),
+            ),
+          ],
         ]),
         const SizedBox(height: 22),
 

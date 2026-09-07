@@ -106,6 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
       emailVerified: user?.emailVerified ?? true,
       hasPasswordProvider: hasPasswordProvider(
           user?.providerData.map((p) => p.providerId) ?? const []),
+      suspended: _auth.lastSignInSuspended,
     ));
   }
 
