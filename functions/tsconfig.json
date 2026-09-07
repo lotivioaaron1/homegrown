@@ -1,13 +1,23 @@
 {
+  // "module": "node20" matches `engines.node` in package.json and implies the
+  // matching module resolution, so there is no separate "moduleResolution" key.
+  // Don't put back `"module": "commonjs"` + `"moduleResolution": "node"`: that
+  // resolution mode is deprecated in TypeScript 6 and is removed in 7, and the
+  // editor flags it as an error even though the pinned 5.9 build still accepts
+  // it. Emit is still CommonJS, because package.json has no `"type": "module"`.
   "compilerOptions": {
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "node20",
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "outDir": "lib",
+    // TypeScript 6 requires this to be explicit rather than inferring it.
+    "rootDir": "src",
     "sourceMap": true,
     "strict": true,
-    "target": "es2021"
+    "target": "es2021",
+    // TypeScript 6 no longer pulls in @types/node on its own, and firebase-admin's
+    // type definitions reference Node globals such as `http`.
+    "types": ["node"]
   },
   "compileOnSave": true,
   "include": ["src"]
