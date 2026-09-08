@@ -1,5 +1,6 @@
 // lib/screens/leaderboard/leaderboard_screen.dart
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,8 +12,18 @@ import '../../utils/elo_calculator.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/sports.dart';
+import '../../widgets/skeleton.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
+
+/// Glyph per sport, shared by the filter chips and the row subtitles so the
+/// two read as the same vocabulary.
+const Map<String, String> _kSportEmoji = {
+  'Basketball': '🏀',
+  'Volleyball': '🏐',
+  'Badminton': '🏸',
+};
 
 /// Hard ceiling on how many athlete documents one leaderboard view will read.
 ///
@@ -47,6 +58,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   String? _streamedFilter;
   Stream<QuerySnapshot>? _athletesStream;
+
+  /// The viewer's own document, held for exactly the reason [_athleteStream]
+  /// is: it used to be built inside a `builder`, so every rebuild — every
+  /// search keystroke, every filter tap, every pull-to-refresh — was a new
+  /// stream identity that tore down the subscription and re-read the doc.
+  Stream<DocumentSnapshot>? _viewerStream;
+
+  Stream<DocumentSnapshot> _viewerDoc() => _viewerStream ??=
+      FirebaseFirestore.instance.collection('users').doc(_uid).snapshots();
 
   @override
   void dispose() {
@@ -175,10 +195,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   color: sel ? AppTheme.accent : AppTheme.border,
                   width: sel ? 2 : 1.5)),
               child: Text(
-                f == 'All' ? 'All Sports'
-                  : f == 'Basketball' ? '🏀 Basketball'
-                  : f == 'Volleyball' ? '🏐 Volleyball'
-                  : '🏸 Badminton',
+                f == 'All' ? 'All Sports' : '${_kSportEmoji[f] ?? ''} $f'.trim(),
                 style: TextStyle(
                   color: sel ? AppTheme.accentText : AppTheme.muted,
                   fontSize: 12, fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
@@ -194,8 +211,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       stream: _athleteStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(
-              color: AppTheme.accent, strokeWidth: 2.5));
+          return const LeaderboardSkeleton();
         }
         if (snapshot.hasError) {
           return _buildEmpty(
@@ -235,9 +251,21 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         // search narrows it. An athlete found by name must still show the
         // position they actually hold — renumbering the matches would tell
         // someone they are #2 when they are #37.
-        final ranked = [
-          for (var i = 0; i < athletes.length; i++) (i + 1, athletes[i]),
-        ];
+        //
+        // Equal scores share a rank and consume the numbers behind them
+        // (1, 2, 2, 4). Ties are the ordinary case rather than the exception
+        // here: under a sport filter every athlete who has never been rated
+        // sits on kStartingRating, and in the All view every athlete who has
+        // never scored sits on zero. Numbering those sequentially invents an
+        // ordering the data doesn't have. It also lines the board up with
+        // RankingService.cityRank, which already ranks by counting the
+        // athletes strictly ahead of you.
+        final ranked = <(int, Map<String, dynamic>)>[];
+        for (var i = 0; i < athletes.length; i++) {
+          final tiedWithPrevious =
+              i > 0 && _rankValue(athletes[i]) == _rankValue(athletes[i - 1]);
+          ranked.add((tiedWithPrevious ? ranked[i - 1].$1 : i + 1, athletes[i]));
+        }
 
         final matches = searching
             ? ranked.where((r) {
@@ -263,11 +291,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         final rest = searching
             ? matches
             : (matches.length > 3 ? matches.sublist(3) : const []);
-        final myRank = athletes.indexWhere((a) => a['uid'] == _uid) + 1;
+
+        // Position in the sorted board, which is no longer `rank - 1` now that
+        // tied athletes share a number — the banner needs the index to read the
+        // right athlete, and the rank only to print it.
+        final myIndex = athletes.indexWhere((a) => a['uid'] == _uid);
+        final myRank = myIndex >= 0 ? ranked[myIndex].$1 : 0;
 
         return StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('users').doc(_uid).snapshots(),
+          stream: _viewerDoc(),
           builder: (context, userSnap) {
             final userData = userSnap.data?.data() as Map<String, dynamic>? ?? {};
             final role = userData['role'] as String? ?? 'athlete';
@@ -284,15 +316,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 children: [
                   if (top3.isNotEmpty) ...[
-                    _buildPodium(
-                        top3.map((r) => r.$2).toList(growable: false), role),
+                    _buildPodium(top3),
                     const SizedBox(height: 20),
                   ],
-                  if (!searching &&
-                      role == 'athlete' &&
-                      myRank > 3 &&
-                      myRank > 0) ...[
-                    _buildMyRankBanner(myRank, athletes[myRank - 1]),
+                  // Keyed off the index rather than the rank: with ties a
+                  // fourth-placed athlete can still be holding rank 1, and
+                  // `myRank > 3` would then hide the banner for someone who
+                  // isn't on the podium.
+                  if (!searching && role == 'athlete' && myIndex >= 3) ...[
+                    _buildMyRankBanner(myRank, athletes[myIndex]),
                     const SizedBox(height: 16),
                   ],
                   if (rest.isNotEmpty) ...[
@@ -303,11 +335,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                             ? '${rest.length} MATCH${rest.length == 1 ? '' : 'ES'}'
                             : role == 'coach'
                                 ? 'TAP ATHLETE TO SCOUT'
-                                : 'FULL RANKINGS',
+                                : 'FULL RANKINGS · TAP TO VIEW',
                         style: TextStyle(color: AppTheme.muted, fontSize: 10,
                             fontWeight: FontWeight.w700, letterSpacing: 1)),
                     ),
                     Container(
+                      // Clipped so a row's ink ripple stops at the card's
+                      // rounded corners instead of squaring off the first and
+                      // last rows while a finger is down.
+                      clipBehavior: Clip.antiAlias,
                       decoration: BoxDecoration(
                         color: AppTheme.card,
                         borderRadius: BorderRadius.circular(16),
@@ -336,7 +372,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  Widget _buildPodium(List<Map<String, dynamic>> top3, String role) {
+  /// The top three entries, each carrying the rank it actually holds — which
+  /// is not always its place on the podium, since tied athletes share a number
+  /// and a silver bar can legitimately read "#1".
+  Widget _buildPodium(List<(int, Map<String, dynamic>)> top3) {
     final first = top3.isNotEmpty ? top3[0] : null;
     final second = top3.length > 1 ? top3[1] : null;
     final third = top3.length > 2 ? top3[2] : null;
@@ -358,18 +397,22 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         Row(crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (second != null) _podiumItem(second, 2, 70),
+            if (second != null) _podiumItem(second.$2, second.$1, 2, 70),
             const SizedBox(width: 8),
-            if (first != null) _podiumItem(first, 1, 95),
+            if (first != null) _podiumItem(first.$2, first.$1, 1, 95),
             const SizedBox(width: 8),
-            if (third != null) _podiumItem(third, 3, 55),
+            if (third != null) _podiumItem(third.$2, third.$1, 3, 55),
           ],
         ),
       ]),
     );
   }
 
-  Widget _podiumItem(Map<String, dynamic> athlete, int rank, double barH) {
+  /// [rank] is the number shown; [place] is the podium slot (1/2/3) that
+  /// decides the medal colour and the sizes. They usually agree, and diverge
+  /// only on a tie.
+  Widget _podiumItem(
+      Map<String, dynamic> athlete, int rank, int place, double barH) {
     final pts = _rankValue(athlete);
     final isMe = athlete['uid'] == _uid;
     final name = _displayName(athlete);
@@ -379,85 +422,106 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       2: [const Color(0xFFB8BCC8), const Color(0xFF1E1E28)],
       3: [const Color(0xFFCD7F32), const Color(0xFF2E1D0F)],
     };
-    final accentColor = colors[rank]![0];
-    final bgColor = colors[rank]![1];
-    final size = rank == 1 ? 52.0 : 40.0;
+    final accentColor = colors[place]![0];
+    final bgColor = colors[place]![1];
+    final size = place == 1 ? 52.0 : 40.0;
 
-    return Column(children: [
-      Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: accentColor,
-          shape: BoxShape.circle,
-          border: isMe ? Border.all(color: AppTheme.accent, width: 2.5) : null),
-        child: ClipOval(
-          child: photoUrl != null && photoUrl.isNotEmpty
-              ? Image.network(photoUrl, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Center(child: Text(
-                      _initials(name),
-                      style: TextStyle(color: AppTheme.buttonFg,
-                          fontSize: rank == 1 ? 16 : 13,
-                          fontWeight: FontWeight.w800))))
-              : Center(child: Text(_initials(name),
-                  style: TextStyle(color: AppTheme.buttonFg,
-                      fontSize: rank == 1 ? 16 : 13,
-                      fontWeight: FontWeight.w800))),
+    final initials = Center(
+        child: Text(_initials(name),
+            style: TextStyle(
+                color: AppTheme.buttonFg,
+                fontSize: place == 1 ? 16 : 13,
+                fontWeight: FontWeight.w800)));
+
+    // The three most interesting athletes on the board used to be the three
+    // nobody could open. `opaque` makes the whole column — avatar, name, bar
+    // and the gaps between them — one target, since the avatar alone is a
+    // 40px tap area.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _showAthleteProfile(athlete),
+      child: Column(children: [
+        Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: accentColor,
+            shape: BoxShape.circle,
+            border: isMe ? Border.all(color: AppTheme.accent, width: 2.5) : null),
+          child: ClipOval(
+            child: photoUrl != null && photoUrl.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: photoUrl,
+                    fit: BoxFit.cover,
+                    width: size,
+                    height: size,
+                    memCacheWidth: 160,
+                    placeholder: (_, __) => initials,
+                    errorWidget: (_, __, ___) => initials)
+                : initials,
+          ),
         ),
-      ),
-      const SizedBox(height: 4),
-      SizedBox(width: 60, child: Text(
-        _firstName(name),
-        textAlign: TextAlign.center,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: isMe ? AppTheme.accent : AppTheme.textPrimary,
-          fontSize: 10, fontWeight: FontWeight.w600))),
-      Text('$pts $_unitLabel', style: TextStyle(
-        color: accentColor, fontSize: 10, fontWeight: FontWeight.w800)),
-      const SizedBox(height: 6),
-      Container(
-        width: rank == 1 ? 60 : 50,
-        height: barH,
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-          border: Border.all(color: accentColor)),
-        child: Center(child: Text('#$rank', style: TextStyle(
-          color: accentColor, fontSize: 11, fontWeight: FontWeight.w800))),
-      ),
-    ]);
+        const SizedBox(height: 4),
+        SizedBox(width: 60, child: Text(
+          _firstName(name),
+          textAlign: TextAlign.center,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: isMe ? AppTheme.accent : AppTheme.textPrimary,
+            fontSize: 10, fontWeight: FontWeight.w600))),
+        Text('$pts $_unitLabel', style: TextStyle(
+          color: accentColor, fontSize: 10, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        Container(
+          width: place == 1 ? 60 : 50,
+          height: barH,
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+            border: Border.all(color: accentColor)),
+          child: Center(child: Text('#$rank', style: TextStyle(
+            color: accentColor, fontSize: 11, fontWeight: FontWeight.w800))),
+        ),
+      ]),
+    );
   }
 
+  /// Tappable like every other person on this board — here it opens your own
+  /// profile, which is the only way to see it the way a scouting coach does.
   Widget _buildMyRankBanner(int rank, Map<String, dynamic> athlete) {
     final pts = _rankValue(athlete);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.accentSurface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.accent, width: 1.5)),
-      child: Row(children: [
-        Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(
-            color: AppTheme.accent,
-            borderRadius: BorderRadius.circular(10)),
-          child: Center(child: Text('$rank', style: const TextStyle(
-            color: AppTheme.buttonFg, fontSize: 14, fontWeight: FontWeight.w900))),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Your Rank', style: TextStyle(
-              color: AppTheme.muted, fontSize: 10, fontWeight: FontWeight.w600)),
-            Text(
-              _filter == 'All' ? '$pts points earned so far' : '$pts $_unitLabel rating',
-              style: TextStyle(
-              color: AppTheme.accentText, fontSize: 12, fontWeight: FontWeight.w600)),
-          ])),
-        const Icon(LucideIcons.star, color: AppTheme.accent, size: 20),
-      ]),
+    return GestureDetector(
+      onTap: () => _showAthleteProfile(athlete),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.accentSurface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.accent, width: 1.5)),
+        child: Row(children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.accent,
+              borderRadius: BorderRadius.circular(10)),
+            child: Center(child: Text('$rank', style: const TextStyle(
+              color: AppTheme.buttonFg, fontSize: 14, fontWeight: FontWeight.w900))),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Your Rank', style: TextStyle(
+                color: AppTheme.muted, fontSize: 10, fontWeight: FontWeight.w600)),
+              Text(
+                _filter == 'All' ? '$pts points earned so far' : '$pts $_unitLabel rating',
+                style: TextStyle(
+                color: AppTheme.accentText, fontSize: 12, fontWeight: FontWeight.w600)),
+            ])),
+          const Icon(LucideIcons.star, color: AppTheme.accent, size: 20),
+          const SizedBox(width: 4),
+          Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 16),
+        ]),
+      ),
     );
   }
 
@@ -475,13 +539,38 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final name = _displayName(athlete);
     final photoUrl = athlete['photoUrl'] as String?;
 
-    return GestureDetector(
-      onTap: isCoach ? () => _showAthleteProfile(athlete) : null,
-      child: Container(
-        decoration: BoxDecoration(
-          color: isMe ? AppTheme.accentSurface.withValues(alpha: 0.5) : Colors.transparent,
-          border: Border(
-            bottom: isLast ? BorderSide.none : BorderSide(color: AppTheme.border))),
+    final subtitle = [
+      if (position.isNotEmpty) position,
+      if (barangay.isNotEmpty) barangay,
+      // Only in the All view, where the board mixes sports and the row is
+      // otherwise silent about which one this athlete plays. Under a sport
+      // filter every row already answers that.
+      if (_filter == 'All') ..._sportMarks(athlete),
+    ].join(' · ');
+
+    final initials = Center(
+        child: Text(_initials(name),
+            style: TextStyle(
+                color: isMe ? AppTheme.buttonFg : AppTheme.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w800)));
+
+    // Open to every role, not just coaches. A leaderboard that names people
+    // and then refuses to say anything about them is the wrong trade, and the
+    // sheet reads nothing an ordinary signed-in account can't already read —
+    // sport scoping belongs on recruiting, which lives in Scout.
+    return Material(
+      color: isMe
+          ? AppTheme.accentSurface.withValues(alpha: 0.5)
+          : Colors.transparent,
+      // The divider rides on the Material rather than a Container inside it,
+      // so the ink splash covers the full row instead of stopping at a nested
+      // box's edge.
+      shape: isLast
+          ? null
+          : Border(bottom: BorderSide(color: AppTheme.border)),
+      child: InkWell(
+        onTap: () => _showAthleteProfile(athlete),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(children: [
@@ -502,16 +591,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: photoUrl != null && photoUrl.isNotEmpty
-                    ? Image.network(photoUrl, fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Center(child: Text(
-                            _initials(name),
-                            style: TextStyle(
-                                color: isMe ? AppTheme.buttonFg : AppTheme.muted,
-                                fontSize: 12, fontWeight: FontWeight.w800))))
-                    : Center(child: Text(_initials(name),
-                        style: TextStyle(
-                            color: isMe ? AppTheme.buttonFg : AppTheme.muted,
-                            fontSize: 12, fontWeight: FontWeight.w800))),
+                    ? CachedNetworkImage(
+                        imageUrl: photoUrl,
+                        fit: BoxFit.cover,
+                        width: 36,
+                        height: 36,
+                        memCacheWidth: 110,
+                        placeholder: (_, __) => initials,
+                        errorWidget: (_, __, ___) => initials)
+                    : initials,
               ),
             ),
             const SizedBox(width: 10),
@@ -536,8 +624,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   ],
                 ]),
                 Text(
-                  [if (position.isNotEmpty) position, if (barangay.isNotEmpty) barangay]
-                      .join(' · '),
+                  subtitle,
                   style: TextStyle(color: AppTheme.sub, fontSize: 10),
                   overflow: TextOverflow.ellipsis),
               ])),
@@ -554,14 +641,24 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 Text(_unitLabel, style: TextStyle(
                   color: AppTheme.muted, fontSize: 9)),
             ]),
-            if (isCoach) ...[
-              const SizedBox(width: 6),
-              Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 18),
-            ],
+            const SizedBox(width: 6),
+            Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 18),
           ]),
         ),
       ),
     );
+  }
+
+  /// Sport glyphs for a row's subtitle, in the same vocabulary as the filter
+  /// chips. Returns at most one entry so it drops straight into the
+  /// `·`-joined subtitle, and a sport with no glyph contributes nothing rather
+  /// than a gap.
+  List<String> _sportMarks(Map<String, dynamic> athlete) {
+    final marks = sportsOf(athlete)
+        .map((s) => _kSportEmoji[s] ?? '')
+        .where((e) => e.isNotEmpty)
+        .join(' ');
+    return marks.isEmpty ? const [] : [marks];
   }
 
   void _showAthleteProfile(Map<String, dynamic> athlete) {

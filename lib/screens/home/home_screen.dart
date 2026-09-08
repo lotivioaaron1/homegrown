@@ -656,7 +656,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildAthleteTeamSection(),
       ],
       // CHANGED: athlete's Features grid duplicated the bottom nav
-      // tab-for-tab (Dashboard=Stats, Leaderboard=Discover, Find
+      // tab-for-tab (Dashboard=Stats, Leaderboard=Rankings, Find
       // Games=Games, Profile=Profile). Replaced with a Recent
       // Activity section showing real content instead of a second
       // way to reach the same 4 screens. Coach's grid had the same
@@ -1855,7 +1855,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return [
           {'icon': LucideIcons.home,     'label': 'Home'},
           {'icon': LucideIcons.barChart2,'label': 'Stats'},
-          {'icon': LucideIcons.compass,  'label': 'Discover'},
+          {'icon': LucideIcons.trophy,   'label': 'Rankings'},
           {'icon': LucideIcons.mapPin,   'label': 'Games'},
           {'icon': LucideIcons.user,     'label': 'Profile'},
         ];

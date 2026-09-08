@@ -204,3 +204,91 @@ class HomeSkeleton extends StatelessWidget {
     );
   }
 }
+
+/// Stand-in for the leaderboard while Firestore is still answering.
+///
+/// Mirrors the board's real shape — podium card, section label, then one card
+/// of ranked rows — so live data arrives as a swap rather than a reflow. The
+/// podium is a single block rather than three bars on purpose: a placeholder
+/// should suggest the layout, not re-implement it.
+///
+/// [SkeletonListTile] isn't reused here because the board's rows are denser
+/// than the app's standard tile and sit inside one shared card with dividers,
+/// rather than as separate cards with gaps between them.
+class LeaderboardSkeleton extends StatelessWidget {
+  const LeaderboardSkeleton({super.key});
+
+  /// Enough rows to reach past the fold on a phone without the placeholder
+  /// itself needing to scroll.
+  static const int _rows = 6;
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer(
+      child: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        // Matches the real ListView's padding so nothing shifts sideways.
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppTheme.border),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const SkeletonBox(width: 104, height: 11),
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Column(
+                children: [
+                  for (var i = 0; i < _rows; i++)
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: i == _rows - 1
+                              ? BorderSide.none
+                              : BorderSide(color: AppTheme.border),
+                        ),
+                      ),
+                      child: const Padding(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        child: Row(children: [
+                          SkeletonBox(width: 16, height: 13),
+                          SizedBox(width: 16),
+                          SkeletonBox(width: 36, height: 36, radius: 10),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SkeletonBox(width: 120, height: 12),
+                                SizedBox(height: 7),
+                                SkeletonBox(width: 76, height: 9),
+                              ],
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          SkeletonBox(width: 30, height: 13),
+                        ]),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
