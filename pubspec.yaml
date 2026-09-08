@@ -69,30 +69,41 @@ flutter:
 # Regenerate the Android launcher icons with:
 #   dart run flutter_launcher_icons
 #
+# The three PNGs below are NOT hand-drawn — redraw them with:
+#   flutter test tool/generate_launcher_icons.dart \
+#     --dart-define=concept=b2 --dart-define=colorway=darkOnGold
+# That tool holds the mark as vector geometry, so it stays sharp at any size
+# instead of being resampled from a bitmap.
+#
 # Sources live in assets/launcher_icon/ rather than assets/images/, which is
 # declared above and so ships inside the APK — these are build-time inputs and
-# have no business being bundled at runtime. Both are derived from
-# assets/images/homegrown_icon.png; regenerate them from that master if the
-# logo changes (see the comment in android/app/src/main/res for the geometry).
+# have no business being bundled at runtime.
 #
-# The background is white because the wordmark's counters — the H's crossbar
-# gaps and the G's bowl — are transparency, not white fill. On brand gold the
-# gold G's counter would fill gold and the letter would close into a blob; on
-# near-black the near-black H would disappear. White is the only flat ground
-# where both letters keep their shape, and it matches wordmark_on_light.png.
+# The mark is a solid house with the letter H knocked out as negative space:
+# one shape, no stroked lines. Its predecessor was the HOME/GROWN wordmark
+# lockup, which failed as an icon — a horizontal wordmark forced into a square,
+# with speed lines that fell below one pixel at 48dp and aliased into grey.
 flutter_launcher_icons:
   android: true
   ios: false
-  # Legacy square icon for API 24–25, which predate adaptive icons. The white
+  # Legacy square icon for API 24–25, which predate adaptive icons. The gold
   # ground is baked in, since a transparent legacy icon renders as a hole.
   image_path: "assets/launcher_icon/legacy.png"
-  adaptive_icon_background: "#FFFFFF"
-  # The mark is scaled to 50% of the 108dp layer so the whole 1.617:1 lockup
-  # inscribes in the 66dp safe circle. At the default size it overflowed the
-  # 72dp viewport and lost the speed lines and the right edge of the G to the
-  # mask on round launchers.
+  # Brand gold. A solid gold disc is unmistakable in a crowded app drawer,
+  # where the previous white plate read as an unfinished placeholder and
+  # glared on dark wallpapers.
+  adaptive_icon_background: "#FFB800"
+  # Sizing, which is what the old icon got wrong: this file fills the 108dp
+  # layer, the generated anydpi-v26 XML insets it 16% leaving 73.4dp of art,
+  # and the launcher's safe circle is 66dp. A square-ish mark is limited by its
+  # diagonal, so its side must be <= 66/sqrt(2) = 46.7dp — about 64% of this
+  # canvas, which is what the generator draws. The wordmark was configured at
+  # 50%, i.e. 36.7dp inside a 66dp circle: roughly 31% of the visible area,
+  # which is why it looked small and timid next to other apps.
   adaptive_icon_foreground: "assets/launcher_icon/foreground.png"
-  # Android 13+ themed icons tint the alpha channel of this layer, so the same
-  # transparent foreground doubles as the monochrome silhouette.
-  adaptive_icon_monochrome: "assets/launcher_icon/foreground.png"
+  # Android 13+ themed icons tint this layer's alpha channel. It must be its
+  # OWN file: this previously pointed at the foreground, so every themed icon
+  # flattened the H, the G and all the speed lines into one solid unreadable
+  # tint. Here the house silhouette carries the shape and the H stays a hole.
+  adaptive_icon_monochrome: "assets/launcher_icon/monochrome.png"
   min_sdk_android: 24
