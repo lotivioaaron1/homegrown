@@ -96,8 +96,8 @@ flutter_launcher_icons:
   # Sizing, which is what the old icon got wrong: this file fills the 108dp
   # layer, the generated anydpi-v26 XML insets it 16% leaving 73.4dp of art,
   # and the launcher's safe circle is 66dp. A square-ish mark is limited by its
-  # diagonal, so its side must be <= 66/sqrt(2) = 46.7dp — about 64% of this
-  # canvas, which is what the generator draws. The wordmark was configured at
+  # diagonal, so its side must be <= 66/sqrt(2) = 46.7dp — 63.6% of this
+  # canvas, and the generator draws 63%. The wordmark was configured at
   # 50%, i.e. 36.7dp inside a 66dp circle: roughly 31% of the visible area,
   # which is why it looked small and timid next to other apps.
   adaptive_icon_foreground: "assets/launcher_icon/foreground.png"

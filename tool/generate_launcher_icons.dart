@@ -23,10 +23,17 @@
 // and the generated mipmap-anydpi-v26/ic_launcher.xml then insets it by 16%,
 // so the artwork lives across 73.4dp. The launcher's safe circle is 66dp.
 //
-// A square-ish mark is limited by its DIAGONAL: to inscribe in a 66dp circle
-// its side must be <= 66/sqrt(2) = 46.7dp, which is 46.7/73.4 = ~64% of the
-// source canvas. A circular mark has no diagonal penalty and can run to
-// 66/73.4 = ~90%; we stop at 80% to leave breathing room.
+// The mask is a circle, so `sourceFraction` is the diameter of the mark's
+// MINIMUM ENCLOSING CIRCLE as a fraction of the canvas — not a bounding-box
+// width. The hard ceiling is 66/73.44 = 0.899; we draw at 0.82, leaving about
+// 9% radial margin so the mark does not appear to graze the mask.
+//
+// Measuring radially rather than by bounding box matters for a shape like the
+// house, whose extreme points are its two bottom corners. Fitting its box
+// centred the shape geometrically but not optically: the base crowded the mask
+// while the roof peak left room unused. The enclosing-circle fit re-centres it
+// and, because the shape's optimal centre sits above its box centre, allows a
+// noticeably larger mark at the same safe-circle limit.
 //
 // The icon being replaced was configured at 50%, i.e. 36.7dp inside a 66dp
 // circle — about 31% of the visible area. That is why it read as a small mark
@@ -89,7 +96,7 @@ class ConceptA extends Concept {
   String get id => 'a';
 
   @override
-  double get sourceFraction => 0.64;
+  double get sourceFraction => 0.82;
 
   @override
   Path unitPath() {
@@ -128,7 +135,7 @@ class ConceptB extends Concept {
   final double roundness;
 
   @override
-  double get sourceFraction => 0.64;
+  double get sourceFraction => 0.82;
 
   @override
   Path unitPath() {
@@ -165,7 +172,7 @@ class ConceptC extends Concept {
   String get id => 'c';
 
   @override
-  double get sourceFraction => 0.80;
+  double get sourceFraction => 0.82;
 
   static const _center = Offset(0.5, 0.66);
   static const _radius = 0.34;
@@ -245,19 +252,80 @@ final concepts = <Concept>[
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// Scales a concept's unit path so its bounding box spans [fraction] of a
-/// [side]-px canvas, centred on the canvas.
+/// Samples points along every contour of [p], for the enclosing-circle fit.
+List<Offset> _samplePath(Path p) {
+  final pts = <Offset>[];
+  for (final metric in p.computeMetrics()) {
+    final n = math.max(24, (metric.length * 200).round());
+    for (var i = 0; i <= n; i++) {
+      final t = metric.getTangentForOffset(metric.length * i / n);
+      if (t != null) pts.add(t.position);
+    }
+  }
+  return pts;
+}
+
+/// Smallest circle enclosing [pts], found by repeatedly stepping the centre
+/// toward whichever point is currently farthest with a shrinking step.
+(Offset centre, double radius) _enclosingCircle(List<Offset> pts) {
+  var c = pts.first;
+  for (final p in pts) {
+    c = Offset(c.dx + p.dx, c.dy + p.dy);
+  }
+  c = Offset(c.dx / (pts.length + 1), c.dy / (pts.length + 1));
+
+  var f = 0.1;
+  for (var i = 0; i < 6000; i++) {
+    var far = pts.first;
+    var best = -1.0;
+    for (final p in pts) {
+      final d = (p - c).distanceSquared;
+      if (d > best) {
+        best = d;
+        far = p;
+      }
+    }
+    c = Offset(c.dx + (far.dx - c.dx) * f, c.dy + (far.dy - c.dy) * f);
+    f *= 0.9988;
+  }
+
+  var r = 0.0;
+  for (final p in pts) {
+    r = math.max(r, (p - c).distance);
+  }
+  return (c, r);
+}
+
+/// Scales a concept's unit path so its ENCLOSING CIRCLE spans [fraction] of a
+/// [side]-px canvas, and centres that circle on the canvas.
+///
+/// Fitting the bounding box instead would centre the house geometrically while
+/// its mass sits low: the wide base crowded the launcher's circular mask while
+/// the roof peak wasted the room above it. The mask is a circle, so the fit
+/// that matters is radial — which both re-centres the mark optically and lets
+/// it be meaningfully larger at the same safe-circle limit.
 Path _fitted(Concept c, double side, double fraction) {
   final unit = c.unitPath();
-  final b = unit.getBounds();
-  // Square-ish concepts are constrained by their larger dimension.
-  final span = math.max(b.width, b.height);
-  final scale = (side * fraction) / span;
+  final pts = _samplePath(unit);
+  final (tight, _) = _enclosingCircle(pts);
+
+  // The tight centre maximises size but leaves the house sitting visibly high,
+  // because its optimal centre is 0.125 below the box centre and placing that
+  // on the canvas centre lifts the shape by the same amount. Halfway back
+  // recovers most of the balance and costs only about 6% of the size.
+  final centre = Offset.lerp(tight, unit.getBounds().center, 0.5)!;
+
+  var radius = 0.0;
+  for (final p in pts) {
+    radius = math.max(radius, (p - centre).distance);
+  }
+
+  final scale = (side * fraction / 2) / radius;
 
   final m = Matrix4.identity()
     ..translateByDouble(
-      side / 2 - (b.left + b.width / 2) * scale,
-      side / 2 - (b.top + b.height / 2) * scale,
+      side / 2 - centre.dx * scale,
+      side / 2 - centre.dy * scale,
       0,
       1,
     )
@@ -292,7 +360,13 @@ Future<ui.Image> _renderTile({
   final fraction =
       fractionOverride ?? (concept.sourceFraction * 73.4 / 66.0);
 
-  final path = _fitted(concept, side, fraction);
+  // The roundness stroke is centred, so it dilates the silhouette by half its
+  // width on every side. Shrink the fill first so fill + stroke together span
+  // exactly `fraction` — without this the mark overflowed the safe circle and
+  // the launcher's circular mask clipped the house's bottom corners.
+  final effective = fraction / (1 + concept.roundness);
+  final path = _fitted(concept, side, effective);
+
   canvas.drawPath(
     path,
     Paint()
@@ -309,7 +383,7 @@ Future<ui.Image> _renderTile({
         ..style = PaintingStyle.stroke
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = side * fraction * concept.roundness,
+        ..strokeWidth = side * effective * concept.roundness,
     );
   }
 
