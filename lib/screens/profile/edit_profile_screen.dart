@@ -147,14 +147,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         },
         'bio': _bioCtrl.text.trim(),
         'barangay': _barangay ?? '',
-        _experienceField: _experience,
+        // Organizers no longer see either of these fields, so saving their
+        // profile shouldn't stamp athlete values onto their document —
+        // registration never creates them, and nothing organizer-facing reads
+        // them back.
+        if (_role != 'organizer') _experienceField: _experience,
         // Recruitment is an athlete-only signal; coaches and organizers don't
         // see the toggle, so don't write a field they can't control.
         if (_role == 'athlete') 'openToRecruitment': _openToRecruitment,
         // Left untouched when nothing is selected, rather than cleared: an
         // empty list would hide an athlete from every coach's Scout, and
         // stop a coach from scouting at all.
-        if (_sports.isNotEmpty) 'primarySports': _sports,
+        if (_role != 'organizer' && _sports.isNotEmpty) 'primarySports': _sports,
         if (_role == 'organizer') 'sportsOrganized': _sportsOrganized,
         if (photoUrl != null) 'photoUrl': photoUrl,
       });
@@ -311,75 +315,82 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             const BorderSide(color: AppTheme.accent, width: 1.5)),
                   ),
                 ),
-                const SizedBox(height: 20),
-                Align(
-                    alignment: Alignment.centerLeft,
-                    child: _label(_role == 'coach'
-                        ? 'Sport You Coach'
-                        : 'Sport(s) You Play')),
-                const SizedBox(height: 4),
-                if (_role == 'coach')
+                // An organizer neither plays a sport nor has playing
+                // experience here — their sport field is "Sports You Organize"
+                // below, which is the one that actually gates event creation.
+                // Showing both asked the same question twice, and the wrong
+                // one was the one that did nothing.
+                if (_role != 'organizer') ...[
+                  const SizedBox(height: 20),
                   Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                        'Scouting only shows athletes from this sport.',
-                        style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                      alignment: Alignment.centerLeft,
+                      child: _label(_role == 'coach'
+                          ? 'Sport You Coach'
+                          : 'Sport(s) You Play')),
+                  const SizedBox(height: 4),
+                  if (_role == 'coach')
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                          'Scouting only shows athletes from this sport.',
+                          style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                    ),
+                  const SizedBox(height: 8),
+                  // Single-select for coaches (one coach, one sport — see
+                  // coach_register_screen.dart), multi-select for athletes, who
+                  // may genuinely play several.
+                  //
+                  // The coach arm deliberately does NOT truncate on load. An
+                  // older version of this screen was single-choice and saved
+                  // `[_sport]`, so a coach who already had two sports silently
+                  // lost one by editing anything on this page — and with
+                  // scouting gated on this field, that cut them off from half
+                  // their athletes. Here a legacy two-sport coach sees both
+                  // chips lit, because that is what is stored; it collapses to
+                  // one only when they tap, which is a choice they made.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _kSports
+                        .map((s) => _chip(
+                            s,
+                            _sports.contains(s),
+                            () => setState(() {
+                                  if (_role == 'coach') {
+                                    _sports = [s];
+                                  } else if (_sports.contains(s)) {
+                                    _sports.remove(s);
+                                  } else {
+                                    _sports.add(s);
+                                  }
+                                  // Dropping a sport can orphan the position
+                                  // picked under it. Only clears a position the
+                                  // picker itself produced — a legacy free-text
+                                  // value is never in the list, and wiping it on
+                                  // an unrelated sport tap would be the silent
+                                  // data loss the load path avoids.
+                                  if (_position.isNotEmpty &&
+                                      !isKnownPosition(_position, _sports) &&
+                                      isCatalogPosition(_position)) {
+                                    _position = '';
+                                  }
+                                })))
+                        .toList(),
                   ),
-                const SizedBox(height: 8),
-                // Single-select for coaches (one coach, one sport — see
-                // coach_register_screen.dart), multi-select for athletes, who
-                // may genuinely play several.
-                //
-                // The coach arm deliberately does NOT truncate on load. An
-                // older version of this screen was single-choice and saved
-                // `[_sport]`, so a coach who already had two sports silently
-                // lost one by editing anything on this page — and with
-                // scouting gated on this field, that cut them off from half
-                // their athletes. Here a legacy two-sport coach sees both
-                // chips lit, because that is what is stored; it collapses to
-                // one only when they tap, which is a choice they made.
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _kSports
-                      .map((s) => _chip(
-                          s,
-                          _sports.contains(s),
-                          () => setState(() {
-                                if (_role == 'coach') {
-                                  _sports = [s];
-                                } else if (_sports.contains(s)) {
-                                  _sports.remove(s);
-                                } else {
-                                  _sports.add(s);
-                                }
-                                // Dropping a sport can orphan the position
-                                // picked under it. Only clears a position the
-                                // picker itself produced — a legacy free-text
-                                // value is never in the list, and wiping it on
-                                // an unrelated sport tap would be the silent
-                                // data loss the load path avoids.
-                                if (_position.isNotEmpty &&
-                                    !isKnownPosition(_position, _sports) &&
-                                    isCatalogPosition(_position)) {
-                                  _position = '';
-                                }
-                              })))
-                      .toList(),
-                ),
-                const SizedBox(height: 20),
-                Align(
-                    alignment: Alignment.centerLeft,
-                    child: _label('Experience')),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _kExperience
-                      .map((e) => _chip(e, _experience == e,
-                          () => setState(() => _experience = e)))
-                      .toList(),
-                ),
+                  const SizedBox(height: 20),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: _label('Experience')),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _kExperience
+                        .map((e) => _chip(e, _experience == e,
+                            () => setState(() => _experience = e)))
+                        .toList(),
+                  ),
+                ],
                 if (_role == 'organizer') ...[
                   const SizedBox(height: 20),
                   Align(
