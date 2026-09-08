@@ -94,12 +94,14 @@ flutter_launcher_icons:
   # glared on dark wallpapers.
   adaptive_icon_background: "#FFB800"
   # Sizing, which is what the old icon got wrong: this file fills the 108dp
-  # layer, the generated anydpi-v26 XML insets it 16% leaving 73.4dp of art,
-  # and the launcher's safe circle is 66dp. A square-ish mark is limited by its
-  # diagonal, so its side must be <= 66/sqrt(2) = 46.7dp — 63.6% of this
-  # canvas, and the generator draws 63%. The wordmark was configured at
-  # 50%, i.e. 36.7dp inside a 66dp circle: roughly 31% of the visible area,
-  # which is why it looked small and timid next to other apps.
+  # layer, the generated anydpi-v26 XML insets it 16% leaving 73.44dp of art,
+  # and the launcher's safe circle is 66dp. Because the mask is a circle the
+  # generator fits the mark's MINIMUM ENCLOSING CIRCLE, not its bounding box,
+  # to 82% of the canvas against a hard ceiling of 66/73.44 = 89.9%. Measured
+  # on the artwork here that is a 30.13dp radius inside the 33dp safe radius.
+  # The wordmark was configured at 50% of the layer, i.e. 36.7dp across inside
+  # a 66dp circle — roughly 31% of the visible area, which is why it looked
+  # small and timid next to other apps.
   adaptive_icon_foreground: "assets/launcher_icon/foreground.png"
   # Android 13+ themed icons tint this layer's alpha channel. It must be its
   # OWN file: this previously pointed at the foreground, so every themed icon
