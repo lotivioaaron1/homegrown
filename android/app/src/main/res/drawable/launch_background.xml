@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- The pre-Android-12 launch window. API 31+ ignores this in favour of the
+     windowSplashScreen* attributes on LaunchTheme; below that this flat fill is
+     the whole launch screen, with no icon. That is deliberate — a <bitmap> here
+     draws at its intrinsic size rather than a chosen one, and a plain black
+     window matches the black beat splash_screen.dart opens on anyway. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/splash_background" />
 </layer-list>

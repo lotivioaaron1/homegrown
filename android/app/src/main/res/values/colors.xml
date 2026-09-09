@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#07070C</color>
+    <!-- The same ink, named for its other job: the OS-drawn launch screen and
+         the window behind Flutter. Kept as a separate name rather than reusing
+         ic_launcher_background so changing one does not silently change the
+         other. It also matches Scaffold's colour in splash_screen.dart, which
+         is what removes the white flash as Flutter takes over. -->
+    <color name="splash_background">#07070C</color>
 </resources>

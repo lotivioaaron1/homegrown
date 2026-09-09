@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- Shadows drawable/launch_background.xml on every device this app runs on
+     (minSdk is 24), so this is the file that actually takes effect below API
+     31. It used to resolve ?android:colorBackground, which is white in light
+     mode — the white launch screen. Kept in step with the drawable/ copy. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/splash_background" />
 </layer-list>

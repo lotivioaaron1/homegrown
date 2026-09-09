@@ -1,10 +1,9 @@
 // lib/screens/splash_screen.dart
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../utils/auth_routing.dart';
 import '../utils/onboarding_flag.dart';
@@ -13,16 +12,23 @@ import '../widgets/homegrown_wordmark.dart';
 
 /// Deliberately a single dark scene in both themes.
 ///
-/// A splash is a held moment, not a screen you work in, and a photographic
-/// background only holds up against dark type. Keeping it fixed also removes a
-/// flash: the app used to build in light theme and then snap to the saved one,
-/// which was most visible here. main() now resolves the theme before the first
-/// frame, and this screen simply commits to its own palette.
+/// A splash is a held moment, not a screen you work in, and committing to one
+/// palette also removes a flash: the app used to build in light theme and then
+/// snap to the saved one, which was most visible here. main() now resolves the
+/// theme before the first frame, and this screen simply ignores it.
 ///
-/// A version of this screen briefly replaced the photograph with a flat
-/// gradient and put the wordmark inside an orbiting ring. It is back to the
-/// photograph by preference — the argument for the gradient was that the scrim
-/// and the picture fought each other, and that was not the trade wanted.
+/// The scene is a flat [_kInk] ground. Two earlier versions are worth knowing
+/// about before reaching for something richer: a blurred photograph behind a
+/// gradient scrim, and before that a flat gradient with the wordmark inside an
+/// orbiting ring. Both were replaced on the same complaint — the background
+/// competed with the lockup — and the ground is now the same near-black as the
+/// Android launch screen and the adaptive icon's plate, so the OS hands over to
+/// Flutter with nothing changing colour.
+///
+/// The reveal is staged rather than simultaneous: half a second of nothing,
+/// then the wordmark, then the tagline, then a progress rail. The empty beat is
+/// load-bearing — it is what makes the wordmark read as arriving instead of
+/// having always been there.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -31,15 +37,43 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
-  late Animation<double> _scrimAnim;
+    with TickerProviderStateMixin {
+  /// The intro's stagger: black hold, wordmark, tagline, rail.
+  late AnimationController _introController;
   late Animation<double> _markAnim;
-  late Animation<double> _fadeAnim;
-  late Animation<double> _riseAnim;
+  late Animation<double> _taglineAnim;
+  late Animation<double> _taglineRise;
+  late Animation<double> _railAnim;
+
+  /// The progress rail's value, 0..1. Separate from [_introController] because
+  /// it is not purely time-driven — see [_startLaunch].
+  late AnimationController _progress;
 
   bool _showButtons = false;
   bool _launched = false;
+  bool _reducedMotion = false;
+
+  // ── Timing ────────────────────────────────────
+  //
+  // The stagger is expressed as milliseconds from Flutter's first frame and the
+  // Interval fractions below are divided out of _kIntroMs, because an Interval
+  // written as 0.575 tells you nothing about when it happens. Const int
+  // division yields a const double, so this costs nothing at runtime.
+
+  /// Length of the staged intro. Interval fractions are relative to this.
+  static const _kIntroMs = 2000;
+  static const _kIntro = Duration(milliseconds: _kIntroMs);
+
+  /// Nothing is painted before this. The whole point of the change.
+  static const _kBlackHold = 500;
+  static const _kMarkEnd = 1150;
+
+  /// Starts 50ms before the wordmark lands — see the note in [initState].
+  static const _kTaglineStart = 1100;
+  static const _kTaglineEnd = 1750;
+
+  static const _kRailFadeStart = 1300;
+  static const _kRailFadeEnd = 1700;
 
   /// How long the brand moment is held before routing.
   ///
@@ -48,45 +82,65 @@ class _SplashScreenState extends State<SplashScreen>
   /// 2500ms that only *then* began talking to Firebase, which made the real
   /// wait 2.5s plus a network round trip, with ~700ms of dead air in the
   /// middle where the animation had finished and nothing was happening.
-  static const _kMinHold = Duration(milliseconds: 1800);
+  ///
+  /// 2200ms is where the rail reaches 90%; the completion sweep and its beat
+  /// bring the real floor to about 2.58s, near where the flat delay had it.
+  static const _kMinHold = Duration(milliseconds: 2200);
 
-  // Ink colours for this screen only. The scene is always dark, so these do
-  // not come from AppTheme — a theme-aware getter here would produce dark
-  // text on a dark ground in light mode.
+  /// When the rail starts moving — tied to the moment it starts fading in, so
+  /// the two cannot drift apart.
+  static const _kRailStart = Duration(milliseconds: _kRailFadeStart);
+
+  /// The rail's unhurried stretch, and where it stops to wait.
+  static const _kRailRun = Duration(milliseconds: 900);
+  static const _kRailRest = 0.90;
+
+  /// The completion sweep once the destination is known, and the beat after it
+  /// so the screen does not cut away on the rail's last frame.
+  static const _kRailFinish = Duration(milliseconds: 240);
+  static const _kSettle = Duration(milliseconds: 140);
+
+  // Ink for this screen only. The scene is always dark, so these do not come
+  // from AppTheme — a theme-aware getter here would produce dark text on a
+  // dark ground in light mode.
+  static const _kInk = Color(0xFF07070C);
   static final _inkSoft = Colors.white.withValues(alpha: 0.72);
-  static final _inkFaint = Colors.white.withValues(alpha: 0.55);
+  static final _railTrack = Colors.white.withValues(alpha: 0.12);
 
   @override
   void initState() {
     super.initState();
-    // Lands a little before _kMinHold so the screen settles for a beat before
-    // routing rather than cutting away on the animation's last frame. The
-    // original ran 1800ms against a flat 2500ms delay, which gave it the same
-    // pause by accident.
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    );
 
-    // The scene darkens first so the mark has something to sit against.
-    _scrimAnim = CurvedAnimation(
-      parent: _animController,
-      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
-    );
-    // Then the wordmark rises into it.
+    _introController = AnimationController(vsync: this, duration: _kIntro);
+    _progress = AnimationController(vsync: this);
+
+    // Fractions of _kIntro. The wordmark and tagline overlap by 50ms on
+    // purpose: a hard gap reads as two animations stopping and starting, a
+    // small overlap reads as one element following another.
     _markAnim = CurvedAnimation(
-      parent: _animController,
-      curve: const Interval(0.10, 0.70, curve: Curves.easeOutCubic),
+      parent: _introController,
+      curve: const Interval(
+        _kBlackHold / _kIntroMs,
+        _kMarkEnd / _kIntroMs,
+        curve: Curves.easeOutCubic,
+      ),
     );
-    // Tagline and verse follow it up, so the eye lands on the identity first.
-    _fadeAnim = CurvedAnimation(
-      parent: _animController,
-      curve: const Interval(0.45, 1.0, curve: Curves.easeOut),
+    _taglineAnim = CurvedAnimation(
+      parent: _introController,
+      curve: const Interval(
+        _kTaglineStart / _kIntroMs,
+        _kTaglineEnd / _kIntroMs,
+        curve: Curves.easeOutCubic,
+      ),
     );
-    _riseAnim = Tween<double>(begin: 20, end: 0).animate(
-      CurvedAnimation(
-        parent: _animController,
-        curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
+    _taglineRise = Tween<double>(begin: 22, end: 0).animate(_taglineAnim);
+    _railAnim = CurvedAnimation(
+      parent: _introController,
+      // Lands as the rail begins to move, so it is never visible sitting still.
+      curve: const Interval(
+        _kRailFadeStart / _kIntroMs,
+        _kRailFadeEnd / _kIntroMs,
+        curve: Curves.easeOut,
       ),
     );
   }
@@ -97,12 +151,33 @@ class _SplashScreenState extends State<SplashScreen>
     if (_launched) return;
     _launched = true;
 
-    if (MediaQuery.of(context).disableAnimations) {
-      _animController.value = 1.0;
+    _reducedMotion = MediaQuery.of(context).disableAnimations;
+    if (_reducedMotion) {
+      // Present the finished state immediately. The hold below still applies —
+      // it is about work in flight, not about the animation.
+      _introController.value = 1.0;
+      _progress.value = 1.0;
     } else {
-      _animController.forward();
+      _introController.forward();
+      _startRail();
     }
     _startLaunch();
+  }
+
+  /// Eases the rail out to [_kRailRest] and leaves it there.
+  ///
+  /// The number is a *timed* impression of progress, not a measurement: there
+  /// is no meaningful percentage to report for "restore a session, then read
+  /// one document". What makes it honest rather than decorative is that it
+  /// stops at 90% and only completes when the destination genuinely resolves,
+  /// so it never claims to be finished before the app is. easeOut is doing the
+  /// same work — decelerating reads as approaching completion, where a linear
+  /// fill that stalls at 90% reads as stuck.
+  Future<void> _startRail() async {
+    await Future<void>.delayed(_kRailStart);
+    if (!mounted) return;
+    _progress.animateTo(_kRailRest,
+        duration: _kRailRun, curve: Curves.easeOut);
   }
 
   // ── Launch ────────────────────────────────────
@@ -126,6 +201,16 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     if (!mounted) return;
+
+    // Close the rail out before leaving, so the last thing seen is 100% rather
+    // than whatever it happened to be mid-sweep.
+    if (!_reducedMotion) {
+      await _progress.animateTo(1.0,
+          duration: _kRailFinish, curve: Curves.easeOutCubic);
+      await Future<void>.delayed(_kSettle);
+      if (!mounted) return;
+    }
+
     if (destination == null) {
       setState(() => _showButtons = true);
     } else {
@@ -215,7 +300,8 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _animController.dispose();
+    _introController.dispose();
+    _progress.dispose();
     super.dispose();
   }
 
@@ -224,52 +310,31 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).height < 700;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF07070C),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          _background(),
-          _scrim(),
-          SafeArea(
-            // Scrolls rather than overflows once the lockup outgrows the
-            // viewport, which it does at the largest system text sizes. The
-            // Spacers still do their job while it fits — that is the whole
-            // reason this widget exists rather than a plain scroll view.
-            child: FillViewportScroll(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                children: [
-                  const Spacer(flex: 3),
-                  _identity(compact),
-                  const Spacer(flex: 4),
-                  _actions(),
-                  const SizedBox(height: 40),
-                ],
-              ),
-            ),
-          ),
-        ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Light icons, because the ground is always dark. Without this a
+      // light-mode device draws dark status bar icons onto near-black.
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: _kInk,
+        systemNavigationBarIconBrightness: Brightness.light,
       ),
-    );
-  }
-
-  Widget _background() {
-    return ImageFiltered(
-      imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
-      child: Image.asset(
-        'assets/images/ring.jpg',
-        fit: BoxFit.cover,
-        color: Colors.black.withValues(alpha: 0.12),
-        colorBlendMode: BlendMode.darken,
-        // Falls back to a plain dark gradient if the asset is missing so
-        // layout never breaks.
-        errorBuilder: (context, error, stackTrace) => const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFF07070C), Color(0xFF1A1200)],
+      child: Scaffold(
+        backgroundColor: _kInk,
+        body: SafeArea(
+          // Scrolls rather than overflows once the lockup outgrows the
+          // viewport, which it does at the largest system text sizes. The
+          // Spacers still do their job while it fits — that is the whole
+          // reason this widget exists rather than a plain scroll view.
+          child: FillViewportScroll(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              children: [
+                const Spacer(flex: 3),
+                _identity(compact),
+                const Spacer(flex: 4),
+                _footer(),
+                const SizedBox(height: 40),
+              ],
             ),
           ),
         ),
@@ -277,35 +342,7 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _scrim() {
-    return AnimatedBuilder(
-      animation: _scrimAnim,
-      builder: (context, child) => DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            // Weighted toward the middle, where the wordmark and tagline sit.
-            // A lighter scrim left the photograph competing with the lockup
-            // — the hoop read louder than the brand.
-            stops: const [0.0, 0.38, 0.72, 1.0],
-            colors: [
-              Color.lerp(Colors.transparent, const Color(0xCC07070C),
-                  _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0xE60A0910),
-                  _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0xD90C0B14),
-                  _scrimAnim.value)!,
-              Color.lerp(Colors.transparent, const Color(0xF01A1200),
-                  _scrimAnim.value)!,
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Wordmark, tagline and dedication as one stacked lockup.
+  /// Wordmark and tagline as one stacked lockup, revealed in that order.
   ///
   /// The app name is the hero and the tagline carries the screen. Both can be
   /// large because the artwork is wide and short — it takes horizontal space,
@@ -313,78 +350,118 @@ class _SplashScreenState extends State<SplashScreen>
   /// competing for the same.
   Widget _identity(bool compact) {
     return AnimatedBuilder(
-      animation: _animController,
+      animation: _introController,
       builder: (context, child) {
         return Column(
           children: [
-            // The wordmark rises and settles first, then the supporting lines
-            // follow. Always the on-dark variant — this scene is dark in both
-            // themes, so the light-background artwork would put black letters
-            // on a dark photograph.
+            // Always the on-dark variant — this scene is dark in both themes,
+            // so the light-background artwork would put black letters on a
+            // near-black ground.
             Opacity(
               opacity: _markAnim.value,
               child: Transform.translate(
-                offset: Offset(0, (1 - _markAnim.value) * 16),
+                offset: Offset(0, (1 - _markAnim.value) * 18),
                 child:
                     HomegrownWordmark(width: compact ? 172 : 200, onDark: true),
               ),
             ),
-            SizedBox(height: compact ? 12 : 16),
+            SizedBox(height: compact ? 16 : 22),
             Opacity(
-              opacity: _fadeAnim.value,
+              opacity: _taglineAnim.value,
               child: Transform.translate(
-                offset: Offset(0, _riseAnim.value),
+                offset: Offset(0, _taglineRise.value),
                 child: child,
               ),
             ),
           ],
         );
       },
-      child: Column(
-        children: [
-          Text(
-            'Every Game\nCounts.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: compact ? 32 : 38,
-              fontWeight: FontWeight.w900,
-              height: 1.14,
-              letterSpacing: -1.0,
-            ),
-          ),
-          SizedBox(height: compact ? 22 : 28),
-          // The verse is a dedication, not a headline — narrower and
-          // quieter than everything above it.
-          SizedBox(
-            width: 240,
+      child: Text(
+        'Every Game\nCounts.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: compact ? 32 : 38,
+          fontWeight: FontWeight.w900,
+          height: 1.14,
+          letterSpacing: -1.0,
+        ),
+      ),
+    );
+  }
+
+  /// The rail and the CTA share one slot, cross-fading between them.
+  ///
+  /// A Stack rather than a swap so the slot keeps the height of the taller
+  /// child — the buttons — and nothing above it shifts when loading finishes.
+  /// Non-positioned Stack children report intrinsics, so this is safe inside
+  /// FillViewportScroll's IntrinsicHeight.
+  Widget _footer() {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        AnimatedOpacity(
+          opacity: _showButtons ? 0.0 : 1.0,
+          duration: const Duration(milliseconds: 260),
+          child: _rail(),
+        ),
+        _actions(),
+      ],
+    );
+  }
+
+  Widget _rail() {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_introController, _progress]),
+      builder: (context, child) {
+        final percent = (_progress.value * 100).round();
+        return Opacity(
+          opacity: _railAnim.value,
+          child: Semantics(
+            label: 'Loading',
+            // The number changes many times a second and carries nothing a
+            // screen reader user needs; the label above says all of it.
+            excludeSemantics: true,
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  'I can do all things through Christ who strengthens me.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.dancingScript(
-                    color: _inkSoft,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    height: 1.45,
+                SizedBox(
+                  width: 200,
+                  height: 3,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ColoredBox(color: _railTrack),
+                        ),
+                        FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: _progress.value.clamp(0.0, 1.0),
+                          child: const ColoredBox(color: AppTheme.accent),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 Text(
-                  'PHILIPPIANS 4:13',
+                  '$percent%',
                   style: TextStyle(
-                    color: _inkFaint,
-                    fontSize: 9,
+                    color: _inkSoft,
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 2.4,
+                    letterSpacing: 1.6,
+                    // Tabular figures so the digits keep their column and the
+                    // number does not jitter as it counts up.
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
