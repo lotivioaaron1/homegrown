@@ -10,7 +10,11 @@
 //   flutter test tool/generate_launcher_icons.dart
 //
 //   # once a candidate is chosen, also write the real masters
-//   flutter test tool/generate_launcher_icons.dart --dart-define=concept=a --dart-define=colorway=goldOnDark
+//   flutter test tool/generate_launcher_icons.dart \
+//     --dart-define=concept=m2 --dart-define=colorway=goldPlate
+//
+// concept is one of m1/m2/m3/m4 (the motion treatments); colorway is
+// inkPlate or goldPlate.
 //
 // It runs under flutter_test purely because `Picture.toImage` needs a live
 // engine; there is no Python or ImageMagick on this machine, so the Flutter
@@ -85,6 +89,12 @@ abstract class Concept {
   double get roundness => 0.0;
 
   Path unitPath();
+
+  /// The mark split into two independently coloured pieces, or null when the
+  /// concept is a single silhouette. Used only for the two-tone colourway;
+  /// `unitPath()` stays the authority for sizing and for the monochrome layer,
+  /// where Android flattens everything to one tint anyway.
+  (Path primary, Path secondary)? unitParts() => null;
 }
 
 /// A — "Home-court H": two heavy uprights with a ball wedged between them as
@@ -241,7 +251,226 @@ class ConceptC extends Concept {
   }
 }
 
+/// How the "speed" cue is expressed. The original artwork stacked six hairline
+/// trails, which is precisely what died at 48dp; every option here is drawn
+/// thick enough to survive, and they differ in where the motion lives.
+enum Motion {
+  /// Three tapered wedges instead of six hairlines. Closest to the original.
+  trails,
+
+  /// No external trails — diagonal gaps knocked through the letters, as though
+  /// speed had sliced them. Keeps the mark compact so the letters stay large.
+  cuts,
+
+  /// One thick arc sweeping under the lockup, doubling as a baseline.
+  swoosh,
+
+  /// No motion marks at all: a harder italic carries the speed by itself.
+  shear,
+}
+
+/// The "HG" monogram. The brand's own letters are the only thing that is
+/// uniquely Homegrown's, which is why this replaced the pictorial marks.
+///
+/// The letters are constructed geometrically rather than set in a typeface:
+/// nothing is bundled (google_fonts fetches at runtime), and building the forms
+/// by hand is what lets the motion treatment be a parameter instead of a redraw.
+class ConceptHG extends Concept {
+  ConceptHG({required this.id, required this.motion, this.shearDeg = 12.0});
+
+  @override
+  final String id;
+
+  final Motion motion;
+
+  /// Italic slant. Motion.shear leans harder because the slant is doing all the
+  /// work on its own.
+  final double shearDeg;
+
+  @override
+  double get sourceFraction => 0.82;
+
+  /// Weight of both letters, as a fraction of a letter's own box.
+  static const _weight = 0.30;
+
+  /// Each letter's size within the lockup.
+  static const _letter = 0.56;
+
+  /// Where the G sits relative to the H. Tuned so the H's right leg only
+  /// notches the G's upper-left shoulder: placed symmetrically on the diagonal
+  /// the leg swallowed the G's whole top arc and it read as a hook, not a G.
+  static const _gOffset = Offset(0.47, 0.44);
+
+  /// Gap knocked out of the G where the H crosses it.
+  static const _gap = 0.05;
+
+  static Path _hForm() => Path()
+    ..addRect(const Rect.fromLTRB(0, 0, _weight, 1))
+    ..addRect(const Rect.fromLTRB(1 - _weight, 0, 1, 1))
+    ..addRect(const Rect.fromLTRB(0, 0.40, 1, 0.60));
+
+  static Path _gForm() {
+    final ring = Path.combine(
+      PathOperation.difference,
+      Path()..addOval(const Rect.fromLTRB(0, 0, 1, 1)),
+      Path()..addOval(
+          const Rect.fromLTRB(_weight, _weight, 1 - _weight, 1 - _weight)),
+    );
+
+    // Open the upper right, or the ring is an O.
+    final opened = Path.combine(
+      PathOperation.difference,
+      ring,
+      Path()..addRect(const Rect.fromLTRB(0.52, -0.05, 1.05, 0.44)),
+    );
+
+    // The spur — the stroke that makes a G a G. It stops at 0.52 rather than
+    // reaching deep into the counter: at 0.42 it closed the counter almost
+    // completely and the G rendered as a blob with a notch.
+    return Path.combine(
+      PathOperation.union,
+      opened,
+      Path()..addRect(const Rect.fromLTRB(0.52, 0.44, 1.0, 0.60)),
+    );
+  }
+
+  static Path _place(Path p, double dx, double dy, double s) {
+    final m = Matrix4.identity()
+      ..translateByDouble(dx, dy, 0, 1)
+      ..scaleByDouble(s, s, 1, 1);
+    return p.transform(m.storage);
+  }
+
+  /// H upper-left, G lower-right. The diagonal arrangement is far closer to
+  /// square than the old side-by-side lockup, whose 1.617:1 box is what forced
+  /// the letters small once inscribed in a circular mask.
+  (Path, Path) _letters() {
+    final h = _place(_hForm(), 0, 0, _letter);
+    var g = _place(_gForm(), _gOffset.dx, _gOffset.dy, _letter);
+
+    // The gap is cut out of the G, not the H. The original artwork stacks the
+    // H over the G, so the H must stay whole and the G takes the notch —
+    // cutting it the other way round ate the H's right leg. The gap itself is
+    // what keeps "HG" readable once a themed icon flattens both to one tint.
+    final grownH = _place(_hForm(), -_gap, -_gap, _letter + 2 * _gap);
+    g = Path.combine(PathOperation.difference, g, grownH);
+
+    return (h, g);
+  }
+
+  /// Tapered wedge, thick where it meets the letter and pointed at the tail.
+  static Path _wedge(double y, double t, double x0, double x1) => Path()
+    ..moveTo(x0, y)
+    ..lineTo(x1, y - t / 2)
+    ..lineTo(x1, y + t / 2)
+    ..close();
+
+  static Path _trails() => Path()
+    ..addPath(_wedge(0.09, 0.085, -0.40, 0.12), Offset.zero)
+    ..addPath(_wedge(0.26, 0.085, -0.34, 0.12), Offset.zero)
+    ..addPath(_wedge(0.43, 0.085, -0.28, 0.12), Offset.zero);
+
+  /// Narrow diagonal slits, cut through the H only.
+  ///
+  /// A first pass ran wide bands through both letters and simply destroyed
+  /// them — the H fell into floating fragments. Keeping the slits thin and
+  /// confined to the H reads as streaking rather than damage, and leaves the G
+  /// whole to anchor the mark.
+  /// Two slits, not three: at three the H read as a zebra and fell apart into
+  /// stripes by 48dp. Wider each, so they survive the downscale.
+  static List<Path> _slashes() => [
+        for (final y in [0.17, 0.37])
+          Path()
+            ..moveTo(-0.30, y)
+            ..lineTo(1.30, y - 0.52)
+            ..lineTo(1.30, y - 0.52 + 0.07)
+            ..lineTo(-0.30, y + 0.07)
+            ..close(),
+      ];
+
+  /// A constant-width arc under the lockup: the band between two concentric
+  /// circles, clipped to the sweep that actually passes beneath the letters.
+  static Path _swoosh() {
+    // Thick on purpose: at t = 0.10 this was a hairline that vanished by 48dp,
+    // the exact failure that killed the original speed lines.
+    //
+    // The two circles are deliberately NOT concentric. A constant-width arc
+    // read as a bowl under the letters; offsetting the inner centre makes the
+    // band wide at the left and narrow at the right, so it tapers like a
+    // stroke of speed instead.
+    final band = Path.combine(
+      PathOperation.difference,
+      Path()
+        ..addOval(Rect.fromCircle(
+            center: const Offset(0.5, -0.30), radius: 1.47)),
+      Path()
+        ..addOval(Rect.fromCircle(
+            center: const Offset(0.62, -0.26), radius: 1.35)),
+    );
+    return Path.combine(PathOperation.intersect, band,
+        Path()..addRect(const Rect.fromLTRB(-0.30, 0.80, 1.35, 1.40)));
+  }
+
+  Matrix4 _shear() {
+    final k = math.tan(shearDeg * math.pi / 180);
+    // x' = x + k * (0.5 - y): the top leans right, pivoting about mid-height.
+    return Matrix4.identity()
+      ..translateByDouble(k * 0.5, 0, 0, 1)
+      ..setEntry(0, 1, -k);
+  }
+
+  (Path, Path) _built() {
+    var (h, g) = _letters();
+
+    switch (motion) {
+      case Motion.trails:
+        h = Path.combine(PathOperation.union, h, _trails());
+      case Motion.cuts:
+        // The H only — see _slashes().
+        for (final s in _slashes()) {
+          h = Path.combine(PathOperation.difference, h, s);
+        }
+      case Motion.swoosh:
+        g = Path.combine(PathOperation.union, g, _swoosh());
+      case Motion.shear:
+        break;
+    }
+
+    final m = _shear();
+    return (h.transform(m.storage), g.transform(m.storage));
+  }
+
+  @override
+  Path unitPath() {
+    final (h, g) = _built();
+    return Path.combine(PathOperation.union, h, g);
+  }
+
+  @override
+  (Path, Path)? unitParts() => _built();
+}
+
+/// The two colourways under consideration. Rendered side by side rather than
+/// argued about: the ink plate keeps the brand's two-tone character, the gold
+/// plate is bolder at 48dp and matches the plate chosen for the house mark.
+enum Colourway { inkPlate, goldPlate }
+
+(Color plate, Color primary, Color secondary) _palette(Colourway w) =>
+    switch (w) {
+      Colourway.inkPlate => (kInk, const Color(0xFFF2F2F5), kGold),
+      Colourway.goldPlate => (kGold, kInk, kInk),
+    };
+
 final concepts = <Concept>[
+  ConceptHG(id: 'm1', motion: Motion.trails),
+  ConceptHG(id: 'm2', motion: Motion.cuts),
+  ConceptHG(id: 'm3', motion: Motion.swoosh),
+  ConceptHG(id: 'm4', motion: Motion.shear, shearDeg: 18),
+];
+
+/// The pictorial marks this replaced. Kept so the earlier round can be
+/// regenerated without rewriting it, but no longer rendered.
+final retiredConcepts = <Concept>[
   ConceptA(),
   ConceptB(id: 'b'),
   ConceptB(id: 'b2', roundness: 0.055),
@@ -304,7 +533,10 @@ List<Offset> _samplePath(Path p) {
 /// the roof peak wasted the room above it. The mask is a circle, so the fit
 /// that matters is radial — which both re-centres the mark optically and lets
 /// it be meaningfully larger at the same safe-circle limit.
-Path _fitted(Concept c, double side, double fraction) {
+/// Returned as a matrix rather than a transformed path so that a two-tone
+/// concept can place its two pieces with the SAME fit — the fit is computed
+/// once from the whole silhouette, never per piece.
+Matrix4 _fitMatrix(Concept c, double side, double fraction) {
   final unit = c.unitPath();
   final pts = _samplePath(unit);
   final (tight, _) = _enclosingCircle(pts);
@@ -322,7 +554,7 @@ Path _fitted(Concept c, double side, double fraction) {
 
   final scale = (side * fraction / 2) / radius;
 
-  final m = Matrix4.identity()
+  return Matrix4.identity()
     ..translateByDouble(
       side / 2 - centre.dx * scale,
       side / 2 - centre.dy * scale,
@@ -330,8 +562,6 @@ Path _fitted(Concept c, double side, double fraction) {
       1,
     )
     ..scaleByDouble(scale, scale, 1, 1);
-
-  return unit.transform(m.storage);
 }
 
 Future<ui.Image> _renderTile({
@@ -339,6 +569,7 @@ Future<ui.Image> _renderTile({
   required int px,
   required Color? plate,
   required Color mark,
+  Color? markSecondary,
   required bool circleMask,
   double? fractionOverride,
 }) async {
@@ -365,26 +596,38 @@ Future<ui.Image> _renderTile({
   // exactly `fraction` — without this the mark overflowed the safe circle and
   // the launcher's circular mask clipped the house's bottom corners.
   final effective = fraction / (1 + concept.roundness);
-  final path = _fitted(concept, side, effective);
+  final m = _fitMatrix(concept, side, effective);
 
-  canvas.drawPath(
-    path,
-    Paint()
-      ..color = mark
-      ..isAntiAlias = true,
-  );
-
-  if (concept.roundness > 0) {
+  void fill(Path unit, Color colour) {
+    final path = unit.transform(m.storage);
     canvas.drawPath(
       path,
       Paint()
-        ..color = mark
-        ..isAntiAlias = true
-        ..style = PaintingStyle.stroke
-        ..strokeJoin = StrokeJoin.round
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = side * effective * concept.roundness,
+        ..color = colour
+        ..isAntiAlias = true,
     );
+    if (concept.roundness > 0) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = colour
+          ..isAntiAlias = true
+          ..style = PaintingStyle.stroke
+          ..strokeJoin = StrokeJoin.round
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = side * effective * concept.roundness,
+      );
+    }
+  }
+
+  final parts = concept.unitParts();
+  if (markSecondary != null && parts != null) {
+    fill(parts.$1, mark);
+    fill(parts.$2, markSecondary);
+  } else {
+    // Single tone — and always this branch for the monochrome layer, since a
+    // themed icon has only one tint to give.
+    fill(concept.unitPath(), mark);
   }
 
   return recorder.endRecording().toImage(px, px);
@@ -445,14 +688,14 @@ void main() {
 
   test('render launcher icon candidates', () async {
     // Columns: what each cell shows, left to right.
-    const columns = <(int px, bool goldOnDark, bool mono)>[
-      (192, true, false),
-      (192, false, false),
-      (96, true, false),
-      (96, false, false),
-      (48, true, false),
-      (48, false, false),
-      (96, true, true),
+    const columns = <(int px, Colourway way, bool mono)>[
+      (192, Colourway.inkPlate, false),
+      (192, Colourway.goldPlate, false),
+      (96, Colourway.inkPlate, false),
+      (96, Colourway.goldPlate, false),
+      (48, Colourway.inkPlate, false),
+      (48, Colourway.goldPlate, false),
+      (96, Colourway.inkPlate, true),
     ];
 
     const cell = 200.0, gap = 16.0, margin = 24.0;
@@ -468,15 +711,19 @@ void main() {
     for (var r = 0; r < concepts.length; r++) {
       final concept = concepts[r];
       for (var c = 0; c < columns.length; c++) {
-        final (px, goldOnDark, mono) = columns[c];
+        final (px, way, mono) = columns[c];
+        final (plate, primary, secondary) = _palette(way);
 
         final tile = await _renderTile(
           concept: concept,
           px: px,
           // Themed icons tint the alpha channel against the system ground, so
-          // the monochrome preview is a flat tint on neutral grey.
-          plate: mono ? const Color(0xFF3C3C42) : (goldOnDark ? kInk : kGold),
-          mark: mono ? const Color(0xFFE6E6EA) : (goldOnDark ? kGold : kInk),
+          // the monochrome preview is a flat tint on neutral grey — and it
+          // deliberately passes no secondary colour, because a themed icon
+          // cannot show two.
+          plate: mono ? const Color(0xFF3C3C42) : plate,
+          mark: mono ? const Color(0xFFE6E6EA) : primary,
+          markSecondary: mono ? null : secondary,
           circleMask: true,
         );
 
@@ -501,25 +748,25 @@ void main() {
 
     // Also drop each candidate large, for judging the shape itself.
     for (final concept in concepts) {
-      for (final goldOnDark in [true, false]) {
+      for (final way in Colourway.values) {
+        final (plate, primary, secondary) = _palette(way);
         final img = await _renderTile(
           concept: concept,
           px: 512,
-          plate: goldOnDark ? kInk : kGold,
-          mark: goldOnDark ? kGold : kInk,
+          plate: plate,
+          mark: primary,
+          markSecondary: secondary,
           circleMask: true,
         );
-        await _writePng(img,
-            '$kScratch\\${concept.id}_${goldOnDark ? "goldOnDark" : "darkOnGold"}_512.png');
+        await _writePng(img, '$kScratch\\${concept.id}_${way.name}_512.png');
       }
     }
 
     // ----- masters, only once a candidate has been chosen -------------------
     if (kConcept.isNotEmpty) {
       final chosen = concepts.firstWhere((c) => c.id == kConcept);
-      const goldOnDark = kColorway != 'darkOnGold';
-      const plate = goldOnDark ? kInk : kGold;
-      const mark = goldOnDark ? kGold : kInk;
+      final way = Colourway.values.firstWhere((w) => w.name == kColorway);
+      final (plate, primary, secondary) = _palette(way);
       const out = r'c:\flutter\homegrown\assets\launcher_icon';
 
       // Foreground: mark only, transparent, at the true source fraction.
@@ -528,7 +775,8 @@ void main() {
           concept: chosen,
           px: 1024,
           plate: null,
-          mark: mark,
+          mark: primary,
+          markSecondary: secondary,
           circleMask: false,
           fractionOverride: chosen.sourceFraction,
         ),
@@ -542,7 +790,8 @@ void main() {
           concept: chosen,
           px: 1024,
           plate: plate,
-          mark: mark,
+          mark: primary,
+          markSecondary: secondary,
           circleMask: false,
           fractionOverride: chosen.sourceFraction,
         ),

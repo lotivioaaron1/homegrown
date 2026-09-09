@@ -71,34 +71,42 @@ flutter:
 #
 # The three PNGs below are NOT hand-drawn — redraw them with:
 #   flutter test tool/generate_launcher_icons.dart \
-#     --dart-define=concept=b2 --dart-define=colorway=darkOnGold
+#     --dart-define=concept=m1 --dart-define=colorway=inkPlate
 # That tool holds the mark as vector geometry, so it stays sharp at any size
-# instead of being resampled from a bitmap.
+# instead of being resampled from a bitmap. concept is one of m1/m2/m3/m4 —
+# the motion treatments — and colorway is inkPlate or goldPlate.
 #
 # Sources live in assets/launcher_icon/ rather than assets/images/, which is
 # declared above and so ships inside the APK — these are build-time inputs and
 # have no business being bundled at runtime.
 #
-# The mark is a solid house with the letter H knocked out as negative space:
-# one shape, no stroked lines. Its predecessor was the HOME/GROWN wordmark
-# lockup, which failed as an icon — a horizontal wordmark forced into a square,
-# with speed lines that fell below one pixel at 48dp and aliased into grey.
+# The mark is the "HG" monogram: the name is the only thing that is uniquely
+# this app's, which is why two pictorial marks were tried and dropped before it.
+# The letters are constructed geometrically rather than set in a typeface, since
+# nothing is bundled and google_fonts fetches at runtime.
+#
+# Two details are load-bearing:
+#   - The H sits ON TOP of the G, so the gap is cut out of the G. Cutting it the
+#     other way round ate the H's right leg.
+#   - That gap exists at all because Android 13+ themed icons flatten both
+#     letters to a single tint; touching letters would fuse into one blob.
 flutter_launcher_icons:
   android: true
   ios: false
-  # Legacy square icon for API 24–25, which predate adaptive icons. The gold
-  # ground is baked in, since a transparent legacy icon renders as a hole.
+  # Legacy square icon for API 24–25, which predate adaptive icons. The plate
+  # is baked in, since a transparent legacy icon renders as a hole.
   image_path: "assets/launcher_icon/legacy.png"
-  # Brand gold. A solid gold disc is unmistakable in a crowded app drawer,
-  # where the previous white plate read as an unfinished placeholder and
-  # glared on dark wallpapers.
-  adaptive_icon_background: "#FFB800"
+  # Near-black, matching the splash background in splash_screen.dart. The ink
+  # plate is what lets the H and the G stay two different colours — white and
+  # brand gold — which is the relationship the original artwork had. On a gold
+  # plate both letters have to be ink and that distinction is lost.
+  adaptive_icon_background: "#07070C"
   # Sizing, which is what the old icon got wrong: this file fills the 108dp
   # layer, the generated anydpi-v26 XML insets it 16% leaving 73.44dp of art,
   # and the launcher's safe circle is 66dp. Because the mask is a circle the
   # generator fits the mark's MINIMUM ENCLOSING CIRCLE, not its bounding box,
   # to 82% of the canvas against a hard ceiling of 66/73.44 = 89.9%. Measured
-  # on the artwork here that is a 30.13dp radius inside the 33dp safe radius.
+  # on the artwork here that is a 30.10dp radius inside the 33dp safe radius.
   # The wordmark was configured at 50% of the layer, i.e. 36.7dp across inside
   # a 66dp circle — roughly 31% of the visible area, which is why it looked
   # small and timid next to other apps.
