@@ -8,10 +8,14 @@ import 'package:intl/intl.dart';
 import '../../models/match_result.dart';
 import '../../models/report.dart';
 import '../../services/notification_service.dart';
+import '../../services/team_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/event_recipients.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/member_profiles.dart';
 import '../../widgets/organizer_profile_parts.dart';
+import '../../widgets/player_avatar.dart';
 import '../../widgets/report_dialog.dart';
 
 class EventDetailScreen extends StatelessWidget {
@@ -354,54 +358,50 @@ class EventDetailScreen extends StatelessWidget {
             color: AppTheme.muted, fontSize: 11,
             fontWeight: FontWeight.w800, letterSpacing: 1)),
         const SizedBox(height: 6),
-        Container(
-          decoration: BoxDecoration(
-              color: AppTheme.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.border)),
-          child: Column(children: players.asMap().entries.map((e) {
-            final isLast = e.key == players.length - 1;
-            final p = e.value;
-            final uid = p['uid'] as String? ?? '';
-            final fullName = p['fullName'] as String? ?? '';
-            final position = p['position'] as String? ?? '';
-            final initials = fullName.trim().split(' ')
-                .where((s) => s.isNotEmpty).take(2)
-                .map((s) => s[0]).join().toUpperCase();
-            return Container(
-              decoration: BoxDecoration(border: Border(
-                  bottom: isLast
-                      ? BorderSide.none
-                      : BorderSide(color: AppTheme.border))),
-              child: ListTile(
-                dense: true,
-                onTap: uid.isEmpty
-                    ? null
-                    : () => showAthleteProfileSheet(context, athleteId: uid),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                leading: Container(
-                  width: 36, height: 36,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [AppTheme.accent, AppTheme.accent2]),
-                    shape: BoxShape.circle),
-                  child: Center(child: Text(initials, style: const TextStyle(
-                      color: AppTheme.buttonFg, fontSize: 12,
-                      fontWeight: FontWeight.w800))),
+        // An event's `players[]` froze each player's name at creation time and
+        // never carried a photo at all, so the rows read the live user docs
+        // and fall back to the stored snapshot only while those load.
+        MemberProfilesBuilder(
+          uids: players.map((p) => p['uid'] as String? ?? '').toList(),
+          builder: (context, profiles) => Container(
+            decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border)),
+            child: Column(children: players.asMap().entries.map((e) {
+              final isLast = e.key == players.length - 1;
+              final p = e.value;
+              final uid = p['uid'] as String? ?? '';
+              final position = p['position'] as String? ?? '';
+              final identity = resolveMemberIdentity(profiles[uid],
+                  fallbackName: p['fullName'] as String? ?? '');
+              return Container(
+                decoration: BoxDecoration(border: Border(
+                    bottom: isLast
+                        ? BorderSide.none
+                        : BorderSide(color: AppTheme.border))),
+                child: ListTile(
+                  dense: true,
+                  onTap: uid.isEmpty
+                      ? null
+                      : () => showAthleteProfileSheet(context, athleteId: uid),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  leading: PlayerAvatar(
+                      name: identity.name,
+                      photoUrl: identity.photoUrl,
+                      size: 36, fontSize: 12),
+                  title: Text(identity.name, style: TextStyle(
+                      color: AppTheme.textPrimary, fontSize: 13,
+                      fontWeight: FontWeight.w600)),
+                  subtitle: position.isNotEmpty
+                      ? Text(position,
+                          style: TextStyle(color: AppTheme.sub, fontSize: 11))
+                      : null,
                 ),
-                title: Text(fullName, style: TextStyle(
-                    color: AppTheme.textPrimary, fontSize: 13,
-                    fontWeight: FontWeight.w600)),
-                subtitle: position.isNotEmpty
-                    ? Text(position,
-                        style: TextStyle(color: AppTheme.sub, fontSize: 11))
-                    : null,
-              ),
-            );
-          }).toList()),
+              );
+            }).toList()),
+          ),
         ),
       ]),
     );
@@ -499,7 +499,8 @@ class EventDetailScreen extends StatelessWidget {
         title: Text('Cancel this event?', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
         content: Text(
-            'Everyone on the roster will be notified. The event stays '
+            'Both coaches and everyone on the roster will be notified. '
+            'The event stays '
             'visible in History, marked as cancelled.',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
@@ -525,8 +526,8 @@ class EventDetailScreen extends StatelessWidget {
     final eventRef = FirebaseFirestore.instance.collection('events').doc(_eventId);
     batch.update(eventRef, {'status': 'cancelled'});
     final name = ev['name'] as String? ?? 'The event';
-    final playerUids = List<String>.from(ev['playerUids'] as List? ?? []);
-    for (final uid in playerUids) {
+    // Roster plus both head coaches — see event_recipients.dart.
+    for (final uid in eventAudienceUids(ev)) {
       await NotificationService.create(
         userId: uid,
         type: 'event_cancelled',

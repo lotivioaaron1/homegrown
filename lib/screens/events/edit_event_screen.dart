@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../models/venue.dart';
 import '../../services/notification_service.dart';
 import '../../services/places_service.dart';
+import '../../utils/event_recipients.dart';
 import '../../utils/firestore_helpers.dart';
 import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
@@ -47,6 +48,9 @@ class _EditEventScreenState extends State<EditEventScreen> {
   int? _maxPlayers;
   bool _isPublic = true;
   List<String> _playerUids = [];
+  // Who gets an "event updated" notification: the roster plus both coaches.
+  // Separate from _playerUids, which also decides whether the sport is locked.
+  List<String> _notifyUids = [];
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -107,6 +111,9 @@ class _EditEventScreenState extends State<EditEventScreen> {
     _maxPlayers = data['maxPlayers'] as int?;
     _isPublic = data['isPublic'] as bool? ?? true;
     _playerUids = List<String>.from(data['playerUids'] as List? ?? []);
+    // Players plus both head coaches — the coaches need to know the date or
+    // venue moved just as much as the roster does.
+    _notifyUids = eventAudienceUids(data);
 
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
@@ -161,7 +168,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
       });
 
       final eventLabel = '${_nameCtrl.text.trim()} on ${_formatDate()}';
-      for (final uid in _playerUids) {
+      for (final uid in _notifyUids) {
         await NotificationService.create(
           userId: uid,
           type: 'event_updated',

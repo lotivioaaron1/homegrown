@@ -69,30 +69,51 @@ flutter:
 # Regenerate the Android launcher icons with:
 #   dart run flutter_launcher_icons
 #
+# The three PNGs below are NOT hand-drawn — redraw them with:
+#   flutter test tool/generate_launcher_icons.dart \
+#     --dart-define=concept=m1 --dart-define=colorway=inkPlate
+# That tool holds the mark as vector geometry, so it stays sharp at any size
+# instead of being resampled from a bitmap. concept is one of m1/m2/m3/m4 —
+# the motion treatments — and colorway is inkPlate or goldPlate.
+#
 # Sources live in assets/launcher_icon/ rather than assets/images/, which is
 # declared above and so ships inside the APK — these are build-time inputs and
-# have no business being bundled at runtime. Both are derived from
-# assets/images/homegrown_icon.png; regenerate them from that master if the
-# logo changes (see the comment in android/app/src/main/res for the geometry).
+# have no business being bundled at runtime.
 #
-# The background is white because the wordmark's counters — the H's crossbar
-# gaps and the G's bowl — are transparency, not white fill. On brand gold the
-# gold G's counter would fill gold and the letter would close into a blob; on
-# near-black the near-black H would disappear. White is the only flat ground
-# where both letters keep their shape, and it matches wordmark_on_light.png.
+# The mark is the "HG" monogram: the name is the only thing that is uniquely
+# this app's, which is why two pictorial marks were tried and dropped before it.
+# The letters are constructed geometrically rather than set in a typeface, since
+# nothing is bundled and google_fonts fetches at runtime.
+#
+# Two details are load-bearing:
+#   - The H sits ON TOP of the G, so the gap is cut out of the G. Cutting it the
+#     other way round ate the H's right leg.
+#   - That gap exists at all because Android 13+ themed icons flatten both
+#     letters to a single tint; touching letters would fuse into one blob.
 flutter_launcher_icons:
   android: true
   ios: false
-  # Legacy square icon for API 24–25, which predate adaptive icons. The white
-  # ground is baked in, since a transparent legacy icon renders as a hole.
+  # Legacy square icon for API 24–25, which predate adaptive icons. The plate
+  # is baked in, since a transparent legacy icon renders as a hole.
   image_path: "assets/launcher_icon/legacy.png"
-  adaptive_icon_background: "#FFFFFF"
-  # The mark is scaled to 50% of the 108dp layer so the whole 1.617:1 lockup
-  # inscribes in the 66dp safe circle. At the default size it overflowed the
-  # 72dp viewport and lost the speed lines and the right edge of the G to the
-  # mask on round launchers.
+  # Near-black, matching the splash background in splash_screen.dart. The ink
+  # plate is what lets the H and the G stay two different colours — white and
+  # brand gold — which is the relationship the original artwork had. On a gold
+  # plate both letters have to be ink and that distinction is lost.
+  adaptive_icon_background: "#07070C"
+  # Sizing, which is what the old icon got wrong: this file fills the 108dp
+  # layer, the generated anydpi-v26 XML insets it 16% leaving 73.44dp of art,
+  # and the launcher's safe circle is 66dp. Because the mask is a circle the
+  # generator fits the mark's MINIMUM ENCLOSING CIRCLE, not its bounding box,
+  # to 82% of the canvas against a hard ceiling of 66/73.44 = 89.9%. Measured
+  # on the artwork here that is a 30.10dp radius inside the 33dp safe radius.
+  # The wordmark was configured at 50% of the layer, i.e. 36.7dp across inside
+  # a 66dp circle — roughly 31% of the visible area, which is why it looked
+  # small and timid next to other apps.
   adaptive_icon_foreground: "assets/launcher_icon/foreground.png"
-  # Android 13+ themed icons tint the alpha channel of this layer, so the same
-  # transparent foreground doubles as the monochrome silhouette.
-  adaptive_icon_monochrome: "assets/launcher_icon/foreground.png"
+  # Android 13+ themed icons tint this layer's alpha channel. It must be its
+  # OWN file: this previously pointed at the foreground, so every themed icon
+  # flattened the H, the G and all the speed lines into one solid unreadable
+  # tint. Here the house silhouette carries the shape and the H stays a hole.
+  adaptive_icon_monochrome: "assets/launcher_icon/monochrome.png"
   min_sdk_android: 24

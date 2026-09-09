@@ -8,9 +8,12 @@ import 'package:uuid/uuid.dart';
 import '../../theme/app_theme.dart';
 import '../../services/notification_service.dart';
 import '../../services/rating_service.dart';
+import '../../services/team_service.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/stat_scoring.dart';
 import '../../utils/error_messages.dart';
+import '../../widgets/member_profiles.dart';
+import '../../widgets/player_avatar.dart';
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 class AddStatsScreen extends StatefulWidget {
@@ -26,6 +29,10 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
   Map<String, dynamic>? _selectedEvent;
   String? _selectedTeam;
   Map<String, dynamic>? _selectedPlayer;
+  /// The selected player's live avatar, resolved on the previous step. Kept
+  /// beside [_selectedPlayer] rather than inside it because that map is read
+  /// key-by-key when the stat entry is written.
+  String? _selectedPlayerPhotoUrl;
   Set<String> _submittedUids = {};
   List<QueryDocumentSnapshot> _pendingMatches = [];
   String? _selectedMatchId;
@@ -175,6 +182,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         _submittedUids.add(athleteId);
         _step = _titles.indexOf('Select Player');
         _selectedPlayer = null;
+        _selectedPlayerPhotoUrl = null;
         _clearStats();
       });
       Get.snackbar(
@@ -261,6 +269,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 _selectedMatchId = null;
               } else if (phase == 'Select Player') {
                 _selectedPlayer = null;
+                _selectedPlayerPhotoUrl = null;
               }
             });
           },
@@ -531,7 +540,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 icon: Icons.people_outline,
                 title: 'No players in this event',
                 subtitle: 'Add players when creating the event')
-            : ListView.separated(
+            // The event's `players[]` carries no photo, so the rows read the
+            // live user docs — same as the event detail roster these players
+            // were picked from.
+            : MemberProfilesBuilder(
+              uids: players.map((p) => p['uid'] as String? ?? '').toList(),
+              builder: (context, profiles) => ListView.separated(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                 itemCount: players.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -539,10 +553,17 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   final p       = players[i];
                   final uid     = p['uid'] as String;
                   final done    = _submittedUids.contains(uid);
-                  final initials = _getInitials(p['fullName'] as String? ?? '');
+                  final identity = resolveMemberIdentity(profiles[uid],
+                      fallbackName: p['fullName'] as String? ?? '');
                   return GestureDetector(
                     onTap: done ? null : () {
-                      setState(() { _selectedPlayer = p; _step++; });
+                      setState(() {
+                        _selectedPlayer = p;
+                        // Held beside the selection rather than injected into
+                        // the map, which is the source for the stats write.
+                        _selectedPlayerPhotoUrl = identity.photoUrl;
+                        _step++;
+                      });
                     },
                     child: Opacity(
                       opacity: done ? 0.6 : 1.0,
@@ -554,24 +575,18 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                           border: Border.all(
                             color: done ? AppTheme.success : AppTheme.border)),
                         child: Row(children: [
-                          Container(
-                            width: 40, height: 40,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                                colors: done
-                                    ? [AppTheme.success, const Color(0xFF16A34A)]
-                                    : [AppTheme.accent, AppTheme.accent2]),
-                              borderRadius: BorderRadius.circular(12)),
-                            child: Center(child: Text(initials, style: const TextStyle(
-                              color: AppTheme.buttonFg, fontSize: 13,
-                              fontWeight: FontWeight.w800))),
-                          ),
+                          PlayerAvatar(
+                            name: identity.name,
+                            photoUrl: identity.photoUrl,
+                            size: 40, radius: 12, fontSize: 13,
+                            gradient: done
+                                ? [AppTheme.success, const Color(0xFF16A34A)]
+                                : null),
                           const SizedBox(width: 12),
                           Expanded(child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(p['fullName'] as String? ?? '',
+                              Text(identity.name,
                                 style: TextStyle(color: AppTheme.textPrimary,
                                     fontSize: 14, fontWeight: FontWeight.w600)),
                               Text(p['position'] as String? ?? '',
@@ -595,6 +610,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   );
                 },
               ),
+            ),
       ),
     ]);
   }
@@ -612,18 +628,10 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 color: AppTheme.card, borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: AppTheme.border)),
               child: Row(children: [
-                Container(
-                  width: 42, height: 42,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft, end: Alignment.bottomRight,
-                      colors: [AppTheme.accent, AppTheme.accent2]),
-                    borderRadius: BorderRadius.circular(12)),
-                  child: Center(child: Text(
-                    _getInitials(_selectedPlayer?['fullName'] as String? ?? ''),
-                    style: const TextStyle(color: AppTheme.buttonFg,
-                        fontSize: 14, fontWeight: FontWeight.w800))),
-                ),
+                PlayerAvatar(
+                    name: _selectedPlayer?['fullName'] as String? ?? '',
+                    photoUrl: _selectedPlayerPhotoUrl,
+                    size: 42, radius: 12, fontSize: 14),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -847,13 +855,6 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(_kRadius),
         borderSide: const BorderSide(color: AppTheme.accent, width: 1.5)),
   );
-  String _getInitials(String fullName) {
-    final parts = fullName.trim().split(' ');
-    if (parts.length >= 2) {
-      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-    }
-    return fullName.isNotEmpty ? fullName[0].toUpperCase() : '?';
-  }
 }
 class _EmptyState extends StatelessWidget {
   final IconData icon;

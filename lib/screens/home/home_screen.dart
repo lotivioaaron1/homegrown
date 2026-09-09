@@ -224,10 +224,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, i) {
                     final n = AppNotification.fromDoc(docs[i]);
+                    // Every event notification carries its eventId in
+                    // relatedId, so the tile can open the event itself.
+                    // stats_added is deliberately left out: its relatedId is
+                    // a statId, not an event.
+                    final relatedId = n.relatedId ?? '';
+                    final opensEvent = relatedId.isNotEmpty &&
+                        const {
+                          NotificationType.eventAdded,
+                          NotificationType.eventUpdated,
+                          NotificationType.eventCancelled,
+                          NotificationType.eventReminder,
+                        }.contains(n.type);
+                    final opensInvite =
+                        n.type == NotificationType.teamInvite;
                     return GestureDetector(
                       onTap: () {
                         Get.back();
-                        if (n.type == NotificationType.teamInvite) {
+                        if (opensEvent) {
+                          Get.toNamed('/events/detail',
+                              arguments: {'eventId': relatedId});
+                        } else if (opensInvite) {
                           Get.toNamed('/team/invites',
                               arguments: {'inviteId': n.relatedId});
                         }
@@ -244,16 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? AppTheme.border
                                   : AppTheme.accent)),
                       child: Row(children: [
-                        Icon(
-                            n.type == NotificationType.statsAdded
-                                ? LucideIcons.barChart2
-                                : n.type == NotificationType.eventAdded
-                                    ? LucideIcons.calendarCheck
-                                    : n.type == NotificationType.teamInvite
-                                        ? LucideIcons.userPlus
-                                        : n.type == NotificationType.teamFull
-                                            ? LucideIcons.userX
-                                            : LucideIcons.bell,
+                        Icon(_notificationIcon(n.type),
                             color: n.read ? AppTheme.muted : AppTheme.accent,
                             size: 20),
                         const SizedBox(width: 12),
@@ -271,6 +279,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         ),
+                        // Only the tiles that actually go somewhere get the
+                        // chevron, so a tap that does nothing never looks
+                        // like a broken link.
+                        if (opensEvent || opensInvite) ...[
+                          const SizedBox(width: 8),
+                          Icon(LucideIcons.chevronRight,
+                              color: AppTheme.muted, size: 16),
+                        ],
                       ]),
                       ),
                     );
@@ -282,6 +298,28 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
       ),
     );
+  }
+
+  /// The tile icon per notification type. Kept as its own function because
+  /// the list grew past what a readable inline ternary chain can hold — add
+  /// a case here whenever a new NotificationType is introduced.
+  IconData _notificationIcon(NotificationType type) {
+    switch (type) {
+      case NotificationType.statsAdded:
+        return LucideIcons.barChart2;
+      case NotificationType.eventAdded:
+        return LucideIcons.calendarCheck;
+      case NotificationType.eventUpdated:
+        return LucideIcons.calendarClock;
+      case NotificationType.eventCancelled:
+        return LucideIcons.calendarX;
+      case NotificationType.teamInvite:
+        return LucideIcons.userPlus;
+      case NotificationType.teamFull:
+        return LucideIcons.userX;
+      default:
+        return LucideIcons.bell;
+    }
   }
 
   void _confirmClearAllNotifications(BuildContext context) {

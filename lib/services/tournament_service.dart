@@ -261,6 +261,20 @@ class TournamentService {
       );
     }
 
+    // Both head coaches too — their team is in the matchup even though they
+    // aren't on the roster. A Set dedupes the (unlikely) case of one coach
+    // fielding both entrants.
+    for (final coachId in {a.coachId, b.coachId}) {
+      await NotificationService.create(
+        userId: coachId,
+        type: 'event_added',
+        title: 'Your team has an upcoming game',
+        body: '${a.teamName} vs ${b.teamName} — $label of ${tournament.name}',
+        relatedId: eventId,
+        writeBatch: batch,
+      );
+    }
+
     await batch.commit();
     return eventId;
   }
