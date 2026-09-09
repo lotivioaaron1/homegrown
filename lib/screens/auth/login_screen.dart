@@ -48,10 +48,13 @@ class _LoginScreenState extends State<LoginScreen> {
   static const _kErrorRed     = Color(0xFFFF5C5C);
   static const _kMaxFormWidth = 440.0; // caps width on tablets/large screens
 
-  /// Already shipped, already used full-bleed in onboarding. Reusing it keeps
-  /// the auth flow photographic like the rest of the app rather than importing
-  /// an illustration style nothing else here shares.
-  static const _kHeroAsset = 'assets/images/onboard_basketball.jpg';
+  /// Login's own photograph rather than one of the onboarding panels, which is
+  /// where this used to point — tapping through onboarding into login showed
+  /// the same basketball frame twice in a row and read as a placeholder.
+  ///
+  /// Landscape (3:2), deliberately: the hero is a wide band, so a portrait
+  /// frame has to be crop-biased into it by hand. This one needs no bias.
+  static const _kHeroAsset = 'assets/images/auth_hero_court.jpg';
 
   @override
   void dispose() {
@@ -132,12 +135,11 @@ class _LoginScreenState extends State<LoginScreen> {
           AuthHero(
             asset: _kHeroAsset,
             height: heroHeight,
-            // The subject sits in the upper two-thirds of a tall portrait
-            // frame, so a centred cover crop lands on the shorts and cuts the
-            // head off. Biasing upward keeps the face and the ball — the part
-            // that carries the photograph — inside a short, wide window. Tuned
-            // to this frame; it does not transfer to another photograph.
-            alignment: const Alignment(0, -0.62),
+            // No alignment override on purpose. The photograph is 3:2 and the
+            // band runs from about 1.35:1 to 1.85:1, so cover crops the sides
+            // on tall phones and the top and bottom on short ones — and a
+            // centred crop is right for both, trimming dead sky and dead
+            // ground rather than the players between them.
           ),
           LayoutBuilder(
             builder: (context, viewport) {
