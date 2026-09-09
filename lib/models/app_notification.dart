@@ -8,6 +8,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 enum NotificationType {
   statsAdded,
   eventAdded,
+  eventUpdated,
+  eventCancelled,
   eventReminder,
   rankChange,
   teamInvite,
@@ -56,6 +58,10 @@ class AppNotification {
         return NotificationType.statsAdded;
       case 'event_added':
         return NotificationType.eventAdded;
+      case 'event_updated':
+        return NotificationType.eventUpdated;
+      case 'event_cancelled':
+        return NotificationType.eventCancelled;
       case 'event_reminder':
         return NotificationType.eventReminder;
       case 'rank_change':

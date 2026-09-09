@@ -13,6 +13,7 @@ import '../../models/venue.dart';
 import '../../services/notification_service.dart';
 import '../../services/places_service.dart';
 import '../../services/team_service.dart';
+import '../../widgets/player_avatar.dart';
 import '../profile/edit_profile_screen.dart';
 import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
@@ -695,6 +696,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           'uid': d.id,
           'fullName': u['fullName'] as String? ?? '',
           'position': u['position'] as String? ?? '',
+          // Kept for the roster rows below only. It is deliberately *not*
+          // written into the event's `players[]` on publish: every screen that
+          // renders a saved roster reads the live user doc instead, so a copy
+          // frozen here would only go stale.
+          'photoUrl': u['photoUrl'] as String? ?? '',
           'team': side,
           'source': 'team$side',
         };
@@ -816,7 +822,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                     bottom: isLast ? BorderSide.none : BorderSide(color: AppTheme.border))),
                 child: ListTile(
                   dense: true,
-                  leading: _Av(initials: _initials(p)),
+                  leading: PlayerAvatar(
+                      name: p['fullName'] as String? ?? '',
+                      photoUrl: p['photoUrl'] as String?,
+                      size: 34, radius: 10, fontSize: 12),
                   title: Text(p['fullName'] as String? ?? '', style: TextStyle(
                       color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600)),
                   subtitle: position.isNotEmpty
@@ -898,6 +907,28 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             writeBatch: batch,
           );
         }
+        // Both head coaches too — their team is in the game even though they
+        // aren't on the roster. Kept in a separate loop from the players
+        // because the wording differs, and deduped so a coach picked for
+        // both sides is only notified once.
+        final coachTeams = <String, String>{};
+        if (_teamACoachId != null && _teamACoachId!.isNotEmpty) {
+          coachTeams[_teamACoachId!] = _teamAName;
+        }
+        if (_teamBCoachId != null && _teamBCoachId!.isNotEmpty) {
+          coachTeams[_teamBCoachId!] = _teamBName;
+        }
+        for (final entry in coachTeams.entries) {
+          await NotificationService.create(
+            userId: entry.key,
+            type: 'event_added',
+            title: 'Your team has an upcoming game',
+            body: '${entry.value} plays in $eventLabel '
+                'at ${_selectedVenue!.name}',
+            relatedId: eventId,
+            writeBatch: batch,
+          );
+        }
       }
 
       await batch.commit();
@@ -937,16 +968,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final h = _eventTime!.hourOfPeriod == 0 ? 12 : _eventTime!.hourOfPeriod;
     final m = _eventTime!.minute.toString().padLeft(2, '0');
     return '$h:$m ${_eventTime!.period == DayPeriod.am ? 'AM' : 'PM'}';
-  }
-
-  // Added-player entries only ever carry `fullName` (team-sourced players
-  // come from a whereIn batch fetch keyed on that field), not separate
-  // first/last names, so initials are derived by splitting it.
-  String _initials(Map<String, dynamic> p) {
-    final fullName = (p['fullName'] as String? ?? '').trim();
-    return fullName.split(' ')
-        .where((s) => s.isNotEmpty).take(2)
-        .map((s) => s[0].toUpperCase()).join();
   }
 
   // ── Build ─────────────────────────────────
@@ -1276,7 +1297,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 bottom: isLast ? BorderSide.none
                     : BorderSide(color: AppTheme.border))),
               child: ListTile(dense: true,
-                leading: _Av(initials: _initials(p)),
+                leading: PlayerAvatar(
+                    name: p['fullName'] as String? ?? '',
+                    photoUrl: p['photoUrl'] as String?,
+                    size: 34, radius: 10, fontSize: 12),
                 title: Text(p['fullName'] ?? '', style: TextStyle(
                   color: AppTheme.textPrimary, fontSize: 13,
                   fontWeight: FontWeight.w600)),
@@ -1424,22 +1448,6 @@ class _Row extends StatelessWidget {
           fontSize: 13, fontWeight: FontWeight.w600),
         overflow: TextOverflow.ellipsis)),
     ]));
-}
-
-class _Av extends StatelessWidget {
-  final String initials;
-  const _Av({required this.initials});
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 34, height: 34,
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppTheme.accent, AppTheme.accent2]),
-      borderRadius: BorderRadius.circular(10)),
-    child: Center(child: Text(initials, style: const TextStyle(
-      color: AppTheme.buttonFg, fontSize: 12,
-      fontWeight: FontWeight.w800))));
 }
 
 class _Chip extends StatelessWidget {

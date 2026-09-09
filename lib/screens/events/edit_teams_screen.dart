@@ -3,8 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import '../../services/team_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
+import '../../widgets/member_profiles.dart';
+import '../../widgets/player_avatar.dart';
 
 /// Lets an organizer name two teams and assign each registered player to
 /// one, for an event that was created before team-based stat entry
@@ -155,51 +158,48 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
             ]),
           )
         else
-          Container(
-            decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.border)),
-            child: Column(children: _players.asMap().entries.map((e) {
-              final isLast = e.key == _players.length - 1;
-              final p = e.value;
-              final fullName = p['fullName'] as String? ?? '';
-              final position = p['position'] as String? ?? '';
-              final initials = fullName.trim().split(' ')
-                  .where((s) => s.isNotEmpty).take(2)
-                  .map((s) => s[0]).join().toUpperCase();
-              return Container(
-                decoration: BoxDecoration(border: Border(
-                    bottom: isLast
-                        ? BorderSide.none
-                        : BorderSide(color: AppTheme.border))),
-                child: ListTile(
-                  dense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                  leading: Container(
-                    width: 36, height: 36,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [AppTheme.accent, AppTheme.accent2]),
-                      shape: BoxShape.circle),
-                    child: Center(child: Text(initials, style: const TextStyle(
-                        color: AppTheme.buttonFg, fontSize: 12,
-                        fontWeight: FontWeight.w800))),
+          // The event's `players[]` carries no photo and a name frozen at
+          // creation time, so the rows read the live user docs — the same
+          // treatment the event detail roster gets, so the two agree.
+          MemberProfilesBuilder(
+            uids: _players.map((p) => p['uid'] as String? ?? '').toList(),
+            builder: (context, profiles) => Container(
+              decoration: BoxDecoration(
+                  color: AppTheme.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.border)),
+              child: Column(children: _players.asMap().entries.map((e) {
+                final isLast = e.key == _players.length - 1;
+                final p = e.value;
+                final position = p['position'] as String? ?? '';
+                final identity = resolveMemberIdentity(
+                    profiles[p['uid'] as String? ?? ''],
+                    fallbackName: p['fullName'] as String? ?? '');
+                return Container(
+                  decoration: BoxDecoration(border: Border(
+                      bottom: isLast
+                          ? BorderSide.none
+                          : BorderSide(color: AppTheme.border))),
+                  child: ListTile(
+                    dense: true,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                    leading: PlayerAvatar(
+                        name: identity.name,
+                        photoUrl: identity.photoUrl,
+                        size: 36, fontSize: 12),
+                    title: Text(identity.name, style: TextStyle(
+                        color: AppTheme.textPrimary, fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+                    subtitle: position.isNotEmpty
+                        ? Text(position,
+                            style: TextStyle(color: AppTheme.sub, fontSize: 11))
+                        : null,
+                    trailing: _teamToggle(p),
                   ),
-                  title: Text(fullName, style: TextStyle(
-                      color: AppTheme.textPrimary, fontSize: 13,
-                      fontWeight: FontWeight.w600)),
-                  subtitle: position.isNotEmpty
-                      ? Text(position,
-                          style: TextStyle(color: AppTheme.sub, fontSize: 11))
-                      : null,
-                  trailing: _teamToggle(p),
-                ),
-              );
-            }).toList()),
+                );
+              }).toList()),
+            ),
           ),
         const SizedBox(height: 24),
         SizedBox(
