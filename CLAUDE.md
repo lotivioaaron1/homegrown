@@ -20,7 +20,7 @@ flutter build apk                    # Android release build
 flutter build windows                # Windows desktop build
 ```
 
-There is only one test file (`test/widget_test.dart`), a basic smoke test. There is no CI config, custom lint config beyond the default `flutter_lints` set, and no Cursor/Copilot rule files in this repo.
+Tests live in `test/`, mirroring `lib/` — `test/utils/`, `test/services/`, `test/models/`, `test/widgets/` and `test/constants/`, plus a handful of older screen tests sitting loose at the top level alongside the original `widget_test.dart` smoke test. Most of them are fast unit tests over the pure helpers in `lib/utils/`, which is the main reason logic worth testing gets pushed into a plain Dart function there rather than left inline in a screen (see [lib/utils/event_recipients.dart](lib/utils/event_recipients.dart) and [lib/utils/event_reminders.dart](lib/utils/event_reminders.dart) for the pattern). Nothing in the suite touches a real Firebase instance. There is no CI config, no custom lint config beyond the default `flutter_lints` set, and no Cursor/Copilot rule files in this repo.
 
 ## Architecture
 
