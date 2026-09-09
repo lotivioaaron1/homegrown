@@ -5,6 +5,17 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!-- Event reminders (EventReminderService). POST_NOTIFICATIONS is the
+         Android 13+ runtime grant, requested when the home screen first
+         schedules reminders rather than at launch. RECEIVE_BOOT_COMPLETED
+         pairs with the receiver below: pending alarms are cleared by a
+         restart, so without it a phone rebooted overnight loses every
+         reminder scheduled for the next day.
+         SCHEDULE_EXACT_ALARM is deliberately absent — reminders are scheduled
+         inexactly, which needs no permission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
     <!-- Android 11+ hides installed apps from package visibility by default,
          so url_launcher's canLaunchUrl/launchUrl fail for external links on
          every device unless the intents are declared here. Needed for the
@@ -50,6 +61,25 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
+
+        <!-- flutter_local_notifications does not declare these in its own
+             manifest, and without them a scheduled event reminder is accepted
+             silently and then never shown. The boot receiver re-registers
+             pending reminders after a restart or an app update, both of which
+             wipe the alarms Android is holding. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false"/>
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

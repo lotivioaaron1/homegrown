@@ -53,6 +53,14 @@ dependencies:
   flutter_image_compress: ^2.5.1
   cloud_functions: ^5.6.2
 
+  # Event reminders. These schedule notifications with the OS itself, so a
+  # "your game starts in an hour" alert arrives with the app closed without
+  # needing Cloud Functions, FCM or a billing plan. timezone is required by
+  # the plugin's zonedSchedule; see EventReminderService for why the zone is
+  # pinned to Asia/Manila.
+  flutter_local_notifications: ^22.3.0
+  timezone: ^0.11.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

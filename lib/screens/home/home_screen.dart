@@ -14,6 +14,7 @@ import '../../controllers/auth_controller.dart';
 import '../../models/app_notification.dart';
 import '../../models/team_invite.dart';
 import '../../models/tournament.dart';
+import '../../services/event_reminder_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
@@ -31,6 +32,21 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (_uid.isEmpty) return;
+    // Reminders for the user's upcoming games are rebuilt every time home is
+    // entered, which is the only moment the app gets to recalculate them —
+    // see EventReminderService.syncFor. openPendingEvent runs afterwards
+    // because a reminder tapped from a cold start is only discovered once the
+    // service has initialised, and this is the first screen with a navigator
+    // to open the event on.
+    EventReminderService.syncFor(_uid).then((_) {
+      if (mounted) EventReminderService.openPendingEvent();
+    });
+  }
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -373,9 +389,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 .where('playerUids', arrayContains: _uid)
                 .limit(kMaxListQuery)
                 .snapshots()
+            // Coach. Membership is stored differently for a coach than for an
+            // athlete: they sit on teamACoachId/teamBCoachId and are kept out
+            // of playerUids on purpose (see eventAudienceUids), so their own
+            // games need an OR across the two fields. This used to list every
+            // public event in the app instead, which meant a coach's "Upcoming
+            // Games" never actually showed the games they were coaching.
             : FirebaseFirestore.instance
                 .collection('events')
-                .where('isPublic', isEqualTo: true)
+                .where(Filter.or(
+                  Filter('teamACoachId', isEqualTo: _uid),
+                  Filter('teamBCoachId', isEqualTo: _uid),
+                ))
                 .limit(kMaxListQuery)
                 .snapshots();
 
@@ -1776,12 +1801,18 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    // Coach: an OR across teamACoachId/teamBCoachId, mirroring the query in
+    // _showAllEventsSheet. Neither query orders in Firestore — sorting happens
+    // client-side below — so no composite index is needed for either.
     final stream = role == 'athlete'
         ? FirebaseFirestore.instance.collection('events')
             .where('playerUids', arrayContains: _uid)
             .limit(10).snapshots()
         : FirebaseFirestore.instance.collection('events')
-            .where('isPublic', isEqualTo: true)
+            .where(Filter.or(
+              Filter('teamACoachId', isEqualTo: _uid),
+              Filter('teamBCoachId', isEqualTo: _uid),
+            ))
             .limit(10).snapshots();
 
     return Padding(
@@ -1802,7 +1833,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   : 'No upcoming games yet',
               subtitle: role == 'athlete'
                   ? 'An organizer will add you to events'
-                  : 'Check back soon');
+                  // No longer "check back soon": the list is now this coach's
+                  // own games, so the thing they are waiting on is an
+                  // organizer entering their team into one.
+                  : 'Games your team is entered in will appear here');
           }
           final events = snapshot.data!.docs
               .where((doc) {
@@ -1824,7 +1858,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   : 'No upcoming games yet',
               subtitle: role == 'athlete'
                   ? 'An organizer will add you to events'
-                  : 'Check back soon');
+                  // No longer "check back soon": the list is now this coach's
+                  // own games, so the thing they are waiting on is an
+                  // organizer entering their team into one.
+                  : 'Games your team is entered in will appear here');
           }
           return _EventList(events: events.take(3).toList());
         },
