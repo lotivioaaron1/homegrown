@@ -74,6 +74,51 @@ if ($buildExit -ne 0) {
     exit $buildExit
 }
 
+# Check the APK can actually start on a phone before anyone shares it.
+#
+# A tester's phone once received an APK holding only x86_64 (emulator) code and
+# crashed on launch every time: "Could not find 'libflutter.so'. Looked for:
+# [arm64-v8a], but only found: [x86_64]". The build itself had succeeded. That
+# happens when the file shared is app-debug.apk, or an app-release.apk that a
+# later `flutter run --release` on the emulator overwrote with an x86_64-only
+# build. Every phone the testers carry is ARM64.
+#
+# Skipped for --split-per-abi, which writes per-ABI files under other names.
+$apk = Join-Path $repoRoot 'build\app\outputs\flutter-apk\app-release.apk'
+if ($args -notcontains '--split-per-abi') {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($apk)
+    try {
+        $abis = @($zip.Entries |
+            Where-Object { $_.FullName -like 'lib/*/libflutter.so' } |
+            ForEach-Object { $_.FullName.Split('/')[1] })
+    }
+    finally {
+        $zip.Dispose()
+    }
+
+    if ($abis -notcontains 'arm64-v8a') {
+        Write-Host "app-release.apk has no arm64-v8a code (found: $($abis -join ', ')). It would crash on launch on a phone. Do not share it." -ForegroundColor Red
+        exit 1
+    }
+
+    # A copy under its own name, outside flutter-apk/, so nothing a later
+    # `flutter run` writes can replace the file that gets handed out.
+    $version = ((Get-Content (Join-Path $repoRoot 'pubspec.yaml')) |
+        Where-Object { $_ -match '^version:\s*(\S+)' } |
+        Select-Object -First 1) -replace '^version:\s*', '' -replace '\+', '-build'
+    $distDir = Join-Path $repoRoot 'build\dist'
+    New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+    $distApk = Join-Path $distDir "homegrown-$version.apk"
+    Copy-Item $apk $distApk -Force
+
+    Write-Host ""
+    Write-Host "Checked: contains $($abis -join ', ')." -ForegroundColor Green
+    Write-Host "Share this file: build/dist/homegrown-$version.apk" -ForegroundColor Green
+    Write-Host "(Never share app-debug.apk - it only runs on the emulator.)" -ForegroundColor Yellow
+    exit 0
+}
+
 Write-Host ""
-Write-Host "Built build/app/outputs/flutter-apk/app-release.apk" -ForegroundColor Green
+Write-Host "Built per-ABI APKs in build/app/outputs/flutter-apk/ - share app-arm64-v8a-release.apk with phone testers." -ForegroundColor Green
 exit 0

@@ -11,6 +11,7 @@ import '../../utils/onboarding_flag.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/theme_controller.dart';
 import '../../services/ranking_service.dart';
+import '../../utils/leaderboard_ranks.dart';
 import '../profile/edit_profile_screen.dart';
 
 /// Everything that used to sit on the profile screen: Edit Profile,
@@ -245,9 +246,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildStatsSection(Map<String, dynamic> data) {
     final pts = _toInt(data['points']);
     return FutureBuilder<int>(
-      future: _cityRankFuture(pts),
+      // No rank to look up on zero points — see cityRankLabel.
+      future: pts > 0 ? _cityRankFuture(pts) : null,
       builder: (context, rankSnap) {
-        final rank = rankSnap.hasData ? '#${rankSnap.data}' : '#—';
+        final rank = pts > 0
+            ? cityRankLabel(points: pts, rank: rankSnap.data)
+            : 'Unranked';
         return FutureBuilder<int>(
           future: _gamesPlayedFuture(),
           builder: (context, snap) {

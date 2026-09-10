@@ -73,6 +73,10 @@ class MediaService {
   /// portfolio to render four of them is a read the viewer never sees.
   static Stream<List<MediaItem>> streamMedia(String uid,
       {MediaType? type, int? limit}) {
+    // An empty uid reaches here when the profile screen rebuilds mid sign-out,
+    // after currentUser has gone null. `.doc('')` throws, which Crashlytics
+    // filed as a crash; an empty portfolio is the honest answer instead.
+    if (uid.isEmpty) return Stream.value(const <MediaItem>[]);
     Query<Map<String, dynamic>> q =
         _mediaCol(uid).orderBy('createdAt', descending: true);
     if (type != null) q = q.where('type', isEqualTo: type.name);

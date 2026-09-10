@@ -10,11 +10,13 @@ import '../../models/media_item.dart';
 import '../../models/team_invite.dart';
 import '../../services/media_service.dart';
 import '../../services/team_service.dart';
+import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/photo_viewer_dialog.dart';
 import '../../widgets/team_roster_grid.dart';
 import '../../widgets/video_player_sheet.dart';
 import '../settings/settings_screen.dart';
+import 'edit_profile_screen.dart';
 import 'widgets/media_section.dart';
 
 /// Portfolio-style profile. Header + avatar + bio, then Video/Photo
@@ -156,6 +158,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 18),
                 ] else
                   const SizedBox(height: 4),
+
+                // Own-profile shortcuts (athlete only). Edit Profile used to be
+                // reachable only through the gear and Settings, and the card a
+                // scouting coach sees only by finding yourself on the
+                // leaderboard. Neutral styling on purpose: gold stays with the
+                // upload buttons below, the actions that build the portfolio.
+                if (role == 'athlete') ...[
+                  Row(children: [
+                    Expanded(
+                        child: _secondaryButton(LucideIcons.pencil,
+                            'Edit Profile',
+                            () => Get.to(() => const EditProfileScreen()))),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: _secondaryButton(LucideIcons.eye,
+                            "Coach's view",
+                            () => showAthleteProfileSheet(context,
+                                athleteId: _uid))),
+                  ]),
+                  const SizedBox(height: 12),
+                ],
 
                 // Portfolio (athlete only)
                 if (role == 'athlete') _portfolio(context),
@@ -890,6 +913,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Text(label,
               style: TextStyle(
                   color: fg, fontSize: 13, fontWeight: FontWeight.w700)),
+        ]),
+      ),
+    );
+  }
+
+  /// Same footprint as [_addButton] so the two rows line up, but on the
+  /// neutral card surface.
+  Widget _secondaryButton(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.border)),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, color: AppTheme.textPrimary, size: 16),
+          const SizedBox(width: 8),
+          Text(label,
+              style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700)),
         ]),
       ),
     );

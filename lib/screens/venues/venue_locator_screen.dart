@@ -124,8 +124,10 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           .get();
       if (mounted) {
         setState(() {
+        // The document id backs up the stored eventId field, which the
+        // "View Event Details" button and the markers both key on.
         _events    = snap.docs
-            .map((d) => d.data())
+            .map((d) => <String, dynamic>{'eventId': d.id, ...d.data()})
             .where(isEventUpcoming)
             .toList();
         _isLoading = false;
@@ -217,10 +219,14 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
 
       // Fit camera to show full route
       final ctrl = await _mapCompleter.future;
+      if (!mounted) return;
       final bounds = _boundsFromLatLngList(
           [_userLoc, dest, ...result.points]);
-      ctrl.animateCamera(
-          CameraUpdate.newLatLngBounds(bounds, 60));
+      // Its own try: the route is already drawn, so a camera failure must not
+      // fall through to the "could not get route" message below.
+      try {
+        await ctrl.animateCamera(CameraUpdate.newLatLngBounds(bounds, 60));
+      } catch (_) {}
     } catch (e) {
       if (mounted) setState(() { _isRouting = false; });
       final msg = e is DirectionsException
@@ -262,7 +268,12 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
 
   Future<void> _animateTo(LatLng dest) async {
     final ctrl = await _mapCompleter.future;
-    ctrl.animateCamera(CameraUpdate.newLatLngZoom(dest, 16));
+    // Leaving the screen while this was pending used the controller after its
+    // map had been disposed, which throws. Nothing is lost by skipping it.
+    if (!mounted) return;
+    try {
+      await ctrl.animateCamera(CameraUpdate.newLatLngZoom(dest, 16));
+    } catch (_) {}
   }
 
   // ── Bottom sheet ──────────────────────────
@@ -341,8 +352,10 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           _DetailRow(icon: Icons.calendar_today_outlined,
               label: 'Date & Time', value: fmt),
           const SizedBox(height: 6),
+          // "on the roster", not "registered": players are added by the
+          // organizer, and "registered" read as a sign-up athletes could join.
           _DetailRow(icon: Icons.people_outline_rounded,
-              label: 'Players', value: '$count registered'),
+              label: 'Players', value: '$count on the roster'),
 
           if (_routeDist.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -365,6 +378,30 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
           ],
 
           const SizedBox(height: 20),
+          // The sheet used to end at directions, so an athlete who found a
+          // game here had no way to see who was playing in it or who was
+          // running it. Event detail is readable by any signed-in account.
+          if ((ev['eventId'] as String? ?? '').isNotEmpty) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Get.back();
+                  Get.toNamed('/events/detail',
+                      arguments: {'eventId': ev['eventId']});
+                },
+                style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppTheme.accent, width: 1.5)),
+                icon: Icon(Icons.info_outline_rounded,
+                    size: 18, color: AppTheme.accentText),
+                label: Text('View Event Details',
+                    style: TextStyle(color: AppTheme.accentText,
+                        fontWeight: FontWeight.w700)),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           Row(children: [
             Expanded(child: SizedBox(height: 50,
               child: ElevatedButton.icon(

@@ -51,7 +51,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
 
   File? _profileImage;
   final _bioCtrl = TextEditingController();
-  bool _isPublic = true; bool _openToRecruitment = true;
+  bool _openToRecruitment = true;
 
   @override
   void dispose() {
@@ -139,7 +139,12 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
             'heightCm':          _heightCtrl.text.trim(),
             'weightKg':          _weightCtrl.text.trim(),
             'bio':               _bioCtrl.text.trim(),
-            'isPublic':          _isPublic,
+            // Always true, as google_profile_setup_screen.dart writes it. A
+            // Public/Private choice used to sit on step 3, but nothing reads
+            // this field for a user — a "Private" athlete still showed up in
+            // Rankings, Scout and rosters — so it was removed rather than
+            // left promising privacy the app does not provide.
+            'isPublic':          true,
             'openToRecruitment': _openToRecruitment,
             // Every avatar in the app reads 'photoUrl' (home, profile,
             // leaderboard, scout, team). Don't invent a second field name here.
@@ -512,16 +517,6 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        const _SectionLabel(label: 'Profile Visibility'),
-        const SizedBox(height: 8),
-        Row(children: [
-          _Chip(label: '🌐  Public', sel: _isPublic,
-              onTap: () => setState(() => _isPublic = true)),
-          const SizedBox(width: 8),
-          _Chip(label: '🔒  Private', sel: !_isPublic,
-              onTap: () => setState(() => _isPublic = false)),
-        ]),
-        const SizedBox(height: 16),
         const _SectionLabel(label: 'Open to Recruitment'),
         const SizedBox(height: 8),
         Row(children: [
@@ -531,7 +526,18 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           _Chip(label: '❌  Not now', sel: !_openToRecruitment,
               onTap: () => setState(() => _openToRecruitment = false)),
         ]),
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
+        // Says plainly what the removed Public/Private choice implied could be
+        // hidden: rankings and scouting only work if profiles are visible.
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.public_rounded, color: AppTheme.muted, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text(
+            'Your name, sport and stats are visible to other Homegrown '
+            'users, so coaches can find you.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 12, height: 1.4))),
+        ]),
+        const SizedBox(height: 20),
         const PrivacyConsentText(),
         const SizedBox(height: 14),
         const Spacer(),

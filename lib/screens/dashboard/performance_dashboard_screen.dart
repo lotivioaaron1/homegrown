@@ -10,6 +10,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
 import '../../services/ranking_service.dart';
+import '../../utils/leaderboard_ranks.dart';
+import '../../widgets/points_explainer_sheet.dart';
 
 class PerformanceDashboardScreen extends StatefulWidget {
   const PerformanceDashboardScreen({super.key});
@@ -114,6 +116,19 @@ class _PerformanceDashboardScreenState
           Text('Performance Overview',
               style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         ]),
+        const Spacer(),
+        // Every number on this screen is Homegrown points or a match rating,
+        // neither of which is self-explanatory.
+        GestureDetector(
+          onTap: () => showPointsExplainerSheet(context),
+          child: Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(color: AppTheme.card,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.border)),
+            child: Icon(LucideIcons.info,
+                color: AppTheme.textPrimary, size: 18)),
+        ),
       ]),
     );
   }
@@ -149,7 +164,8 @@ class _PerformanceDashboardScreenState
           const SizedBox(height: 16),
           _buildRatingsSection(userData),
           if (chartStats.isNotEmpty) ...[
-            _buildSectionTitle(LucideIcons.trendingUp, 'Points Per Game'),
+            _buildSectionTitle(
+                LucideIcons.trendingUp, 'Homegrown Points per Game'),
             const SizedBox(height: 8),
             _buildChart(context, chartStats),
             const SizedBox(height: 16),
@@ -172,9 +188,11 @@ class _PerformanceDashboardScreenState
 
   Widget _buildHeroRow(int totalPts, int games, int avg) {
     return FutureBuilder<int>(
-      future: _cityRankFuture(totalPts),
+      // Unranked on zero points, so there is nothing to ask Firestore — see
+      // cityRankLabel.
+      future: totalPts > 0 ? _cityRankFuture(totalPts) : null,
       builder: (context, snap) {
-        final rank = snap.hasData ? '#${snap.data}' : '#—';
+        final rank = cityRankLabel(points: totalPts, rank: snap.data);
         return Row(children: [
           Expanded(child: _HeroCard(
               value: '$totalPts', label: 'Total Pts', isAccentText: true)),
@@ -183,7 +201,9 @@ class _PerformanceDashboardScreenState
           const SizedBox(width: 8),
           Expanded(child: _HeroCard(value: '$games', label: 'Games')),
           const SizedBox(width: 8),
-          Expanded(child: _HeroCard(value: '$avg', label: 'Avg Pts')),
+          // "Avg Pts" read as a scoring average (PPG) to basketball players;
+          // it is Homegrown points per game.
+          Expanded(child: _HeroCard(value: '$avg', label: 'Avg / Game')),
         ]);
       },
     );
@@ -395,6 +415,27 @@ class _PerformanceDashboardScreenState
         Text('Your stats will appear here after an organizer records your game.',
           textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.6)),
+        const SizedBox(height: 20),
+        // The one thing an athlete can do here without waiting on anyone.
+        SizedBox(
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: () => Get.toNamed('/profile'),
+            icon: const Icon(LucideIcons.video, size: 18),
+            label: const Text('Add a highlight video'),
+          ),
+        ),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: () => showPointsExplainerSheet(context),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('How do points work?',
+                style: TextStyle(color: AppTheme.accentText, fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ),
       ]),
     ));
   }

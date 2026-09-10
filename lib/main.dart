@@ -48,6 +48,7 @@ import 'screens/settings/delete_account_screen.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/theme_controller.dart';
 import 'services/connectivity_service.dart';
+import 'utils/crash_classification.dart';
 import 'widgets/no_internet_overlay.dart';
 
 void main() async {
@@ -93,7 +94,14 @@ Future<void> _initCrashReporting() async {
 
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
-    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    // A failed image load is filed as non-fatal: the widget falls back to
+    // initials and the app carries on, so counting it as a crash only buried
+    // the real ones — see crash_classification.dart.
+    if (isFatalFlutterError(details.library)) {
+      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    } else {
+      FirebaseCrashlytics.instance.recordFlutterError(details);
+    }
   };
 
   // Errors from the engine itself, outside the Flutter framework.
