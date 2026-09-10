@@ -51,6 +51,7 @@ debug key, which Play rejects and which breaks Google Sign-In.
 
 ```
 flutter run --dart-define-from-file=dart_defines.json    # run on a device
+tool/build_apk.ps1                                        # release APK to sideload
 flutter analyze                                           # static analysis
 flutter test                                              # all tests
 flutter test test/services/team_service_test.dart         # one test file
@@ -60,6 +61,12 @@ dart run flutter_launcher_icons                           # regenerate app icons
 
 VS Code's Run button is already wired up: every configuration in
 `.vscode/launch.json` passes the `--dart-define-from-file` flag.
+
+Build the sideloadable APK through `tool/build_apk.ps1` rather than calling
+`flutter build apk` directly. The script passes `--dart-define-from-file` and
+refuses to start without a key, which is the one mistake that produces an APK
+that installs and runs but whose venue search, map-picker address lookup and
+directions all fail — see the warning under Releasing to Google Play below.
 
 ## Releasing to Google Play
 

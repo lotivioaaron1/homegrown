@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../constants/maps_config.dart';
 import '../../constants/query_limits.dart';
 import '../../services/directions_service.dart';
 import '../../theme/app_theme.dart';
@@ -185,6 +186,15 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
   // ── Directions via Google Directions API ──
 
   Future<void> _getDirections(LatLng dest) async {
+    // Built without --dart-define-from-file=dart_defines.json, so the key is
+    // empty and Google would answer REQUEST_DENIED. Left ungated that surfaces
+    // as "Directions request was denied. Please contact support.", which reads
+    // as a server-side outage and sends people hunting the wrong problem —
+    // the same reason the venue search sheets check this before searching.
+    if (!MapsConfig.isConfigured) {
+      _snack('Directions Unavailable', MapsConfig.missingKeyMessage);
+      return;
+    }
     setState(() { _isRouting = true; _polylines = {}; });
     try {
       final result = await DirectionsService.fetchDrivingRoute(
