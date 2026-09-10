@@ -10,6 +10,7 @@ import '../../models/media_item.dart';
 import '../../models/team_invite.dart';
 import '../../services/media_service.dart';
 import '../../services/team_service.dart';
+import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/photo_viewer_dialog.dart';
 import '../../widgets/team_roster_grid.dart';
 import '../../widgets/video_player_sheet.dart';
@@ -115,12 +116,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('$firstName $lastName',
-                            style: TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.3)),
+                        Row(children: [
+                          // Flexible + ellipsis so a long name truncates
+                          // rather than pushing the tick off the edge.
+                          Flexible(
+                            child: Text('$firstName $lastName',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.3)),
+                          ),
+                          // Organizer-only: athletes and coaches have no
+                          // approval state to advertise.
+                          if (role == 'organizer')
+                            OrganizerVerifiedTick(
+                                status: data['organizerStatus'] as String?),
+                        ]),
                         const SizedBox(height: 3),
                         Text(subtitle,
                             style: TextStyle(

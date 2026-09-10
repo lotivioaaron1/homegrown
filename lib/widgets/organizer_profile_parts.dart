@@ -55,6 +55,35 @@ class OrganizerApprovedBadge extends StatelessWidget {
   }
 }
 
+/// The inline verified tick that sits immediately after an approved
+/// organizer's name in a profile header.
+///
+/// Same rule as [OrganizerApprovedBadge], and for the same reasons: only
+/// 'approved' renders anything, and every other value — 'pending', 'rejected',
+/// 'revoked', and the absent field every Google-signup organizer has — renders
+/// nothing at all. A tick is a claim about someone, so it is only ever shown
+/// when the claim is true.
+///
+/// Kept separate from the pill rather than replacing it: the pill says which
+/// state you are in, which is what you want on your own profile, while the
+/// tick reads at a glance next to the name.
+class OrganizerVerifiedTick extends StatelessWidget {
+  final String? status;
+  const OrganizerVerifiedTick({super.key, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    if (status != 'approved') return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      // successText, not success: AppTheme notes the raw success colour is
+      // 2.3:1 on white and fails contrast for anything this small.
+      child:
+          Icon(Icons.verified_rounded, color: AppTheme.successText, size: 17),
+    );
+  }
+}
+
 /// The presentational half of the byline — no Firestore, so it renders the
 /// same whether the name came from a live doc, a tombstone or a placeholder.
 ///

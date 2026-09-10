@@ -598,7 +598,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return;
         }
         if (index == 2) {
-          Get.toNamed('/events/create')
+          Get.toNamed('/events')
               ?.then((_) { if (mounted) setState(() => _navIndex = 0); });
           return;
         }
@@ -634,7 +634,7 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (feature) {
       case 'Add Stats':      Get.toNamed('/stats/add');     return;
       case 'Record Match':   Get.toNamed('/matches/record'); return;
-      case 'My Events':      Get.toNamed('/events/create'); return;
+      case 'My Events':      Get.toNamed('/events');        return;
       case 'Leaderboard':    Get.toNamed('/leaderboard');   return;
       case 'Scout Athletes': Get.toNamed('/scout');         return;
       case 'My Dashboard':   Get.toNamed('/dashboard');     return;

@@ -28,6 +28,12 @@ Widget _hostBadge(String? status) => GetMaterialApp(
       ),
     );
 
+Widget _hostTick(String? status) => GetMaterialApp(
+      home: Scaffold(
+        body: Center(child: OrganizerVerifiedTick(status: status)),
+      ),
+    );
+
 Widget _hostCard({
   String name = 'Juan Dela Cruz',
   bool approved = false,
@@ -59,6 +65,28 @@ void main() {
         await tester.pumpWidget(_hostBadge(status));
 
         expect(find.text('Approved Organizer'), findsNothing);
+        expect(find.byType(Icon), findsNothing);
+      });
+    }
+  });
+
+  // The same 'approved'-only rule as the pill, on the widget that sits beside
+  // the name in both profile headers. A tick next to someone's name is read as
+  // a claim that the platform vetted them, so every non-approved state — the
+  // absent one included — must render nothing rather than a dimmed variant.
+  group('OrganizerVerifiedTick', () {
+    testWidgets('shows the tick for an approved organizer', (tester) async {
+      await tester.pumpWidget(_hostTick('approved'));
+
+      expect(find.byIcon(Icons.verified_rounded), findsOneWidget);
+    });
+
+    for (final status in <String?>[null, '', 'pending', 'rejected', 'revoked']) {
+      testWidgets('renders nothing for ${status ?? 'a missing status'}',
+          (tester) async {
+        await tester.pumpWidget(_hostTick(status));
+
+        expect(find.byIcon(Icons.verified_rounded), findsNothing);
         expect(find.byType(Icon), findsNothing);
       });
     }
