@@ -7,10 +7,12 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../constants/sport_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
 import '../../services/ranking_service.dart';
 import '../../utils/leaderboard_ranks.dart';
+import '../../utils/stats_view.dart';
 import '../../widgets/points_explainer_sheet.dart';
 
 class PerformanceDashboardScreen extends StatefulWidget {
@@ -25,6 +27,10 @@ class _PerformanceDashboardScreenState
     extends State<PerformanceDashboardScreen> {
   String get uid => FirebaseAuth.instance.currentUser?.uid ?? '';
   String? _selectedRatingSport;
+
+  /// The sport the chart and Game History are narrowed to, or null for all.
+  /// Only offered to athletes whose games span more than one sport.
+  String? _statsSport;
 
   int _toInt(dynamic v) {
     if (v is int) return v;
@@ -142,12 +148,13 @@ class _PerformanceDashboardScreenState
     final gamesPlayed = stats.length;
     final avgPts = gamesPlayed > 0 ? (totalPts / gamesPlayed).round() : 0;
 
-    // CHANGED: Sport Breakdown section removed — with only one
-    // primary sport per athlete right now, it always showed a
-    // single 100% bar, which isn't real information. Bring it back
-    // once multi-sport athletes are supported.
-
-    final chartStats = stats.reversed.take(6).toList().reversed.toList();
+    // Multi-sport athletes get a sport filter over the chart and history;
+    // the headline totals above stay all-sport. A filter left pointing at a
+    // sport that is no longer in the list falls back to all.
+    final sports = sportsPlayed(stats);
+    final activeSport = sports.contains(_statsSport) ? _statsSport : null;
+    final shown = filterBySport(stats, activeSport);
+    final chartStats = chartGames(shown);
 
     return RefreshIndicator(
       color: AppTheme.accent,
@@ -163,6 +170,10 @@ class _PerformanceDashboardScreenState
           _buildHeroRow(totalPts, gamesPlayed, avgPts),
           const SizedBox(height: 16),
           _buildRatingsSection(userData),
+          if (sports.length > 1) ...[
+            _buildSportFilter(sports, activeSport),
+            const SizedBox(height: 14),
+          ],
           if (chartStats.isNotEmpty) ...[
             _buildSectionTitle(
                 LucideIcons.trendingUp, 'Homegrown Points per Game'),
@@ -172,7 +183,7 @@ class _PerformanceDashboardScreenState
           ],
           _buildSectionTitle(LucideIcons.history, 'Game History'),
           const SizedBox(height: 8),
-          _buildGameHistory(stats),
+          _buildGameHistory(shown),
         ],
       ),
     );
@@ -378,11 +389,51 @@ class _PerformanceDashboardScreenState
     );
   }
 
+  // ── Sport filter ──────────────────────────
+  // Same pill shape as the leaderboard's sport chips.
+
+  Widget _buildSportFilter(List<String> sports, String? active) {
+    Widget chip(String label, String? value) {
+      final sel = active == value;
+      return GestureDetector(
+        onTap: () => setState(() => _statsSport = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: sel ? AppTheme.accentSurface : AppTheme.card,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: sel ? AppTheme.accent : AppTheme.border,
+                width: sel ? 2 : 1.5)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (value != null) ...[
+              Icon(sportIcon(value), size: 14,
+                  color: sel ? AppTheme.accentText : AppTheme.muted),
+              const SizedBox(width: 6),
+            ],
+            Text(label, style: TextStyle(
+                color: sel ? AppTheme.accentText : AppTheme.muted,
+                fontSize: 12,
+                fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
+          ]),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: [
+        chip('All Sports', null),
+        for (final s in sports) chip(s, s),
+      ]),
+    );
+  }
+
   // ── Game history ──────────────────────────
-  // CHANGED: rows are now tap-to-expand (matching the home screen's
-  // Recent Activity pattern) instead of always showing the stat
-  // summary inline, and the per-row sport icon is gone since it was
-  // always the same icon (only one sport supported today).
+  // Rows are tap-to-expand, matching the home screen's Recent Activity. Each
+  // row names its sport, since an athlete's games can span more than one.
 
   Widget _buildGameHistory(List<Map<String, dynamic>> stats) {
     return Container(
@@ -391,7 +442,11 @@ class _PerformanceDashboardScreenState
           border: Border.all(color: AppTheme.border)),
       child: Column(children: stats.asMap().entries.map((e) {
         final isLast = e.key == stats.length - 1;
-        return _GameHistoryTile(data: e.value, showDivider: !isLast);
+        // Keyed to the game itself: the sport filter reorders this list, and
+        // an unkeyed row would hand its expanded state to whichever game
+        // landed in its slot.
+        return _GameHistoryTile(
+            key: ObjectKey(e.value), data: e.value, showDivider: !isLast);
       }).toList()),
     );
   }
@@ -509,7 +564,8 @@ class _RatingChip extends StatelessWidget {
 class _GameHistoryTile extends StatefulWidget {
   final Map<String, dynamic> data;
   final bool showDivider;
-  const _GameHistoryTile({required this.data, required this.showDivider});
+  const _GameHistoryTile(
+      {super.key, required this.data, required this.showDivider});
 
   @override
   State<_GameHistoryTile> createState() => _GameHistoryTileState();
@@ -590,11 +646,21 @@ class _GameHistoryTileState extends State<_GameHistoryTile> {
                         fontSize: 13,
                         fontWeight: FontWeight.w600),
                         overflow: TextOverflow.ellipsis),
-                    if (fmtDate.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(fmtDate, style: TextStyle(
-                          color: AppTheme.muted, fontSize: 10)),
-                    ],
+                    const SizedBox(height: 2),
+                    // The sport as well as the date: an athlete's history
+                    // can mix basketball, volleyball and badminton.
+                    Row(children: [
+                      Icon(sportIcon(sport), color: AppTheme.muted, size: 12),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                            [if (sport.isNotEmpty) sport,
+                             if (fmtDate.isNotEmpty) fmtDate].join(' · '),
+                            style: TextStyle(
+                                color: AppTheme.muted, fontSize: 11),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ]),
                   ],
                 ),
               ),
