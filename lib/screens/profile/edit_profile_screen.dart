@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../services/storage_service.dart';
+import '../../constants/sport_icons.dart';
 import '../../constants/sport_positions.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/position_picker_sheet.dart';
@@ -621,7 +622,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   color: hasValue ? AppTheme.accent : AppTheme.border,
                   width: 1.5)),
           child: Row(children: [
-            Icon(Icons.sports_basketball_outlined,
+            Icon(positionIcon(_position, _sports),
                 color: hasValue ? AppTheme.accent : AppTheme.muted, size: 20),
             const SizedBox(width: 12),
             Expanded(

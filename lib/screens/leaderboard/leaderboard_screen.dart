@@ -316,8 +316,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           return _buildEmpty(
             icon: LucideIcons.trophy,
             title: 'No athletes yet',
+            // Addressed to whoever is looking — usually an athlete — rather
+            // than to an admin who can "register athletes".
             subtitle: _filter == 'All'
-                ? 'Register athletes to see rankings'
+                ? 'Athletes appear here once they sign up'
                 : 'No $_filter athletes found');
         }
 

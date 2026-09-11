@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
+import '../../utils/error_messages.dart';
 import '../../widgets/coach_profile_sheet.dart';
 
 class TeamInvitesScreen extends StatefulWidget {
@@ -20,6 +21,10 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   String? _highlightId;
 
+  /// The invite whose Accept is in flight. Its buttons are disabled until it
+  /// settles, so a double tap cannot send the accept twice.
+  String? _busyInviteId;
+
   @override
   void initState() {
     super.initState();
@@ -27,9 +32,21 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
     if (args is Map) _highlightId = args['inviteId'] as String?;
   }
 
-  Future<void> _acceptInvite(String inviteId) async {
+  Future<void> _acceptInvite(TeamInvite invite) async {
+    if (_busyInviteId != null) return;
+    setState(() => _busyInviteId = invite.id);
     try {
-      await TeamService.acceptInvite(inviteId);
+      await TeamService.acceptInvite(invite.id);
+      // Joining a team is the moment an athlete has been waiting for; it used
+      // to pass in silence, with the card simply moving down the page.
+      Get.snackbar('Welcome to ${invite.teamName}!',
+          "You're on Coach ${invite.coachName}'s roster now.",
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.successSurface,
+          colorText: AppTheme.successText,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+          duration: const Duration(seconds: 3));
     } on TeamFullException {
       Get.snackbar('Team Full',
           'Sorry — this team just reached its roster limit.',
@@ -53,8 +70,56 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
           margin: const EdgeInsets.all(16),
           borderRadius: 12,
           duration: const Duration(seconds: 4));
+    } catch (e) {
+      _errorSnack(e);
+    } finally {
+      if (mounted) setState(() => _busyInviteId = null);
     }
   }
+
+  /// Declining can't be undone — the coach has to send a fresh invite — so it
+  /// asks first, the same way leaving a team already does.
+  void _confirmDecline(TeamInvite invite) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Decline ${invite.teamName}?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text(
+            '${invite.coachName} would need to invite you again.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Cancel', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await TeamService.declineInvite(invite.id);
+              } catch (e) {
+                _errorSnack(e);
+              }
+            },
+            child: const Text('Decline', style: TextStyle(
+                color: Color(0xFFFF5C5C), fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _errorSnack(Object e) => Get.snackbar('Something went wrong',
+      friendlyError(e),
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: const Color(0xFF2A1A1A),
+      colorText: const Color(0xFFFF5C5C),
+      margin: const EdgeInsets.all(16),
+      borderRadius: 12,
+      duration: const Duration(seconds: 3));
 
   String _relativeDate(DateTime? date) {
     if (date == null) return '';
@@ -145,8 +210,9 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
         return Column(children: invites.map((inv) => _InviteCard(
           invite: inv,
           highlighted: inv.id == _highlightId,
-          onAccept: () => _acceptInvite(inv.id),
-          onDecline: () => TeamService.declineInvite(inv.id),
+          busy: inv.id == _busyInviteId,
+          onAccept: () => _acceptInvite(inv),
+          onDecline: () => _confirmDecline(inv),
           relativeDate: _relativeDate,
         )).toList());
       },
@@ -229,6 +295,9 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
 class _InviteCard extends StatelessWidget {
   final TeamInvite invite;
   final bool highlighted;
+  /// True while this invite's Accept is in flight: both buttons go inert and
+  /// Accept shows a spinner.
+  final bool busy;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
   final String Function(DateTime?) relativeDate;
@@ -236,6 +305,7 @@ class _InviteCard extends StatelessWidget {
   const _InviteCard({
     required this.invite,
     required this.highlighted,
+    required this.busy,
     required this.onAccept,
     required this.onDecline,
     required this.relativeDate,
@@ -282,17 +352,23 @@ class _InviteCard extends StatelessWidget {
         Expanded(child: SizedBox(
           height: 42,
           child: ElevatedButton(
-            onPressed: onAccept,
+            onPressed: busy ? null : onAccept,
             style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.success, foregroundColor: Colors.white),
-            child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w700)),
+                backgroundColor: AppTheme.success, foregroundColor: Colors.white,
+                // Keeps the busy state green rather than the theme's grey.
+                disabledBackgroundColor: AppTheme.success.withValues(alpha: 0.6)),
+            child: busy
+                ? const SizedBox(width: 18, height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Text('Accept', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         )),
         const SizedBox(width: 8),
         Expanded(child: SizedBox(
           height: 42,
           child: OutlinedButton(
-            onPressed: onDecline,
+            onPressed: busy ? null : onDecline,
             child: Text('Decline', style: TextStyle(color: AppTheme.sub)),
           ),
         )),

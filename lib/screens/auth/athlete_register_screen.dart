@@ -19,11 +19,15 @@ import '../../services/storage_service.dart';
 import '../../utils/auth_routing.dart';
 import '../../utils/registration_rollback.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/onboarding_flag.dart';
+import '../../constants/sport_icons.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
-const List<String> _kYears  = ['1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
+// Same list as edit_profile_screen.dart. '<1 Yr' used to exist only there, so
+// a beginner had to overstate their experience to finish signing up.
+const List<String> _kYears  = ['<1 Yr', '1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
 
 class AthleteRegisterScreen extends StatefulWidget {
   const AthleteRegisterScreen({super.key});
@@ -158,6 +162,11 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
               uid: cred.user!.uid, email: _emailCtrl.text.trim());
         },
       );
+      // This device now has an account on it, so a later sign-out should land
+      // on /login rather than replay the intro. AuthController marks this for
+      // sign-in, but the role screens create accounts themselves and never
+      // passed through it.
+      await markOnboardingComplete();
       // Send verification email right after account creation
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
@@ -358,6 +367,8 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
               }
               return null;
             }),
+          // The rules up front, rather than revealed one failure at a time.
+          const _PasswordHint(),
           const SizedBox(height: 12),
           _Field(ctrl: _confirmCtrl, hint: 'Confirm Password',
             icon: Icons.lock_outline_rounded,
@@ -393,7 +404,8 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
         const _StepHeader(emoji: '🏅', title: 'Your Sport',
             subtitle: 'Step 2 of 3 — Athletic details'),
         const SizedBox(height: 24),
-        const _SectionLabel(label: 'Primary Sport'),
+        // Plural on purpose: this is a multi-select.
+        const _SectionLabel(label: 'Sports you play'),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
@@ -427,7 +439,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
                     ? AppTheme.accent : AppTheme.border,
                 width: 1.5)),
             child: Row(children: [
-              Icon(Icons.sports_basketball_outlined,
+              Icon(positionIcon(_position, _selectedSports),
                   color: _position.isNotEmpty
                       ? AppTheme.accent : AppTheme.muted,
                   size: 20),
@@ -633,6 +645,19 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(label,
     style: TextStyle(color: AppTheme.textPrimary,
         fontSize: 13, fontWeight: FontWeight.w700));
+}
+
+/// The password rules, stated before the user types rather than revealed one
+/// failed validation at a time. Must match the validator above it.
+class _PasswordHint extends StatelessWidget {
+  const _PasswordHint();
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+    child: Text(
+      'At least 8 characters, with one capital letter and one number.',
+      style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+  );
 }
 
 class _Chip extends StatelessWidget {

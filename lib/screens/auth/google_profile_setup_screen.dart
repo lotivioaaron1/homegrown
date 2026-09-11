@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import '../../constants/sport_icons.dart';
 import '../../constants/sport_positions.dart';
 import '../../services/contact_service.dart';
 import '../../theme/app_theme.dart';
@@ -16,7 +17,8 @@ import '../../utils/error_messages.dart';
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 const List<String> _kSports    = ['Basketball', 'Volleyball', 'Badminton'];
-const List<String> _kYears     = ['1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
+// Same list as athlete_register_screen.dart and edit_profile_screen.dart.
+const List<String> _kYears     = ['<1 Yr', '1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
 const List<String> _kLevels    = ['Barangay', 'City', 'Provincial', 'National'];
 const List<String> _kOrgTypes  = ['Barangay', 'School', 'Community',
     'Private', 'Government'];
@@ -396,7 +398,7 @@ class _GoogleProfileSetupScreenState
           onTap: _pickBarangay),
         const SizedBox(height: 16),
 
-        const _Label('Primary Sport(s)'),
+        const _Label('Sports you play'),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
@@ -418,6 +420,7 @@ class _GoogleProfileSetupScreenState
         const SizedBox(height: 8),
         _PositionButton(
           value: _position,
+          icon: positionIcon(_position, _selectedSports),
           hasSport: _selectedSports.isNotEmpty,
           onTap: _pickPosition),
         const SizedBox(height: 16),
@@ -708,10 +711,12 @@ class _BarangayButton extends StatelessWidget {
 /// nothing to show until at least one sport is selected above.
 class _PositionButton extends StatelessWidget {
   final String value;
+  /// The sport's own glyph — see positionIcon. Was always a basketball.
+  final IconData icon;
   final bool hasSport;
   final VoidCallback onTap;
-  const _PositionButton(
-      {required this.value, required this.hasSport, required this.onTap});
+  const _PositionButton({required this.value, required this.icon,
+      required this.hasSport, required this.onTap});
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: hasSport ? onTap : null,
@@ -724,7 +729,7 @@ class _PositionButton extends StatelessWidget {
           color: value.isNotEmpty ? AppTheme.accent : AppTheme.border,
           width: 1.5)),
       child: Row(children: [
-        Icon(Icons.sports_basketball_outlined,
+        Icon(icon,
           color: value.isNotEmpty ? AppTheme.accent : AppTheme.muted,
           size: 20),
         const SizedBox(width: 12),

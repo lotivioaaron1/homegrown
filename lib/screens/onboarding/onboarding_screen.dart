@@ -113,7 +113,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               for (int i = 0; i < _sportPanelCount; i++)
                 _SportPanel(
                   data: _sportPanels[i],
-                  isLastSportPanel: i == _sportPanelCount - 1,
                   onAdvance: () => _goToPage(i + 1),
                 ),
               const _FeaturesPage(),
@@ -220,12 +219,10 @@ class _SkipButton extends StatelessWidget {
 // ── Full-bleed sport intro panel (NEW) ────────────────────────────
 class _SportPanel extends StatelessWidget {
   final _SportPanelData data;
-  final bool isLastSportPanel;
   final VoidCallback onAdvance;
 
   const _SportPanel({
     required this.data,
-    required this.isLastSportPanel,
     required this.onAdvance,
   });
 
@@ -321,24 +318,26 @@ class _SportPanel extends StatelessWidget {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(30),
                   ),
-                  child: Row(
+                  // "Next" on every panel. It used to read "Swipe to start" —
+                  // on a button you tap — and the last panel said "Get
+                  // Started ✓" only to open the Features page, which has the
+                  // real Get Started, so the same promise appeared twice.
+                  child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        isLastSportPanel ? 'Get Started' : 'Swipe to start',
-                        style: const TextStyle(
+                        'Next',
+                        style: TextStyle(
                           color: Color(0xFF0A0A12),
                           fontSize: 14.5,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Icon(
-                        isLastSportPanel
-                            ? Icons.check_rounded
-                            : Icons.arrow_forward_rounded,
+                        Icons.arrow_forward_rounded,
                         size: 17,
-                        color: const Color(0xFF0A0A12),
+                        color: Color(0xFF0A0A12),
                       ),
                     ],
                   ),

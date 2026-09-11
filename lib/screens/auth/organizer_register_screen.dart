@@ -17,6 +17,7 @@ import '../../utils/auth_routing.dart';
 import '../../utils/registration_rollback.dart';
 import '../../services/storage_service.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/onboarding_flag.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -189,6 +190,9 @@ class _OrganizerRegisterScreenState
           );
         },
       );
+      // So a later sign-out lands on /login instead of replaying the intro —
+      // see athlete_register_screen.dart.
+      await markOnboardingComplete();
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
 
@@ -412,6 +416,7 @@ class _OrganizerRegisterScreenState
               }
               return null;
             }),
+          const _PasswordHint(),
           const SizedBox(height: 12),
           _Field(ctrl: _confirmCtrl, hint: 'Confirm Password',
             icon: Icons.lock_outline_rounded,
@@ -661,6 +666,19 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(label,
     style: TextStyle(color: AppTheme.textPrimary,
         fontSize: 13, fontWeight: FontWeight.w700));
+}
+
+/// The password rules, stated before the user types rather than revealed one
+/// failed validation at a time. Must match the validator above it.
+class _PasswordHint extends StatelessWidget {
+  const _PasswordHint();
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+    child: Text(
+      'At least 8 characters, with one capital letter and one number.',
+      style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+  );
 }
 
 class _Chip extends StatelessWidget {

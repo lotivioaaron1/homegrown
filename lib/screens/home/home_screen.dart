@@ -22,6 +22,7 @@ import '../../services/tournament_service.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/points_explainer_sheet.dart';
+import '../../utils/error_messages.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/leaderboard_ranks.dart';
 
@@ -214,9 +215,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accent, strokeWidth: 2));
                 }
                 if (snapshot.hasError) {
+                  // friendlyError rather than the raw exception, which put
+                  // strings like "[cloud_firestore/failed-precondition] The
+                  // query requires an index…" in front of users.
                   return Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text('${snapshot.error}',
+                    child: Text(friendlyError(snapshot.error),
                         style: TextStyle(color: AppTheme.sub, fontSize: 12)),
                   );
                 }
@@ -535,9 +539,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accent, strokeWidth: 2));
                 }
                 if (snapshot.hasError) {
+                  // friendlyError rather than the raw exception, which put
+                  // strings like "[cloud_firestore/failed-precondition] The
+                  // query requires an index…" in front of users.
                   return Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text('${snapshot.error}',
+                    child: Text(friendlyError(snapshot.error),
                         style: TextStyle(color: AppTheme.sub, fontSize: 12)),
                   );
                 }
@@ -838,16 +845,15 @@ class _HomeScreenState extends State<HomeScreen> {
             child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2)));
         }
-        // Surface the real error instead of silently showing "No
-        // stats yet". A missing composite index (athleteId +
-        // createdAt) is the most common cause here — Firestore
-        // throws a FAILED_PRECONDITION with a direct console link
-        // to auto-create it.
+        // Say something went wrong instead of silently showing "No stats
+        // yet" — but in words a user can read. The raw exception (most often
+        // a missing athleteId + createdAt index) belongs in the debug console,
+        // not on an athlete's home screen.
         if (snapshot.hasError) {
           return _EmptyCard(
             icon: LucideIcons.alertCircle,
             title: 'Could not load activity',
-            subtitle: '${snapshot.error}',
+            subtitle: friendlyError(snapshot.error),
           );
         }
         final docs = snapshot.data?.docs ?? [];
@@ -1099,13 +1105,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ]),
       const SizedBox(height: 12),
-      Row(children: [
+      // A Wrap, not a Row: with the recruitment pill spelled out, a long
+      // position ("Defensive Specialist") no longer fits one line on a small
+      // phone, and a Row would overflow instead of wrapping.
+      Wrap(spacing: 6, runSpacing: 6, children: [
         _StatPill(label: position,
             icon: LucideIcons.activity),
-        const SizedBox(width: 6),
         _StatPill(label: years, icon: LucideIcons.clock),
-        const SizedBox(width: 6),
-        _StatPill(label: isOpen ? 'Open' : 'Closed',
+        // Said in full — a bare "Open"/"Closed" left the athlete guessing
+        // open to what.
+        _StatPill(label: isOpen ? 'Open to recruit' : 'Not recruiting',
             icon: LucideIcons.search, highlighted: isOpen),
       ]),
     ]);

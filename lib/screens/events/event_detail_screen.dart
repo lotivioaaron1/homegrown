@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import '../../constants/sport_icons.dart';
 import '../../models/match_result.dart';
 import '../../models/report.dart';
 import '../../services/notification_service.dart';
@@ -213,7 +214,7 @@ class EventDetailScreen extends StatelessWidget {
                   ),
                 ]),
                 const SizedBox(height: 12),
-                _InfoRow(icon: Icons.sports_basketball_outlined, label: sport),
+                _InfoRow(icon: sportIcon(sport), label: sport),
                 const SizedBox(height: 8),
                 _InfoRow(icon: Icons.location_on_outlined,
                     label: venueAddress.isNotEmpty
