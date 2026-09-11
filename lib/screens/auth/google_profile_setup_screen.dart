@@ -120,9 +120,12 @@ class _GoogleProfileSetupScreenState
             _yearsOfPlaying.isNotEmpty;
       }
       if (_role == 'coach') {
+        // The team name is on every invite this coach sends — required, as
+        // in coach_register_screen.dart.
         return _coachSports.isNotEmpty &&
             _coachingLevel.isNotEmpty &&
-            _yearsOfExperience.isNotEmpty;
+            _yearsOfExperience.isNotEmpty &&
+            _teamOrgCtrl.text.trim().isNotEmpty;
       }
       if (_role == 'organizer') {
         return _orgNameCtrl.text.trim().isNotEmpty &&
@@ -531,7 +534,7 @@ class _GoogleProfileSetupScreenState
                     setState(() => _yearsOfExperience = y))).toList()),
         const SizedBox(height: 16),
 
-        const _Label('Team / Organization (Optional)'),
+        const _Label('Team / Organization'),
         const SizedBox(height: 8),
         _Field(ctrl: _teamOrgCtrl,
             hint: 'e.g. Legazpi City Basketball Team',

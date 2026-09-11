@@ -13,6 +13,7 @@ import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/member_profiles.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/team_name.dart';
 
 class MyTeamScreen extends StatefulWidget {
   const MyTeamScreen({super.key});
@@ -152,7 +153,12 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
       stream: FirebaseFirestore.instance.collection('users').doc(_uid).snapshots(),
       builder: (context, snapshot) {
         final data = snapshot.data?.data() as Map<String, dynamic>? ?? {};
-        final teamName = data['teamOrganization'] as String? ?? 'Your Team';
+        // The name athletes see on invites; "Coach {name}'s team" when the
+        // coach never set one, instead of an empty title.
+        final storedName = (data['teamOrganization'] as String? ?? '').trim();
+        final teamName = teamDisplayName(
+            teamOrganization: storedName,
+            coachName: data['fullName'] as String?);
         final logoUrl = data['teamLogoUrl'] as String?;
         return Container(
           padding: const EdgeInsets.all(14),
@@ -196,7 +202,9 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
               ]),
             ),
             GestureDetector(
-              onTap: () => _renameTeam(teamName),
+              // Pre-filled with the stored name, not the fallback, so a coach
+              // who never named the team starts from an empty box.
+              onTap: () => _renameTeam(storedName),
               child: const Icon(Icons.edit_outlined, color: AppTheme.accent, size: 18),
             ),
           ]),

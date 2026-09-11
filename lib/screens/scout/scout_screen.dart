@@ -9,8 +9,10 @@ import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/leaderboard_ranks.dart';
 import '../../utils/stat_scoring.dart';
 import '../../utils/sports.dart';
+import '../../utils/team_name.dart';
 import '../profile/edit_profile_screen.dart';
 
 // ─────────────────────────────────────────────
@@ -572,8 +574,17 @@ class _ScoutScreenState extends State<ScoutScreen> {
         if (skill == null) {
           athletes.sort((a, b) =>
               _toInt(b['points']).compareTo(_toInt(a['points'])));
+          // The leaderboard's rule: an athlete on zero points is unranked,
+          // and ties share a rank. Numbering 1, 2, 3 down a list where
+          // nobody had scored handed gold, silver and bronze to whichever
+          // three athletes the query happened to return first.
+          final ranks = assignRanks<Map<String, dynamic>>(
+            athletes,
+            valueOf: (a) => _toInt(a['points']),
+            isUnranked: (a) => _toInt(a['points']) <= 0,
+          );
           for (var i = 0; i < athletes.length; i++) {
-            rows.add(_ScoutRow.athlete(athletes[i], rank: i + 1));
+            rows.add(_ScoutRow.athlete(athletes[i], rank: ranks[i]));
           }
         } else {
           final ranked   = <Map<String, dynamic>>[];
@@ -794,9 +805,12 @@ class _ScoutScreenState extends State<ScoutScreen> {
                   onPressed: () async {
                     final coachName =
                         _coachProfile?['fullName'] as String? ?? '';
-                    final teamName =
-                        _coachProfile?['teamOrganization'] as String? ??
-                            'your team';
+                    // Never the literal "your team" — a coach with no team
+                    // name sends "Coach {name}'s team" instead.
+                    final teamName = teamDisplayName(
+                        teamOrganization:
+                            _coachProfile?['teamOrganization'] as String?,
+                        coachName: coachName);
                     try {
                       await TeamService.sendInvite(
                         coachId: coachUid,

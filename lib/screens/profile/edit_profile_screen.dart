@@ -53,6 +53,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String get _experienceField =>
       _role == 'coach' ? 'yearsOfExperience' : 'yearsOfPlaying';
 
+  /// The same split for the bio. Coach sign-up writes `coachingBio`, and that
+  /// is the field a coach's public profile shows athletes. This screen used to
+  /// edit `bio` for everyone, so a coach's edits never reached athletes — and
+  /// their own profile showed both texts.
+  String get _bioField => _role == 'coach' ? 'coachingBio' : 'bio';
+
   @override
   void initState() {
     super.initState();
@@ -89,7 +95,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _heightCtrl.text = data['heightCm']?.toString() ?? '';
       _weightCtrl.text = data['weightKg']?.toString() ?? '';
       _barangay = data['barangay'] as String?;
-      _bioCtrl.text = data['bio'] as String? ?? '';
+      // Reads _role, like _experienceField below. A coach who edited their
+      // bio before the fix has it in `bio`; show that rather than an empty
+      // box if `coachingBio` is blank, so saving moves it where it belongs.
+      final bio = (data[_bioField] as String? ?? '').trim();
+      _bioCtrl.text =
+          bio.isNotEmpty ? bio : (data['bio'] as String? ?? '').trim();
       // Reads _role, which is assigned above — keep that ordering.
       _experience = data[_experienceField] as String? ?? '';
       _openToRecruitment = data['openToRecruitment'] as bool? ?? false;
@@ -146,7 +157,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           'heightCm': _heightCtrl.text.trim(),
           'weightKg': _weightCtrl.text.trim(),
         },
-        'bio': _bioCtrl.text.trim(),
+        _bioField: _bioCtrl.text.trim(),
+        // Clears the stray copy a coach's earlier edits left in `bio`, so
+        // their own profile stops showing two different bios.
+        if (_role == 'coach') 'bio': FieldValue.delete(),
         'barangay': _barangay ?? '',
         // Organizers no longer see either of these fields, so saving their
         // profile shouldn't stamp athlete values onto their document —
@@ -288,12 +302,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 8),
                 _buildBarangayPicker(),
                 const SizedBox(height: 14),
-                _label('Bio'),
+                // Named and sized as coach sign-up has it (200 characters),
+                // so a coach's existing bio is never longer than the box.
+                _label(_role == 'coach' ? 'Coaching Bio' : 'Bio'),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _bioCtrl,
                   maxLines: 3,
-                  maxLength: 160,
+                  maxLength: _role == 'coach' ? 200 : 160,
                   style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'A short line about yourself...',

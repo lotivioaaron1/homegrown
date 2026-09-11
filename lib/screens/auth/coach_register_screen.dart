@@ -123,6 +123,12 @@ class _CoachRegisterScreenState extends State<CoachRegisterScreen> {
       if (_yearsOfExperience.isEmpty) {
         _snack('Experience', 'Please select years of experience.'); return;
       }
+      // Required: it is the name on every invite this coach sends. Left
+      // blank, invites used to go out as "your team".
+      if (_teamOrgCtrl.text.trim().isEmpty) {
+        _snack('Team Name', 'Please enter your team or organization name.');
+        return;
+      }
     }
     setState(() => _step++);
   }

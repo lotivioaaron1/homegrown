@@ -25,6 +25,7 @@ import '../../widgets/points_explainer_sheet.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/leaderboard_ranks.dart';
+import '../../utils/team_name.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -1442,7 +1443,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // outstanding invites — instead of duplicating nav entries.
 
   Widget _buildCoachTeamSection(Map<String, dynamic> data) {
-    final teamName = data['teamOrganization'] as String? ?? 'Your Team';
+    // The name athletes see on invites — see utils/team_name.dart.
+    final teamName = teamDisplayName(
+        teamOrganization: data['teamOrganization'] as String?,
+        coachName: data['fullName'] as String?);
 
     return StreamBuilder<QuerySnapshot>(
       stream: TeamService.streamRoster(_uid),
