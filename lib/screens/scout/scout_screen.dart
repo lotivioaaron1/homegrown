@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
@@ -21,8 +22,9 @@ import '../profile/edit_profile_screen.dart';
 
 const String _kAllSports = 'All Sports';
 
+// Sport balls only. "All Sports" is plain text, as on Rankings and the Game
+// Directory — it used to carry a 🏅.
 const Map<String, String> _kSportEmoji = {
-  _kAllSports:  '🏅',
   'Basketball': '🏀',
   'Volleyball': '🏐',
   'Badminton':  '🏸',
@@ -355,7 +357,7 @@ class _ScoutScreenState extends State<ScoutScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: tabs.map((label) {
-          final emoji = _kSportEmoji[label] ?? '🏅';
+          final emoji = _kSportEmoji[label];
           final sel   = _selectedSport == label;
           return GestureDetector(
             onTap: () => _selectSport(label),
@@ -371,8 +373,10 @@ class _ScoutScreenState extends State<ScoutScreen> {
                   color: sel ? AppTheme.accent : AppTheme.border,
                   width: 1.5)),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Text(emoji, style: const TextStyle(fontSize: 14)),
-                const SizedBox(width: 6),
+                if (emoji != null) ...[
+                  Text(emoji, style: const TextStyle(fontSize: 14)),
+                  const SizedBox(width: 6),
+                ],
                 Text(label, style: TextStyle(
                   color: sel
                       ? AppTheme.buttonFg : AppTheme.muted,
@@ -1012,14 +1016,6 @@ class _AthleteCard extends StatelessWidget {
     }
   }
 
-  String get _rankEmoji {
-    switch (rank) {
-      case 1:  return '🥇';
-      case 2:  return '🥈';
-      case 3:  return '🥉';
-      default: return rank == null ? '—' : '#$rank';
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1064,8 +1060,9 @@ class _AthleteCard extends StatelessWidget {
                   border: _isMedal
                       ? Border.all(color: _rankColor) : null),
                 child: Center(child: _isMedal
-                    ? Text(_rankEmoji,
-                        style: const TextStyle(fontSize: 14))
+                    // A medal icon in gold, silver or bronze — the app's
+                    // icon set rather than 🥇🥈🥉 emoji.
+                    ? Icon(LucideIcons.medal, color: _rankColor, size: 17)
                     // A dash, not a number, for an athlete the sort
                     // couldn't place.
                     : Text(rank == null ? '—' : '#$rank',

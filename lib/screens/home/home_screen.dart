@@ -1514,13 +1514,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text('No athletes on your roster yet', style: TextStyle(
                     color: AppTheme.textPrimary, fontSize: 13,
                     fontWeight: FontWeight.w700)),
-                const SizedBox(height: 2),
-                GestureDetector(
-                  onTap: () => Get.toNamed('/scout'),
-                  child: const Text('Invite athletes from Scout', style: TextStyle(
-                      color: AppTheme.accent, fontSize: 12,
-                      fontWeight: FontWeight.w700)),
-                ),
+                const SizedBox(height: 12),
+                // A button rather than a line of small link text: this is
+                // the one thing a coach with no roster should do next.
+                _ActionPill(
+                    label: 'Invite athletes from Scout',
+                    onTap: () => Get.toNamed('/scout')),
               ]),
             ),
           );
@@ -1619,13 +1618,12 @@ class _HomeScreenState extends State<HomeScreen> {
               Text('No upcoming events', style: TextStyle(
                   color: AppTheme.textPrimary, fontSize: 13,
                   fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              GestureDetector(
-                onTap: () => Get.toNamed('/events/create'),
-                child: const Text('Create your first event', style: TextStyle(
-                    color: AppTheme.accent, fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-              ),
+              const SizedBox(height: 12),
+              // The organizer twin of the coach's empty-roster card, and the
+              // same fix: a button, not small link text.
+              _ActionPill(
+                  label: 'Create your first event',
+                  onTap: () => Get.toNamed('/events/create')),
             ]),
           );
         }
@@ -2447,32 +2445,43 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
           ),
           if (actionLabel != null && onAction != null) ...[
             const SizedBox(height: 12),
-            GestureDetector(
-              onTap: onAction,
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                decoration: BoxDecoration(
-                  color: AppTheme.accentSurface,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.accent),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text(actionLabel!,
-                      style: TextStyle(
-                          color: AppTheme.accentText,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(width: 4),
-                  Icon(Icons.chevron_right_rounded,
-                      color: AppTheme.accentText, size: 16),
-                ]),
-              ),
-            ),
+            _ActionPill(label: actionLabel!, onTap: onAction!),
           ],
         ],
       ),
+    ),
+  );
+}
+
+/// The gold "next step" button on Home's empty states — shared by
+/// [_EmptyCard] and the coach and organizer cards that used to offer the
+/// same step as a line of small link text.
+class _ActionPill extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _ActionPill({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    behavior: HitTestBehavior.opaque,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: AppTheme.accentSurface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.accent),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(label,
+            style: TextStyle(
+                color: AppTheme.accentText,
+                fontSize: 12,
+                fontWeight: FontWeight.w700)),
+        const SizedBox(width: 4),
+        Icon(Icons.chevron_right_rounded,
+            color: AppTheme.accentText, size: 16),
+      ]),
     ),
   );
 }
