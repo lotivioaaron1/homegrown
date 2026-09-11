@@ -153,8 +153,13 @@ class EventDetailScreen extends StatelessWidget {
         maxPlayers != null ? '$playerCount/$maxPlayers' : '$playerCount';
     final players = (ev['players'] as List?)
         ?.map((p) => p as Map<String, dynamic>).toList() ?? [];
-    final teamAName = ev['teamAName'] as String?;
-    final teamBName = ev['teamBName'] as String?;
+    // Null when blank, so every `?? 'Team A'` below also catches events
+    // created from a coach with no team name, which stored an empty string
+    // and rendered a side with no name at all.
+    String? nonBlank(Object? v) =>
+        (v as String? ?? '').trim().isEmpty ? null : (v as String).trim();
+    final teamAName = nonBlank(ev['teamAName']);
+    final teamBName = nonBlank(ev['teamBName']);
     final organizerId = ev['organizerId'] as String?;
     final isOrganizer = organizerId != null &&
         organizerId == FirebaseAuth.instance.currentUser?.uid;

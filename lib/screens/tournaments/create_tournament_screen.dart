@@ -454,7 +454,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                           height: 54,
                           child: ElevatedButton(
                             onPressed: _onCreate,
-                            child: const Text('🏆  Draw the Bracket'),
+                            child: const Text('Draw the Bracket'),
                           ),
                         ),
                 ],

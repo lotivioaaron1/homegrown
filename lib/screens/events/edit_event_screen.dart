@@ -678,13 +678,14 @@ class _EditEventScreenState extends State<EditEventScreen> {
           _sectionLabel('Visibility'),
           const SizedBox(height: 8),
           Row(children: [
+            // Plain labels — see create_event_screen.dart.
             _chip(
-                label: '🌐  Public',
+                label: 'Public',
                 sel: _isPublic,
                 onTap: () => setState(() => _isPublic = true)),
             const SizedBox(width: 8),
             _chip(
-                label: '🔒  Private',
+                label: 'Private',
                 sel: !_isPublic,
                 onTap: () => setState(() => _isPublic = false)),
           ]),

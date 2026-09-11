@@ -57,6 +57,24 @@ List<T> eventsForTab<T>(
   return rows;
 }
 
+/// Every event in the order an organizer looks for it when entering results:
+/// games already played, most recent first — the one that just ended is almost
+/// always the one being recorded — then games still to come, soonest first.
+///
+/// Record Match and Add Stats used to list these unsorted or oldest first under
+/// an "Upcoming" heading, which put the game that had just been played at the
+/// bottom of a list that claimed it wasn't there. Their queries already drop
+/// drafts and cancelled events, so this only orders.
+List<T> eventsForResults<T>(
+  Iterable<T> events, {
+  required Map<String, dynamic> Function(T) data,
+  DateTime? now,
+}) =>
+    [
+      ...eventsForTab(events, data: data, tab: EventTab.past, now: now),
+      ...eventsForTab(events, data: data, tab: EventTab.upcoming, now: now),
+    ];
+
 /// The badge an event row carries, derived the same way the bucket is.
 enum EventBadge { upcoming, completed, draft, cancelled }
 

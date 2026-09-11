@@ -151,4 +151,37 @@ void main() {
       expect(badgeLabel(EventBadge.cancelled), 'CANCELLED');
     });
   });
+
+  // Record Match and Add Stats: the game that just ended is the one being
+  // entered, so it must come first, not sink to the bottom.
+  group('eventsForResults', () {
+    List<String> resultsOrder(List<Map<String, dynamic>> events) =>
+        eventsForResults(events, data: (e) => e, now: _now)
+            .map((e) => e['name'] as String)
+            .toList();
+
+    test('puts the most recently played game first', () {
+      final events = [
+        _event(name: 'last month', date: _now.subtract(const Duration(days: 30))),
+        _event(name: 'yesterday', date: _now.subtract(const Duration(days: 1))),
+        _event(name: 'last week', date: _now.subtract(const Duration(days: 7))),
+      ];
+
+      expect(resultsOrder(events), ['yesterday', 'last week', 'last month']);
+    });
+
+    test('lists games still to come after the played ones, soonest first', () {
+      final events = [
+        _event(name: 'next month', date: _now.add(const Duration(days: 30))),
+        _event(name: 'yesterday', date: _now.subtract(const Duration(days: 1))),
+        _event(name: 'tomorrow', date: _now.add(const Duration(days: 1))),
+      ];
+
+      expect(resultsOrder(events), ['yesterday', 'tomorrow', 'next month']);
+    });
+
+    test('an empty list stays empty', () {
+      expect(resultsOrder([]), isEmpty);
+    });
+  });
 }
