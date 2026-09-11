@@ -1007,8 +1007,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ? (data['primarySports'] as List).first as String
         : (data['sportsOrganized'] as List?)?.isNotEmpty == true
             ? (data['sportsOrganized'] as List).first as String : '';
-    final emoji = role == 'athlete' ? '🏃'
-        : role == 'coach' ? '🧢' : '📋';
+    // The role-picker's icons (register_screen.dart) rather than emoji, so a
+    // role looks the same here as where it was chosen.
+    final icon = role == 'athlete' ? LucideIcons.zap
+        : role == 'coach' ? LucideIcons.binoculars : LucideIcons.calendarDays;
     final label = role == 'athlete' ? 'Athlete'
         : role == 'coach' ? 'Coach' : 'Organizer';
     return Padding(
@@ -1018,10 +1020,14 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: BoxDecoration(color: AppTheme.accentSurface,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppTheme.accent)),
-        child: Text(
-          '$emoji  ${sport.isNotEmpty ? '$label · $sport' : label}',
-          style: TextStyle(color: AppTheme.accentText,
-              fontSize: 11, fontWeight: FontWeight.w700)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, color: AppTheme.accentText, size: 12),
+          const SizedBox(width: 6),
+          Text(
+            sport.isNotEmpty ? '$label · $sport' : label,
+            style: TextStyle(color: AppTheme.accentText,
+                fontSize: 11, fontWeight: FontWeight.w700)),
+        ]),
       ),
     );
   }
@@ -1098,7 +1104,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(rank, style: TextStyle(color: AppTheme.accentText,
                     fontSize: 20, fontWeight: FontWeight.w900)),
                 Text(ranked ? 'City Rank' : 'Unranked',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 9)),
+                    style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ]),
             );
           },
@@ -1143,7 +1149,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(years, style: TextStyle(color: AppTheme.accentText,
                 fontSize: 14, fontWeight: FontWeight.w900)),
             Text('Experience',
-                style: TextStyle(color: AppTheme.sub, fontSize: 9)),
+                style: TextStyle(color: AppTheme.sub, fontSize: 11)),
           ]),
         ),
       ]),
@@ -1178,7 +1184,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(orgType, style: TextStyle(color: AppTheme.accentText,
                 fontSize: 13, fontWeight: FontWeight.w900)),
             Text('Type',
-                style: TextStyle(color: AppTheme.sub, fontSize: 9)),
+                style: TextStyle(color: AppTheme.sub, fontSize: 11)),
           ]),
         ),
       ]),
@@ -2326,7 +2332,7 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
                                 children: [
                                   Text(r.key,
                                       style: TextStyle(
-                                          color: AppTheme.sub, fontSize: 9)),
+                                          color: AppTheme.sub, fontSize: 11)),
                                   Text(r.value,
                                       style: TextStyle(
                                           color: AppTheme.textPrimary,
@@ -2342,7 +2348,7 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
                     Text('Notes',
                         style: TextStyle(
                             color: AppTheme.sub,
-                            fontSize: 9,
+                            fontSize: 11,
                             fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(notes,

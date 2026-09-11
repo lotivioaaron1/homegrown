@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
@@ -128,7 +129,9 @@ class _StartupFailureApp extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('📡', style: TextStyle(fontSize: 48)),
+                // The same dish as the offline screen (no_internet_overlay).
+                Icon(LucideIcons.satelliteDish,
+                    color: Colors.white.withValues(alpha: 0.6), size: 46),
                 const SizedBox(height: 20),
                 const Text(
                   "Homegrown couldn't start",

@@ -313,7 +313,8 @@ class _PerformanceDashboardScreenState
             leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 34,
+              // Room for the two label lines at their readable 10/9px sizes.
+              reservedSize: 38,
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
                 if (i < 0 || i >= chartStats.length) return const SizedBox();
@@ -330,10 +331,10 @@ class _PerformanceDashboardScreenState
                   child: Column(children: [
                     Text(dateLabel, style: TextStyle(
                         color: AppTheme.sub,
-                        fontSize: 9,
+                        fontSize: 10,
                         fontWeight: FontWeight.w700)),
                     Text(nameLabel, style: TextStyle(
-                        color: AppTheme.muted, fontSize: 8)),
+                        color: AppTheme.muted, fontSize: 9)),
                   ]),
                 );
               },
@@ -470,7 +471,7 @@ class _HeroCard extends StatelessWidget {
               height: 1)),
           const SizedBox(height: 4),
           Text(label, textAlign: TextAlign.center, style: TextStyle(
-              color: AppTheme.muted, fontSize: 9, fontWeight: FontWeight.w600),
+              color: AppTheme.muted, fontSize: 11, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis),
         ]),
       );
@@ -493,7 +494,7 @@ class _RatingChip extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(sport[0].toUpperCase() + sport.substring(1), style: TextStyle(
               color: selected ? AppTheme.accentText : AppTheme.sub,
-              fontSize: 9, fontWeight: FontWeight.w600)),
+              fontSize: 11, fontWeight: FontWeight.w600)),
           Text('$rating', style: TextStyle(
               color: selected ? AppTheme.accentText : AppTheme.textPrimary,
               fontSize: 16, fontWeight: FontWeight.w800)),
@@ -643,7 +644,7 @@ class _GameHistoryTileState extends State<_GameHistoryTile> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(r.key, style: TextStyle(
-                                      color: AppTheme.sub, fontSize: 9)),
+                                      color: AppTheme.sub, fontSize: 11)),
                                   Text(r.value, style: TextStyle(
                                       color: AppTheme.textPrimary,
                                       fontSize: 14,
@@ -657,7 +658,7 @@ class _GameHistoryTileState extends State<_GameHistoryTile> {
                     const SizedBox(height: 10),
                     Text('Notes', style: TextStyle(
                         color: AppTheme.sub,
-                        fontSize: 9,
+                        fontSize: 11,
                         fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(notes, style: TextStyle(

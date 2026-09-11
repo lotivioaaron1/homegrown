@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/connectivity_service.dart';
 import '../theme/app_theme.dart';
 import 'fill_viewport_scroll.dart';
@@ -252,9 +253,11 @@ class _RadarBeaconState extends State<_RadarBeacon>
                 border: Border.all(
                     color: AppTheme.border, width: 2),
               ),
-              child: const Center(
-                child: Text('📡',
-                    style: TextStyle(fontSize: 48))),
+              // Still the dish, now drawn from the app's icon set rather
+              // than as an emoji.
+              child: Center(
+                child: Icon(LucideIcons.satelliteDish,
+                    color: AppTheme.sub, size: 46)),
             ),
           ),
         ],

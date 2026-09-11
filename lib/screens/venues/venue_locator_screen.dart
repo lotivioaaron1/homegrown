@@ -527,7 +527,9 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
               color: sel ? AppTheme.accent : AppTheme.border,
               width: sel ? 2 : 1.5)),
           child: Text(
-            f == 'All' ? '🗺  All Sports'
+            // Plain, like the leaderboard's "All Sports" chip. The sport
+            // balls stay: they are the same colour markers as the pins.
+            f == 'All' ? 'All Sports'
                 : f == 'Basketball' ? '🏀 Basketball'
                 : f == 'Volleyball' ? '🏐 Volleyball'
                 : '🏸 Badminton',
@@ -676,8 +678,8 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
         decoration: BoxDecoration(color: AppTheme.accentSurface,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: AppTheme.accent)),
-        child: const Center(child: Text('🗺',
-            style: TextStyle(fontSize: 28)))),
+        child: const Center(child: Icon(Icons.map_outlined,
+            color: AppTheme.accent, size: 28))),
       const SizedBox(height: 14),
       Text('No upcoming events', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 15,

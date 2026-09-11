@@ -737,10 +737,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 Text(isOpen ? '✓ Open' : '✕ Closed',
                   style: TextStyle(
                     color: isOpen ? AppTheme.success : AppTheme.muted,
-                    fontSize: 9, fontWeight: FontWeight.w700)),
+                    fontSize: 11, fontWeight: FontWeight.w700)),
               if (!isCoach && isMe)
                 Text(_unitLabel, style: TextStyle(
-                  color: AppTheme.muted, fontSize: 9)),
+                  color: AppTheme.muted, fontSize: 11)),
             ]),
             const SizedBox(width: 6),
             Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 18),
