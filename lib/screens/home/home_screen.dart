@@ -19,6 +19,7 @@ import '../../services/notification_service.dart';
 import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
+import '../../widgets/member_profiles.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/points_explainer_sheet.dart';
@@ -1284,13 +1285,33 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildOnTeamCard(List<TeamInvite> teams, int pendingCount) {
     final team = teams.first;
 
+    // The team name comes from the coach's live profile: the membership only
+    // holds a copy made when the invite was sent, so a renamed team used to
+    // keep its old name here. See utils/team_name.dart.
+    return MemberProfilesBuilder(
+      uids: [team.coachId],
+      builder: (context, coaches) => _buildOnTeamDeck(
+        teams,
+        pendingCount,
+        liveTeamName(
+            coachProfile: coaches[team.coachId],
+            storedTeamName: team.teamName,
+            coachName: team.coachName),
+      ),
+    );
+  }
+
+  Widget _buildOnTeamDeck(
+      List<TeamInvite> teams, int pendingCount, String teamName) {
+    final team = teams.first;
+
     return StreamBuilder<QuerySnapshot>(
       stream: TeamService.streamRoster(team.coachId),
       builder: (context, rosterSnap) {
         // The team name is already known here, so the placeholder keeps it and
         // only the deck below is stubbed out.
         if (rosterSnap.connectionState == ConnectionState.waiting) {
-          return TeamCarouselSkeleton(title: team.teamName);
+          return TeamCarouselSkeleton(title: teamName);
         }
         final everyone = (rosterSnap.data?.docs ?? [])
             .map((d) =>
@@ -1301,7 +1322,7 @@ class _HomeScreenState extends State<HomeScreen> {
               .compareTo(a.respondedAt ?? DateTime(0)));
 
         return TeamCarouselLoader(
-          title: team.teamName,
+          title: teamName,
           countLabel: '${teammates.length} '
               'teammate${teammates.length == 1 ? '' : 's'}',
           seeds: [
@@ -1334,7 +1355,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Get.toNamed('/team/mine', arguments: {
                   'coachId': team.coachId,
                   'coachName': team.coachName,
-                  'teamName': team.teamName,
+                  'teamName': teamName,
                 });
               } else {
                 Get.toNamed('/team/invites');
@@ -1381,12 +1402,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppTheme.accentText, fontSize: 14,
                   fontWeight: FontWeight.w800)),
               const SizedBox(height: 2),
-              Text(
-                  pendingCount > 1
-                      ? '$pendingCount pending invites'
-                      : 'Coach ${first.coachName} wants you for ${first.teamName}',
-                  style: TextStyle(color: AppTheme.sub, fontSize: 12),
-                  overflow: TextOverflow.ellipsis),
+              // The coach's current team name, never the stored copy — which
+              // could be an old name, or the "your team" placeholder Scout
+              // once sent.
+              MemberProfilesBuilder(
+                uids: [first.coachId],
+                builder: (context, coaches) => Text(
+                    pendingCount > 1
+                        ? '$pendingCount pending invites'
+                        : 'Coach ${first.coachName} wants you for '
+                            '${liveTeamName(coachProfile: coaches[first.coachId], storedTeamName: first.teamName, coachName: first.coachName)}',
+                    style: TextStyle(color: AppTheme.sub, fontSize: 12),
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           )),
           Icon(Icons.chevron_right_rounded,

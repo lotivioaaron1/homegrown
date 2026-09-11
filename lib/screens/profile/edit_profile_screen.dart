@@ -17,6 +17,12 @@ import '../../utils/sports.dart';
 const _kRadius = 14.0;
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
 const List<String> _kExperience = ['<1 Yr', '1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
+// Coaches answer these at sign-up (coach_register_screen.dart). They used to
+// get the athlete list above here, so a coach who had said "5-10" or "10+"
+// found no chip lit and could only step down to "5+".
+const List<String> _kCoachExperience = [
+  '1-2 Yrs', '3-5 Yrs', '5-10 Yrs', '10+ Yrs'];
+const List<String> _kCoachLevels = ['Barangay', 'City', 'Provincial', 'National'];
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -42,6 +48,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _bioCtrl = TextEditingController();
   List<String> _sports = [];
   String _experience = '';
+  /// Coach only. Set at sign-up and, until this screen offered it, never
+  /// changeable afterwards.
+  String _coachingLevel = '';
   bool _openToRecruitment = false;
   String _role = '';
   List<String> _sportsOrganized = [];
@@ -103,6 +112,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           bio.isNotEmpty ? bio : (data['bio'] as String? ?? '').trim();
       // Reads _role, which is assigned above — keep that ordering.
       _experience = data[_experienceField] as String? ?? '';
+      _coachingLevel = data['coachingLevel'] as String? ?? '';
       _openToRecruitment = data['openToRecruitment'] as bool? ?? false;
       _existingPhotoUrl = data['photoUrl'] as String?;
       _sports = sportsOf(data);
@@ -167,6 +177,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         // registration never creates them, and nothing organizer-facing reads
         // them back.
         if (_role != 'organizer') _experienceField: _experience,
+        if (_role == 'coach' && _coachingLevel.isNotEmpty)
+          'coachingLevel': _coachingLevel,
         // Recruitment is an athlete-only signal; coaches and organizers don't
         // see the toggle, so don't write a field they can't control.
         if (_role == 'athlete') 'openToRecruitment': _openToRecruitment,
@@ -402,11 +414,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: _kExperience
+                    children: (_role == 'coach'
+                            ? _kCoachExperience
+                            : _kExperience)
                         .map((e) => _chip(e, _experience == e,
                             () => setState(() => _experience = e)))
                         .toList(),
                   ),
+                  if (_role == 'coach') ...[
+                    const SizedBox(height: 20),
+                    Align(
+                        alignment: Alignment.centerLeft,
+                        child: _label('Coaching Level')),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _kCoachLevels
+                          .map((l) => _chip(l, _coachingLevel == l,
+                              () => setState(() => _coachingLevel = l)))
+                          .toList(),
+                    ),
+                  ],
                 ],
                 if (_role == 'organizer') ...[
                   const SizedBox(height: 20),

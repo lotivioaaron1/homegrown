@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
+import '../../utils/team_name.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/coach_profile_sheet.dart';
 import '../../widgets/member_profiles.dart';
@@ -110,8 +111,16 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
         Text('My Team', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 18,
             fontWeight: FontWeight.w800)),
-        if (_teamName.isNotEmpty)
-          Text(_teamName, style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+        // The coach's live team name once their profile has loaded (see
+        // initState), so a rename shows here — the argument is only the copy
+        // the membership carried.
+        if (_teamName.isNotEmpty || _coachProfile != null)
+          Text(
+              liveTeamName(
+                  coachProfile: _coachProfile,
+                  storedTeamName: _teamName,
+                  coachName: _coachName),
+              style: TextStyle(color: AppTheme.sub, fontSize: 12)),
       ]),
     ]),
   );
