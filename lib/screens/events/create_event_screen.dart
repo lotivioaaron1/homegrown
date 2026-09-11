@@ -17,6 +17,7 @@ import '../../widgets/player_avatar.dart';
 import '../profile/edit_profile_screen.dart';
 import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/team_name.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -604,16 +605,41 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   const SizedBox(height: 8),
                   Expanded(
                     child: filtered.isEmpty
-                        ? Center(child: Text('No $_sport teams found',
-                            style: TextStyle(color: AppTheme.muted, fontSize: 13)))
+                        // Says why and what has to happen, not just that the
+                        // list is empty: an event can't be made until some
+                        // coach has recruited players.
+                        ? Center(child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 28),
+                            child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              Text('No $_sport teams found',
+                                  style: TextStyle(color: AppTheme.textPrimary,
+                                      fontSize: 14, fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 6),
+                              Text(
+                                  search.text.trim().isNotEmpty
+                                      ? 'Try a different team or coach name.'
+                                      : 'Teams come from $_sport coaches. '
+                                          'Once a coach signs up and athletes '
+                                          'accept their invites, the team can '
+                                          'be picked here.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: AppTheme.muted,
+                                      fontSize: 12, height: 1.4)),
+                            ]),
+                          ))
                         : ListView.builder(
                             controller: ctrl,
                             itemCount: filtered.length,
                             itemBuilder: (_, i) {
                               final c = filtered[i];
                               final logoUrl = c['teamLogoUrl'] as String?;
-                              final teamName =
-                                  c['teamOrganization'] as String? ?? 'Unnamed Team';
+                              // "Coach {name}'s team" for a coach who never
+                              // named theirs — a blank name here became a
+                              // blank side on the event.
+                              final teamName = teamDisplayName(
+                                  teamOrganization:
+                                      c['teamOrganization'] as String?,
+                                  coachName: c['fullName'] as String?);
                               return ListTile(
                                 leading: Container(
                                   width: 40, height: 40,
@@ -1313,10 +1339,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         const _SectionLabel(label: 'Visibility'),
         const SizedBox(height: 8),
         Row(children: [
-          _Chip(label: '🌐  Public', sel: _isPublic,
+          // Plain labels, as on athlete sign-up: the selected chip's gold
+          // already shows the choice.
+          _Chip(label: 'Public', sel: _isPublic,
               onTap: () => setState(() => _isPublic = true)),
           const SizedBox(width: 8),
-          _Chip(label: '🔒  Private', sel: !_isPublic,
+          _Chip(label: 'Private', sel: !_isPublic,
               onTap: () => setState(() => _isPublic = false)),
         ]),
         const SizedBox(height: 20),
@@ -1346,7 +1374,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         _isLoading && !_isDraft
             ? const Center(child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2.5))
-            : _Btn(label: '🏆  Publish Event',
+            : _Btn(label: 'Publish Event',
                 onTap: () => _onPublish(draft: false)),
         const SizedBox(height: 12),
         _isLoading && _isDraft

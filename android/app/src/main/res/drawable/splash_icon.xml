@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Android 12+ launch-screen icon.
+
+     Why this exists at all: left to itself the system builds the launch icon
+     from @mipmap/ic_launcher, i.e. the 432px drawable-xxxhdpi launcher layer,
+     and scales it up to the 240dp splash canvas — about 960px on a 4x screen,
+     a 2.2x upscale, which is what made the mark look blurred on device. This
+     points at the 1024px master instead, so the same 240dp canvas is a
+     DOWNSCALE and the edges stay sharp.
+
+     Why the inset: the splash canvas is 240dp but only a 160dp circle of it is
+     visible (66.7%), while the master art spans 82% of its own canvas — it was
+     drawn for the launcher's larger safe area. Insetting 11% a side leaves the
+     mark at 0.82 x 0.78 = 0.64 of the canvas, inside the mask with a little
+     radial margin so it does not appear to graze it.
+
+     The inset is a percentage on android:inset, the same form the generated
+     mipmap-anydpi-v26/ic_launcher.xml uses. There are no insetLeftFraction /
+     insetTopFraction attributes — those do not exist and fail resource
+     linking; the ordinary inset attributes are what carry a fraction.
+
+     hg_splash_mark.png is a byte copy of assets/launcher_icon/foreground.png,
+     which tool/generate_launcher_icons.dart renders from the ConceptHG path
+     geometry. Regenerate that master and re-copy it if the mark ever changes;
+     nothing here derives from the launcher icon at build time. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/hg_splash_mark"
+    android:inset="11%" />

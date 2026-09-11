@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../services/storage_service.dart';
+import '../../constants/sport_icons.dart';
 import '../../constants/sport_positions.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/position_picker_sheet.dart';
@@ -16,6 +17,12 @@ import '../../utils/sports.dart';
 const _kRadius = 14.0;
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
 const List<String> _kExperience = ['<1 Yr', '1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
+// Coaches answer these at sign-up (coach_register_screen.dart). They used to
+// get the athlete list above here, so a coach who had said "5-10" or "10+"
+// found no chip lit and could only step down to "5+".
+const List<String> _kCoachExperience = [
+  '1-2 Yrs', '3-5 Yrs', '5-10 Yrs', '10+ Yrs'];
+const List<String> _kCoachLevels = ['Barangay', 'City', 'Provincial', 'National'];
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -41,6 +48,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _bioCtrl = TextEditingController();
   List<String> _sports = [];
   String _experience = '';
+  /// Coach only. Set at sign-up and, until this screen offered it, never
+  /// changeable afterwards.
+  String _coachingLevel = '';
   bool _openToRecruitment = false;
   String _role = '';
   List<String> _sportsOrganized = [];
@@ -51,6 +61,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   /// coach's Experience always loaded blank and saving it silently did nothing.
   String get _experienceField =>
       _role == 'coach' ? 'yearsOfExperience' : 'yearsOfPlaying';
+
+  /// The same split for the bio. Coach sign-up writes `coachingBio`, and that
+  /// is the field a coach's public profile shows athletes. This screen used to
+  /// edit `bio` for everyone, so a coach's edits never reached athletes — and
+  /// their own profile showed both texts.
+  String get _bioField => _role == 'coach' ? 'coachingBio' : 'bio';
 
   @override
   void initState() {
@@ -88,9 +104,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _heightCtrl.text = data['heightCm']?.toString() ?? '';
       _weightCtrl.text = data['weightKg']?.toString() ?? '';
       _barangay = data['barangay'] as String?;
-      _bioCtrl.text = data['bio'] as String? ?? '';
+      // Reads _role, like _experienceField below. A coach who edited their
+      // bio before the fix has it in `bio`; show that rather than an empty
+      // box if `coachingBio` is blank, so saving moves it where it belongs.
+      final bio = (data[_bioField] as String? ?? '').trim();
+      _bioCtrl.text =
+          bio.isNotEmpty ? bio : (data['bio'] as String? ?? '').trim();
       // Reads _role, which is assigned above — keep that ordering.
       _experience = data[_experienceField] as String? ?? '';
+      _coachingLevel = data['coachingLevel'] as String? ?? '';
       _openToRecruitment = data['openToRecruitment'] as bool? ?? false;
       _existingPhotoUrl = data['photoUrl'] as String?;
       _sports = sportsOf(data);
@@ -145,13 +167,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           'heightCm': _heightCtrl.text.trim(),
           'weightKg': _weightCtrl.text.trim(),
         },
-        'bio': _bioCtrl.text.trim(),
+        _bioField: _bioCtrl.text.trim(),
+        // Clears the stray copy a coach's earlier edits left in `bio`, so
+        // their own profile stops showing two different bios.
+        if (_role == 'coach') 'bio': FieldValue.delete(),
         'barangay': _barangay ?? '',
         // Organizers no longer see either of these fields, so saving their
         // profile shouldn't stamp athlete values onto their document —
         // registration never creates them, and nothing organizer-facing reads
         // them back.
         if (_role != 'organizer') _experienceField: _experience,
+        if (_role == 'coach' && _coachingLevel.isNotEmpty)
+          'coachingLevel': _coachingLevel,
         // Recruitment is an athlete-only signal; coaches and organizers don't
         // see the toggle, so don't write a field they can't control.
         if (_role == 'athlete') 'openToRecruitment': _openToRecruitment,
@@ -287,12 +314,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 8),
                 _buildBarangayPicker(),
                 const SizedBox(height: 14),
-                _label('Bio'),
+                // Named and sized as coach sign-up has it (200 characters),
+                // so a coach's existing bio is never longer than the box.
+                _label(_role == 'coach' ? 'Coaching Bio' : 'Bio'),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _bioCtrl,
                   maxLines: 3,
-                  maxLength: 160,
+                  maxLength: _role == 'coach' ? 200 : 160,
                   style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'A short line about yourself...',
@@ -385,11 +414,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: _kExperience
+                    children: (_role == 'coach'
+                            ? _kCoachExperience
+                            : _kExperience)
                         .map((e) => _chip(e, _experience == e,
                             () => setState(() => _experience = e)))
                         .toList(),
                   ),
+                  if (_role == 'coach') ...[
+                    const SizedBox(height: 20),
+                    Align(
+                        alignment: Alignment.centerLeft,
+                        child: _label('Coaching Level')),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _kCoachLevels
+                          .map((l) => _chip(l, _coachingLevel == l,
+                              () => setState(() => _coachingLevel = l)))
+                          .toList(),
+                    ),
+                  ],
                 ],
                 if (_role == 'organizer') ...[
                   const SizedBox(height: 20),
@@ -621,7 +667,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   color: hasValue ? AppTheme.accent : AppTheme.border,
                   width: 1.5)),
           child: Row(children: [
-            Icon(Icons.sports_basketball_outlined,
+            Icon(positionIcon(_position, _sports),
                 color: hasValue ? AppTheme.accent : AppTheme.muted, size: 20),
             const SizedBox(width: 12),
             Expanded(

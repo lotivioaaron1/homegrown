@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../constants/sport_icons.dart';
 import '../../constants/sport_positions.dart';
 import '../../services/contact_service.dart';
 import '../../theme/app_theme.dart';
@@ -16,7 +18,8 @@ import '../../utils/error_messages.dart';
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 const List<String> _kSports    = ['Basketball', 'Volleyball', 'Badminton'];
-const List<String> _kYears     = ['1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
+// Same list as athlete_register_screen.dart and edit_profile_screen.dart.
+const List<String> _kYears     = ['<1 Yr', '1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
 const List<String> _kLevels    = ['Barangay', 'City', 'Provincial', 'National'];
 const List<String> _kOrgTypes  = ['Barangay', 'School', 'Community',
     'Private', 'Government'];
@@ -117,9 +120,12 @@ class _GoogleProfileSetupScreenState
             _yearsOfPlaying.isNotEmpty;
       }
       if (_role == 'coach') {
+        // The team name is on every invite this coach sends — required, as
+        // in coach_register_screen.dart.
         return _coachSports.isNotEmpty &&
             _coachingLevel.isNotEmpty &&
-            _yearsOfExperience.isNotEmpty;
+            _yearsOfExperience.isNotEmpty &&
+            _teamOrgCtrl.text.trim().isNotEmpty;
       }
       if (_role == 'organizer') {
         return _orgNameCtrl.text.trim().isNotEmpty &&
@@ -314,10 +320,12 @@ class _GoogleProfileSetupScreenState
             const SizedBox(width: 12),
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Welcome, $_firstName! 👋', style: TextStyle(
+              Text('Welcome, $_firstName!', style: TextStyle(
                 color: AppTheme.accentText, fontSize: 14,
                 fontWeight: FontWeight.w800)),
-              Text('Let\'s set up your athlete profile',
+              // Not "athlete profile": the role hasn't been picked yet, and
+              // this same card greets coaches and organizers.
+              Text('Let\'s set up your Homegrown profile',
                   style: TextStyle(color: AppTheme.sub, fontSize: 12)),
             ])),
           ]),
@@ -335,8 +343,11 @@ class _GoogleProfileSetupScreenState
         const SizedBox(height: 24),
 
         // Role cards
+        // Same icon and colour per role as the email sign-up's role picker
+        // (register_screen.dart), so the two routes in look like one app.
         _RoleCard(
-          emoji:       '🏃',
+          icon:        LucideIcons.zap,
+          color:       const Color(0xFFFF8A34),
           title:       'Athlete',
           subtitle:    'I play sports and want to track my performance',
           isSelected:  _role == 'athlete',
@@ -344,7 +355,8 @@ class _GoogleProfileSetupScreenState
         ),
         const SizedBox(height: 12),
         _RoleCard(
-          emoji:       '🧢',
+          icon:        LucideIcons.binoculars,
+          color:       const Color(0xFF4AB3FF),
           title:       'Coach',
           subtitle:    'I coach athletes and want to discover talent',
           isSelected:  _role == 'coach',
@@ -352,7 +364,8 @@ class _GoogleProfileSetupScreenState
         ),
         const SizedBox(height: 12),
         _RoleCard(
-          emoji:       '📋',
+          icon:        LucideIcons.calendarDays,
+          color:       const Color(0xFF5FE0A0),
           title:       'Organizer',
           subtitle:    'I organize events and manage competitions',
           isSelected:  _role == 'organizer',
@@ -385,7 +398,7 @@ class _GoogleProfileSetupScreenState
     return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _SectionHeader(emoji: '🏃', title: 'Athlete Details',
+        const _SectionHeader(icon: LucideIcons.zap, title: 'Athlete Details',
             subtitle: 'Tell us about your sport'),
         const SizedBox(height: 20),
 
@@ -396,7 +409,7 @@ class _GoogleProfileSetupScreenState
           onTap: _pickBarangay),
         const SizedBox(height: 16),
 
-        const _Label('Primary Sport(s)'),
+        const _Label('Sports you play'),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
@@ -418,6 +431,7 @@ class _GoogleProfileSetupScreenState
         const SizedBox(height: 8),
         _PositionButton(
           value: _position,
+          icon: positionIcon(_position, _selectedSports),
           hasSport: _selectedSports.isNotEmpty,
           onTap: _pickPosition),
         const SizedBox(height: 16),
@@ -457,10 +471,11 @@ class _GoogleProfileSetupScreenState
         const _Label('Open to Recruitment'),
         const SizedBox(height: 8),
         Row(children: [
-          _Chip(label: '✅  Yes', sel: _openToRecruitment,
+          // Same wording as athlete_register_screen.dart.
+          _Chip(label: 'Yes, recruit me', sel: _openToRecruitment,
               onTap: () => setState(() => _openToRecruitment = true)),
           const SizedBox(width: 8),
-          _Chip(label: '❌  Not now', sel: !_openToRecruitment,
+          _Chip(label: 'Not now', sel: !_openToRecruitment,
               onTap: () => setState(() => _openToRecruitment = false)),
         ]),
         const SizedBox(height: 32),
@@ -478,7 +493,7 @@ class _GoogleProfileSetupScreenState
     return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _SectionHeader(emoji: '🧢', title: 'Coaching Info',
+        const _SectionHeader(icon: LucideIcons.binoculars, title: 'Coaching Info',
             subtitle: 'Tell us about your coaching experience'),
         const SizedBox(height: 20),
 
@@ -519,7 +534,7 @@ class _GoogleProfileSetupScreenState
                     setState(() => _yearsOfExperience = y))).toList()),
         const SizedBox(height: 16),
 
-        const _Label('Team / Organization (Optional)'),
+        const _Label('Team / Organization'),
         const SizedBox(height: 8),
         _Field(ctrl: _teamOrgCtrl,
             hint: 'e.g. Legazpi City Basketball Team',
@@ -539,7 +554,8 @@ class _GoogleProfileSetupScreenState
     return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _SectionHeader(emoji: '📋', title: 'Organization Info',
+        const _SectionHeader(icon: LucideIcons.calendarDays,
+            title: 'Organization Info',
             subtitle: 'Tell us about your organization'),
         const SizedBox(height: 20),
 
@@ -588,12 +604,15 @@ class _GoogleProfileSetupScreenState
 // ─────────────────────────────────────────────
 
 class _RoleCard extends StatelessWidget {
-  final String emoji, title, subtitle;
+  final IconData icon;
+  /// The role's own colour, as on the email sign-up's role picker.
+  final Color color;
+  final String title, subtitle;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _RoleCard({required this.emoji, required this.title,
-      required this.subtitle, required this.isSelected,
+  const _RoleCard({required this.icon, required this.color,
+      required this.title, required this.subtitle, required this.isSelected,
       required this.onTap});
 
   @override
@@ -612,10 +631,11 @@ class _RoleCard extends StatelessWidget {
         Container(
           width: 48, height: 48,
           decoration: BoxDecoration(
-            color: isSelected ? AppTheme.accent : AppTheme.cardNested,
+            color: isSelected
+                ? AppTheme.accent : color.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(14)),
-          child: Center(child: Text(emoji,
-              style: const TextStyle(fontSize: 22)))),
+          child: Center(child: Icon(icon,
+              color: isSelected ? AppTheme.buttonFg : color, size: 22))),
         const SizedBox(width: 14),
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -635,9 +655,12 @@ class _RoleCard extends StatelessWidget {
   );
 }
 
+/// Same shape as the email sign-ups' step headers, with an icon rather than
+/// the emoji it used to carry.
 class _SectionHeader extends StatelessWidget {
-  final String emoji, title, subtitle;
-  const _SectionHeader({required this.emoji, required this.title,
+  final IconData icon;
+  final String title, subtitle;
+  const _SectionHeader({required this.icon, required this.title,
       required this.subtitle});
   @override
   Widget build(BuildContext context) => Row(children: [
@@ -645,8 +668,7 @@ class _SectionHeader extends StatelessWidget {
       decoration: BoxDecoration(color: AppTheme.card,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppTheme.border)),
-      child: Center(child: Text(emoji,
-          style: const TextStyle(fontSize: 20)))),
+      child: Center(child: Icon(icon, color: AppTheme.accent, size: 20))),
     const SizedBox(width: 14),
     Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(title, style: TextStyle(color: AppTheme.textPrimary,
@@ -708,10 +730,12 @@ class _BarangayButton extends StatelessWidget {
 /// nothing to show until at least one sport is selected above.
 class _PositionButton extends StatelessWidget {
   final String value;
+  /// The sport's own glyph — see positionIcon. Was always a basketball.
+  final IconData icon;
   final bool hasSport;
   final VoidCallback onTap;
-  const _PositionButton(
-      {required this.value, required this.hasSport, required this.onTap});
+  const _PositionButton({required this.value, required this.icon,
+      required this.hasSport, required this.onTap});
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: hasSport ? onTap : null,
@@ -724,7 +748,7 @@ class _PositionButton extends StatelessWidget {
           color: value.isNotEmpty ? AppTheme.accent : AppTheme.border,
           width: 1.5)),
       child: Row(children: [
-        Icon(Icons.sports_basketball_outlined,
+        Icon(icon,
           color: value.isNotEmpty ? AppTheme.accent : AppTheme.muted,
           size: 20),
         const SizedBox(width: 12),

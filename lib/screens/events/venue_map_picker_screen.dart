@@ -145,10 +145,16 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
               Text(
                 _tapped == null
                     ? "Tap the map to set this venue's location"
+                    // "No address found" would be a lie in a keyless build:
+                    // nothing was ever asked, because _onTap skips the lookup
+                    // when the key is missing. Say which of the two it is.
                     : (_isResolving
                         ? 'Looking up address...'
                         : (_address ??
-                            'No address found — will use coordinates only')),
+                            (MapsConfig.isConfigured
+                                ? 'No address found — will use coordinates only'
+                                : '${MapsConfig.missingKeyMessage} '
+                                    'Using coordinates only.'))),
                 style: TextStyle(color: AppTheme.textPrimary, fontSize: 13),
               ),
               const SizedBox(height: 12),

@@ -4,12 +4,15 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../constants/query_limits.dart';
 import '../../models/tournament.dart';
 import '../../services/rating_service.dart';
 import '../../services/tournament_service.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/event_history.dart';
+import '../../utils/firestore_helpers.dart';
 
 const _kSideA = 'A';
 const _kSideB = 'B';
@@ -107,12 +110,62 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     return scoreA != scoreB;
   }
 
-  /// A bracket result is confirmed before it is written, because advancing
-  /// a team is not reversible; an ordinary match goes straight through, as
-  /// it always has.
+  /// Every result is confirmed before it is written. A bracket result also
+  /// advances a team, which has its own dialog; an ordinary match used to go
+  /// straight through, but it is just as permanent — once recorded the event
+  /// can no longer be deleted, and the score is what every player's rating is
+  /// later updated from — so a mistyped score deserves the same chance to be
+  /// caught.
   Future<void> _onSubmitPressed() async {
-    if (_isBracketMatch && !await _confirmAdvance()) return;
+    if (_isBracketMatch) {
+      if (!await _confirmAdvance()) return;
+    } else if (!await _confirmRecord()) {
+      return;
+    }
     await _submit();
+  }
+
+  /// The name of one side of the selected event, or "Team A"/"Team B" when the
+  /// event has none (older events, or a coach who never named the team).
+  String _sideName(String side) {
+    final name = (_selectedEvent?[side == _kSideA ? 'teamAName' : 'teamBName']
+                as String? ??
+            '')
+        .trim();
+    return name.isNotEmpty ? name : 'Team $side';
+  }
+
+  Future<bool> _confirmRecord() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Record this result?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            '${_sideName(_kSideA)} ${_scoreACtrl.text.trim()} — '
+            '${_scoreBCtrl.text.trim()} ${_sideName(_kSideB)}\n\n'
+            "Check the score: it can't be changed after this, and it decides "
+            "every player's rating.",
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text('Back',
+                style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Record',
+                style: TextStyle(color: AppTheme.accent, fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
   }
 
   Future<void> _submit() async {
@@ -360,12 +413,16 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           return const Center(child: CircularProgressIndicator(
               color: AppTheme.accent, strokeWidth: 2.5));
         }
-        final docs = snapshot.data?.docs ?? [];
+        // The game that just ended first — it is the one being recorded. The
+        // query's 'upcoming' status is only ever the creation-time value, so
+        // this list has always held finished games too.
+        final docs = eventsForResults(snapshot.data?.docs ?? [],
+            data: (d) => d.data() as Map<String, dynamic>);
         if (docs.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: Text('No upcoming events to record a match for',
+              child: Text('No events to record a match for yet',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppTheme.sub, fontSize: 14)),
             ),
@@ -396,7 +453,16 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
                         style: TextStyle(color: AppTheme.textPrimary,
                             fontSize: 14, fontWeight: FontWeight.w700)),
                       const SizedBox(height: 3),
-                      Text('${ev['sport']} · ${ev['playerCount']} players',
+                      // The date, so two events with similar names can be
+                      // told apart.
+                      Text(
+                        [
+                          ev['sport'] as String? ?? '',
+                          if (asTimestamp(ev['eventDate']) != null)
+                            DateFormat('MMM d')
+                                .format(asTimestamp(ev['eventDate'])!.toDate()),
+                          '${ev['playerCount'] ?? 0} players',
+                        ].where((s) => s.isNotEmpty).join(' · '),
                         style: TextStyle(color: AppTheme.sub, fontSize: 11)),
                     ],
                   )),
@@ -417,7 +483,9 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Tap each player to assign them to a side',
+        // Says which letter is which team — the chips are only "A" and "B".
+        Text('Tap A for ${_sideName(_kSideA)} or B for ${_sideName(_kSideB)}. '
+            'Leave out anyone who sat out.',
           style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         const SizedBox(height: 12),
         ...players.map((p) => _buildPlayerRow(p)),
@@ -426,9 +494,12 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         Row(children: [
-          Expanded(child: _scoreField('Side A', _scoreACtrl)),
+          // The real team names, not "Side A"/"Side B" — the easiest way to
+          // enter a score the wrong way round was not knowing which box was
+          // which team.
+          Expanded(child: _scoreField(_sideName(_kSideA), _scoreACtrl)),
           const SizedBox(width: 12),
-          Expanded(child: _scoreField('Side B', _scoreBCtrl)),
+          Expanded(child: _scoreField(_sideName(_kSideB), _scoreBCtrl)),
         ]),
         const SizedBox(height: 28),
         _isSaving

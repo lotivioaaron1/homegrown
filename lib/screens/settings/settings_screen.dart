@@ -11,6 +11,8 @@ import '../../utils/onboarding_flag.dart';
 import '../../controllers/auth_controller.dart';
 import '../../controllers/theme_controller.dart';
 import '../../services/ranking_service.dart';
+import '../../utils/leaderboard_ranks.dart';
+import '../../utils/profile_format.dart';
 import '../profile/edit_profile_screen.dart';
 
 /// Everything that used to sit on the profile screen: Edit Profile,
@@ -187,8 +189,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         '—';
     final position = data['position'] as String? ?? '—';
     final years = data['yearsOfPlaying'] as String? ?? '—';
-    final height = data['heightCm'] as String? ?? '—';
-    final weight = data['weightKg'] as String? ?? '—';
+    final height = formatMeasure(data['heightCm'], 'cm');
+    final weight = formatMeasure(data['weightKg'], 'kg');
     final barangay = data['barangay'] as String? ?? '—';
     final isOpen = data['openToRecruitment'] as bool? ?? false;
     final bio = data['bio'] as String? ?? '';
@@ -221,7 +223,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: LucideIcons.ruler,
               iconBg: AppTheme.cardNested,
               label: 'Height / Weight',
-              value: '${height}cm / ${weight}kg'),
+              value: '$height / $weight'),
           _infoRow(
               icon: LucideIcons.mapPin,
               iconBg: AppTheme.cardNested,
@@ -245,9 +247,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildStatsSection(Map<String, dynamic> data) {
     final pts = _toInt(data['points']);
     return FutureBuilder<int>(
-      future: _cityRankFuture(pts),
+      // No rank to look up on zero points — see cityRankLabel.
+      future: pts > 0 ? _cityRankFuture(pts) : null,
       builder: (context, rankSnap) {
-        final rank = rankSnap.hasData ? '#${rankSnap.data}' : '#—';
+        final rank = pts > 0
+            ? cityRankLabel(points: pts, rank: rankSnap.data)
+            : 'Unranked';
         return FutureBuilder<int>(
           future: _gamesPlayedFuture(),
           builder: (context, snap) {

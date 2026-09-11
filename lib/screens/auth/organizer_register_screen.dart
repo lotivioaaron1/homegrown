@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
@@ -17,6 +18,7 @@ import '../../utils/auth_routing.dart';
 import '../../utils/registration_rollback.dart';
 import '../../services/storage_service.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/onboarding_flag.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
@@ -189,6 +191,9 @@ class _OrganizerRegisterScreenState
           );
         },
       );
+      // So a later sign-out lands on /login instead of replaying the intro —
+      // see athlete_register_screen.dart.
+      await markOnboardingComplete();
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
 
@@ -319,7 +324,8 @@ class _OrganizerRegisterScreenState
       child: Form(key: _step1Key,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          const _StepHeader(emoji: '📋', title: 'Organizer Sign Up',
+          const _StepHeader(icon: LucideIcons.calendarDays,
+              title: 'Organizer Sign Up',
               subtitle: 'Step 1 of 3 — Personal info'),
           const SizedBox(height: 24),
           Row(children: [
@@ -412,6 +418,7 @@ class _OrganizerRegisterScreenState
               }
               return null;
             }),
+          const _PasswordHint(),
           const SizedBox(height: 12),
           _Field(ctrl: _confirmCtrl, hint: 'Confirm Password',
             icon: Icons.lock_outline_rounded,
@@ -448,7 +455,7 @@ class _OrganizerRegisterScreenState
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-        const _StepHeader(emoji: '🏢', title: 'Organization',
+        const _StepHeader(icon: LucideIcons.building2, title: 'Organization',
             subtitle: 'Step 2 of 3 — Organization details'),
         const SizedBox(height: 24),
         const _SectionLabel(label: 'Organization Name'),
@@ -490,7 +497,7 @@ class _OrganizerRegisterScreenState
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-        const _StepHeader(emoji: '🪪', title: 'Profile',
+        const _StepHeader(icon: LucideIcons.idCard, title: 'Profile',
             subtitle: 'Step 3 of 3 — Photo, bio & credentials'),
         const SizedBox(height: 24),
         // Your public avatar — distinct from the verification document
@@ -606,8 +613,8 @@ class _SuccessView extends StatelessWidget {
           decoration: BoxDecoration(color: AppTheme.accentSurface,
               shape: BoxShape.circle,
               border: Border.all(color: AppTheme.accent, width: 2)),
-          child: const Center(child: Text('⏳',
-              style: TextStyle(fontSize: 48)))),
+          child: const Center(child: Icon(LucideIcons.hourglass,
+              color: AppTheme.accent, size: 46))),
         const SizedBox(height: 32),
         Text('Account Created!', textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.textPrimary, fontSize: 26,
@@ -633,9 +640,12 @@ class _SuccessView extends StatelessWidget {
 
 // ── Shared widgets ────────────────────────────────────────────
 
+/// An icon rather than the emoji it used to carry — see
+/// athlete_register_screen.dart.
 class _StepHeader extends StatelessWidget {
-  final String emoji, title, subtitle;
-  const _StepHeader({required this.emoji, required this.title,
+  final IconData icon;
+  final String title, subtitle;
+  const _StepHeader({required this.icon, required this.title,
       required this.subtitle});
   @override
   Widget build(BuildContext context) => Row(children: [
@@ -643,8 +653,7 @@ class _StepHeader extends StatelessWidget {
       decoration: BoxDecoration(color: AppTheme.card,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppTheme.border)),
-      child: Center(child: Text(emoji,
-          style: const TextStyle(fontSize: 20)))),
+      child: Center(child: Icon(icon, color: AppTheme.accent, size: 20))),
     const SizedBox(width: 14),
     Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(title, style: TextStyle(color: AppTheme.textPrimary,
@@ -661,6 +670,19 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(label,
     style: TextStyle(color: AppTheme.textPrimary,
         fontSize: 13, fontWeight: FontWeight.w700));
+}
+
+/// The password rules, stated before the user types rather than revealed one
+/// failed validation at a time. Must match the validator above it.
+class _PasswordHint extends StatelessWidget {
+  const _PasswordHint();
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+    child: Text(
+      'At least 8 characters, with one capital letter and one number.',
+      style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+  );
 }
 
 class _Chip extends StatelessWidget {

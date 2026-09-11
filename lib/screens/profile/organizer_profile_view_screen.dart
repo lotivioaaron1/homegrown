@@ -143,12 +143,21 @@ class OrganizerProfileViewScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name,
-                    style: TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.3)),
+                Row(children: [
+                  // Flexible + ellipsis so a long organization name truncates
+                  // rather than pushing the tick off the edge.
+                  Flexible(
+                    child: Text(name,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.3)),
+                  ),
+                  OrganizerVerifiedTick(
+                      status: org['organizerStatus'] as String?),
+                ]),
                 if (subtitle.isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(subtitle,

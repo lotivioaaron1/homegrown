@@ -10,6 +10,7 @@ import '../../models/report.dart';
 import '../../services/media_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/profile_format.dart';
 import '../../utils/sports.dart';
 import '../../widgets/athlete_profile_parts.dart';
 import '../../widgets/photo_viewer_dialog.dart';
@@ -101,8 +102,8 @@ class AthleteProfileViewScreen extends StatelessWidget {
     final position = athlete['position'] as String? ?? '—';
     final barangay = athlete['barangay'] as String? ?? '—';
     final years = athlete['yearsOfPlaying'] as String? ?? '—';
-    final height = athlete['heightCm']?.toString() ?? '—';
-    final weight = athlete['weightKg']?.toString() ?? '—';
+    final height = formatMeasure(athlete['heightCm'], 'cm');
+    final weight = formatMeasure(athlete['weightKg'], 'kg');
     final bio = athlete['bio'] as String? ?? '';
     final sports = sportsOf(athlete);
     final isOpen = athlete['openToRecruitment'] as bool? ?? false;
@@ -186,9 +187,9 @@ class AthleteProfileViewScreen extends StatelessWidget {
           const SizedBox(width: 8),
           ProfileStatBox(value: years, label: 'Experience'),
           const SizedBox(width: 8),
-          ProfileStatBox(value: '${height}cm', label: 'Height'),
+          ProfileStatBox(value: height, label: 'Height'),
           const SizedBox(width: 8),
-          ProfileStatBox(value: '${weight}kg', label: 'Weight'),
+          ProfileStatBox(value: weight, label: 'Weight'),
         ]),
 
         const SizedBox(height: 18),

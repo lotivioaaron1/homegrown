@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
@@ -25,6 +26,7 @@ import 'screens/auth/coach_register_screen.dart';
 import 'screens/auth/organizer_register_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/events/create_event_screen.dart';
+import 'screens/events/my_events_screen.dart';
 import 'screens/events/record_match_screen.dart';
 import 'screens/events/event_detail_screen.dart';
 import 'screens/events/edit_teams_screen.dart';
@@ -47,6 +49,7 @@ import 'screens/settings/delete_account_screen.dart';
 import 'controllers/auth_controller.dart';
 import 'controllers/theme_controller.dart';
 import 'services/connectivity_service.dart';
+import 'utils/crash_classification.dart';
 import 'widgets/no_internet_overlay.dart';
 
 void main() async {
@@ -92,7 +95,14 @@ Future<void> _initCrashReporting() async {
 
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
-    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    // A failed image load is filed as non-fatal: the widget falls back to
+    // initials and the app carries on, so counting it as a crash only buried
+    // the real ones — see crash_classification.dart.
+    if (isFatalFlutterError(details.library)) {
+      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    } else {
+      FirebaseCrashlytics.instance.recordFlutterError(details);
+    }
   };
 
   // Errors from the engine itself, outside the Flutter framework.
@@ -119,7 +129,9 @@ class _StartupFailureApp extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('📡', style: TextStyle(fontSize: 48)),
+                // The same dish as the offline screen (no_internet_overlay).
+                Icon(LucideIcons.satelliteDish,
+                    color: Colors.white.withValues(alpha: 0.6), size: 46),
                 const SizedBox(height: 20),
                 const Text(
                   "Homegrown couldn't start",
@@ -187,6 +199,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/register/coach',     page: () => const CoachRegisterScreen()),
         GetPage(name: '/register/organizer', page: () => const OrganizerRegisterScreen()),
         GetPage(name: '/home',               page: () => const HomeScreen()),
+        GetPage(name: '/events',             page: () => const MyEventsScreen()),
         GetPage(name: '/events/create',      page: () => const CreateEventScreen()),
         GetPage(name: '/events/detail',      page: () => const EventDetailScreen()),
         GetPage(name: '/events/edit-teams',  page: () => const EditTeamsScreen()),

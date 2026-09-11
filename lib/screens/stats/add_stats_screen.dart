@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../services/notification_service.dart';
 import '../../services/rating_service.dart';
 import '../../services/team_service.dart';
+import '../../utils/event_history.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/stat_scoring.dart';
 import '../../utils/error_messages.dart';
@@ -347,18 +348,17 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         if (docs.isEmpty) {
           return _EmptyState(
             icon: Icons.event_busy_outlined,
-            title: 'No upcoming events',
+            title: 'No events yet',
             subtitle: 'Create an event first before adding stats',
             actionLabel: 'Create Event',
             onAction: () => Get.toNamed('/events/create'),
           );
         }
-        final events = docs.toList()..sort((a, b) {
-          final aT = asTimestamp((a.data() as Map)['eventDate']);
-          final bT = asTimestamp((b.data() as Map)['eventDate']);
-          if (aT == null || bT == null) return 0;
-          return aT.compareTo(bT);
-        });
+        // Most recently played first: stats are entered after a game, and
+        // this used to list oldest first, so the game that had just ended
+        // sat at the bottom. See eventsForResults.
+        final events = eventsForResults(docs,
+            data: (d) => d.data() as Map<String, dynamic>);
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
           itemCount: events.length + 1,
@@ -367,7 +367,9 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
             if (i == 0) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Text('Your Upcoming Events',
+                // Not "Upcoming": finished games are listed here too, and they
+                // are the ones stats are for.
+                child: Text('Your Events',
                   style: TextStyle(color: AppTheme.sub, fontSize: 12,
                       fontWeight: FontWeight.w600, letterSpacing: 0.5)),
               );
@@ -651,7 +653,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: AppTheme.accent)),
               child: Row(children: [
-                const Text('⭐', style: TextStyle(fontSize: 20)),
+                const Icon(Icons.star_rounded, color: AppTheme.accent, size: 22),
                 const SizedBox(width: 12),
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('Points to be Awarded', style: TextStyle(
@@ -771,7 +773,8 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     Row(children: [
       Expanded(child: GestureDetector(
         onTap: () => set(() { _matchWon = true; setState(() {}); }),
-        child: _resultTile('Win 🏆', _matchWon, true),
+        // "Win", matching the plain "Loss" beside it.
+        child: _resultTile('Win', _matchWon, true),
       )),
       const SizedBox(width: 10),
       Expanded(child: GestureDetector(

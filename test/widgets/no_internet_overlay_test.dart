@@ -19,6 +19,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:homegrown/services/connectivity_service.dart';
 import 'package:homegrown/widgets/no_internet_overlay.dart';
 
@@ -103,7 +104,9 @@ void main() {
       service.isConnected.value = false;
       await tester.pumpAndSettle();
 
-      expect(find.text('📡'), findsOneWidget);
+      // The dish is now a Lucide icon rather than the 📡 emoji — the same
+      // element, drawn from the app's icon set.
+      expect(find.byIcon(LucideIcons.satelliteDish), findsOneWidget);
       expect(find.text('Check your Wi-Fi connection'), findsOneWidget);
       expect(find.text('Check your mobile data'), findsOneWidget);
       expect(find.text('Make sure Airplane mode is off'), findsOneWidget);

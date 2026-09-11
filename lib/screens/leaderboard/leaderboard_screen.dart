@@ -12,7 +12,9 @@ import '../../utils/elo_calculator.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/leaderboard_ranks.dart';
 import '../../utils/sports.dart';
+import '../../widgets/points_explainer_sheet.dart';
 import '../../widgets/skeleton.dart';
 
 const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
@@ -105,6 +107,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           _buildTopBar(),
           _buildSearchBar(),
           _buildFilterRow(),
+          _buildRankingBasis(),
           Expanded(child: _buildList()),
         ]),
       ),
@@ -206,6 +209,79 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
+  /// Says what the numbers are. The All view ranks by Homegrown points and a
+  /// sport filter by match rating, and the switch between the two used to
+  /// happen without a word — a new athlete could jump from #12 to #1 just by
+  /// tapping a chip.
+  Widget _buildRankingBasis() => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => showPointsExplainerSheet(context),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+          child: Row(children: [
+            Icon(LucideIcons.info, color: AppTheme.muted, size: 13),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                  _filter == 'All'
+                      ? 'Ranked by total Homegrown points'
+                      : 'Ranked by $_filter match rating',
+                  style: TextStyle(
+                      color: AppTheme.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600)),
+            ),
+            Text('How it works',
+                style: TextStyle(
+                    color: AppTheme.accentText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      );
+
+  /// Shown in place of the podium when nobody on the board has earned a rank.
+  Widget _buildNoRanksYet() => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppTheme.border)),
+        child: Row(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+                color: AppTheme.accentSurface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.accent)),
+            child: const Icon(LucideIcons.crown,
+                color: AppTheme.accent, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                      _filter == 'All'
+                          ? 'No recorded games yet'
+                          : 'No rated $_filter matches yet',
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(
+                      'Rankings start after the first match an organizer '
+                      'records. Everyone is unranked until then.',
+                      style: TextStyle(
+                          color: AppTheme.sub, fontSize: 12, height: 1.4)),
+                ]),
+          ),
+        ]),
+      );
+
   Widget _buildList() {
     return StreamBuilder<QuerySnapshot>(
       stream: _athleteStream(),
@@ -231,7 +307,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             .map((d) => d.data() as Map<String, dynamic>)
             .where(isListableProfile)
             .toList()
-          ..sort((a, b) => _rankValue(b).compareTo(_rankValue(a)));
+          ..sort(_compareAthletes);
 
         // Checked after that filter rather than on `docs`: a board holding
         // nothing but deleted profiles is empty, and saying so beats
@@ -240,8 +316,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           return _buildEmpty(
             icon: LucideIcons.trophy,
             title: 'No athletes yet',
+            // Addressed to whoever is looking — usually an athlete — rather
+            // than to an admin who can "register athletes".
             subtitle: _filter == 'All'
-                ? 'Register athletes to see rankings'
+                ? 'Athletes appear here once they sign up'
                 : 'No $_filter athletes found');
         }
 
@@ -253,19 +331,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         // someone they are #2 when they are #37.
         //
         // Equal scores share a rank and consume the numbers behind them
-        // (1, 2, 2, 4). Ties are the ordinary case rather than the exception
-        // here: under a sport filter every athlete who has never been rated
-        // sits on kStartingRating, and in the All view every athlete who has
-        // never scored sits on zero. Numbering those sequentially invents an
-        // ordering the data doesn't have. It also lines the board up with
-        // RankingService.cityRank, which already ranks by counting the
-        // athletes strictly ahead of you.
-        final ranked = <(int, Map<String, dynamic>)>[];
-        for (var i = 0; i < athletes.length; i++) {
-          final tiedWithPrevious =
-              i > 0 && _rankValue(athletes[i]) == _rankValue(athletes[i - 1]);
-          ranked.add((tiedWithPrevious ? ranked[i - 1].$1 : i + 1, athletes[i]));
-        }
+        // (1, 2, 2, 4), which lines the board up with RankingService.cityRank.
+        //
+        // Athletes with nothing recorded — no points in the All view, no
+        // rating in a filtered sport — get no rank at all (null, shown "—").
+        // They used to be numbered too, and because they all sit on the same
+        // value they all tied for first: with no stats recorded yet, the
+        // whole city was "#1". See leaderboard_ranks.dart.
+        final ranks = assignRanks(athletes,
+            valueOf: _rankValue, isUnranked: _isUnranked);
+        final ranked = <(int?, Map<String, dynamic>)>[
+          for (var i = 0; i < athletes.length; i++) (ranks[i], athletes[i]),
+        ];
 
         final matches = searching
             ? ranked.where((r) {
@@ -285,18 +362,24 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         // A podium built from search results would crown whoever happens to
         // match first, so it is dropped for the duration of a search and the
         // matches render as one flat, truly-ranked list.
-        final top3 = searching
-            ? const <(int, Map<String, dynamic>)>[]
-            : matches.take(3).toList();
-        final rest = searching
-            ? matches
-            : (matches.length > 3 ? matches.sublist(3) : const []);
+        //
+        // Only ranked athletes can stand on it. They sort first, so the podium
+        // is the leading run of ranked entries, up to three — possibly none,
+        // in which case a note explains why the board has no leaders yet.
+        final podiumCount = searching
+            ? 0
+            : matches.takeWhile((r) => r.$1 != null).take(3).length;
+        final top3 = [
+          for (final r in matches.take(podiumCount)) (r.$1!, r.$2),
+        ];
+        final rest = matches.sublist(podiumCount);
+        final nobodyRanked = !searching && ranks.every((r) => r == null);
 
         // Position in the sorted board, which is no longer `rank - 1` now that
         // tied athletes share a number — the banner needs the index to read the
         // right athlete, and the rank only to print it.
         final myIndex = athletes.indexWhere((a) => a['uid'] == _uid);
-        final myRank = myIndex >= 0 ? ranked[myIndex].$1 : 0;
+        final myRank = myIndex >= 0 ? ranks[myIndex] : null;
 
         return StreamBuilder<DocumentSnapshot>(
           stream: _viewerDoc(),
@@ -315,6 +398,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 children: [
+                  if (nobodyRanked) ...[
+                    _buildNoRanksYet(),
+                    const SizedBox(height: 16),
+                  ],
                   if (top3.isNotEmpty) ...[
                     _buildPodium(top3),
                     const SizedBox(height: 20),
@@ -322,8 +409,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   // Keyed off the index rather than the rank: with ties a
                   // fourth-placed athlete can still be holding rank 1, and
                   // `myRank > 3` would then hide the banner for someone who
-                  // isn't on the podium.
-                  if (!searching && role == 'athlete' && myIndex >= 3) ...[
+                  // isn't on the podium. Skipped when nobody is ranked — the
+                  // note above already says it, for everyone at once.
+                  if (!searching && !nobodyRanked && role == 'athlete' &&
+                      myIndex >= podiumCount) ...[
                     _buildMyRankBanner(myRank, athletes[myIndex]),
                     const SizedBox(height: 16),
                   ],
@@ -488,8 +577,17 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   /// Tappable like every other person on this board — here it opens your own
   /// profile, which is the only way to see it the way a scouting coach does.
-  Widget _buildMyRankBanner(int rank, Map<String, dynamic> athlete) {
+  ///
+  /// [rank] is null while the viewer has nothing recorded on this board.
+  Widget _buildMyRankBanner(int? rank, Map<String, dynamic> athlete) {
     final pts = _rankValue(athlete);
+    final detail = rank == null
+        ? (_filter == 'All'
+            ? 'Unranked · play a recorded game to get ranked'
+            : 'Unranked in $_filter · no rated matches yet')
+        : (_filter == 'All'
+            ? '$pts points earned so far'
+            : '$pts $_unitLabel rating');
     return GestureDetector(
       onTap: () => _showAthleteProfile(athlete),
       child: Container(
@@ -504,7 +602,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             decoration: BoxDecoration(
               color: AppTheme.accent,
               borderRadius: BorderRadius.circular(10)),
-            child: Center(child: Text('$rank', style: const TextStyle(
+            child: Center(child: Text(rank == null ? '—' : '$rank',
+              style: const TextStyle(
               color: AppTheme.buttonFg, fontSize: 14, fontWeight: FontWeight.w900))),
           ),
           const SizedBox(width: 12),
@@ -513,7 +612,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               Text('Your Rank', style: TextStyle(
                 color: AppTheme.muted, fontSize: 10, fontWeight: FontWeight.w600)),
               Text(
-                _filter == 'All' ? '$pts points earned so far' : '$pts $_unitLabel rating',
+                detail,
                 style: TextStyle(
                 color: AppTheme.accentText, fontSize: 12, fontWeight: FontWeight.w600)),
             ])),
@@ -525,8 +624,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
+  /// [rank] is null for an athlete with nothing recorded on this board.
   Widget _buildRow({
-    required int rank,
+    required int? rank,
     required Map<String, dynamic> athlete,
     required bool isLast,
     required bool isMe,
@@ -574,7 +674,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(children: [
-            SizedBox(width: 24, child: Text('$rank', style: TextStyle(
+            SizedBox(width: 24, child: Text(rank == null ? '—' : '$rank',
+              style: TextStyle(
               color: isMe ? AppTheme.accent : AppTheme.muted,
               fontSize: 13, fontWeight: FontWeight.w800))),
             const SizedBox(width: 8),
@@ -636,10 +737,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 Text(isOpen ? '✓ Open' : '✕ Closed',
                   style: TextStyle(
                     color: isOpen ? AppTheme.success : AppTheme.muted,
-                    fontSize: 9, fontWeight: FontWeight.w700)),
+                    fontSize: 11, fontWeight: FontWeight.w700)),
               if (!isCoach && isMe)
                 Text(_unitLabel, style: TextStyle(
-                  color: AppTheme.muted, fontSize: 9)),
+                  color: AppTheme.muted, fontSize: 11)),
             ]),
             const SizedBox(width: 6),
             Icon(LucideIcons.chevronRight, color: AppTheme.muted, size: 18),
@@ -690,6 +791,31 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     if (val is int) return val;
     if (val is double) return val.toInt();
     return 0;
+  }
+
+  /// Whether [athlete] has earned a place on the current board: any points in
+  /// the All view, or a recorded rating in the filtered sport. A missing
+  /// rating is read as kStartingRating by [_rankValue], which is right for
+  /// display but would otherwise tie every unrated athlete for first.
+  bool _isUnranked(Map<String, dynamic> athlete) {
+    if (_filter == 'All') return _toInt(athlete['points']) <= 0;
+    final ratings = athlete['ratings'] as Map?;
+    return ratings?[RatingService.sportKey(_filter)] == null;
+  }
+
+  /// Ranked athletes first, best first. Unranked ones follow in name order,
+  /// so the tail of the board is stable instead of in whatever order
+  /// Firestore returned it.
+  int _compareAthletes(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final aUnranked = _isUnranked(a);
+    final bUnranked = _isUnranked(b);
+    if (aUnranked != bUnranked) return aUnranked ? 1 : -1;
+    if (aUnranked) {
+      return _displayName(a)
+          .toLowerCase()
+          .compareTo(_displayName(b).toLowerCase());
+    }
+    return _rankValue(b).compareTo(_rankValue(a));
   }
 
   /// The number this leaderboard ranks and displays by: the sport's Elo

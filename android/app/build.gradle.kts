@@ -46,6 +46,11 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Required by flutter_local_notifications (v10+), which uses
+        // java.time to schedule event reminders and desugars it for older
+        // Android versions. The plugin fails to build without this even for
+        // apps that never schedule anything, so it is not optional.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -92,4 +97,11 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Pairs with isCoreLibraryDesugaringEnabled above. Keep the version at or
+    // above the one flutter_local_notifications' own android/build.gradle
+    // pins, or the two desugar configurations conflict at build time.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

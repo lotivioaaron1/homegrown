@@ -14,13 +14,19 @@ import '../../controllers/auth_controller.dart';
 import '../../models/app_notification.dart';
 import '../../models/team_invite.dart';
 import '../../models/tournament.dart';
+import '../../services/event_reminder_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
+import '../../widgets/member_profiles.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
+import '../../widgets/points_explainer_sheet.dart';
+import '../../utils/error_messages.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/leaderboard_ranks.dart';
+import '../../utils/team_name.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,6 +37,21 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (_uid.isEmpty) return;
+    // Reminders for the user's upcoming games are rebuilt every time home is
+    // entered, which is the only moment the app gets to recalculate them —
+    // see EventReminderService.syncFor. openPendingEvent runs afterwards
+    // because a reminder tapped from a cold start is only discovered once the
+    // service has initialised, and this is the first screen with a navigator
+    // to open the event on.
+    EventReminderService.syncFor(_uid).then((_) {
+      if (mounted) EventReminderService.openPendingEvent();
+    });
+  }
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -196,9 +217,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accent, strokeWidth: 2));
                 }
                 if (snapshot.hasError) {
+                  // friendlyError rather than the raw exception, which put
+                  // strings like "[cloud_firestore/failed-precondition] The
+                  // query requires an index…" in front of users.
                   return Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text('${snapshot.error}',
+                    child: Text(friendlyError(snapshot.error),
                         style: TextStyle(color: AppTheme.sub, fontSize: 12)),
                   );
                 }
@@ -373,9 +397,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 .where('playerUids', arrayContains: _uid)
                 .limit(kMaxListQuery)
                 .snapshots()
+            // Coach. Membership is stored differently for a coach than for an
+            // athlete: they sit on teamACoachId/teamBCoachId and are kept out
+            // of playerUids on purpose (see eventAudienceUids), so their own
+            // games need an OR across the two fields. This used to list every
+            // public event in the app instead, which meant a coach's "Upcoming
+            // Games" never actually showed the games they were coaching.
             : FirebaseFirestore.instance
                 .collection('events')
-                .where('isPublic', isEqualTo: true)
+                .where(Filter.or(
+                  Filter('teamACoachId', isEqualTo: _uid),
+                  Filter('teamBCoachId', isEqualTo: _uid),
+                ))
                 .limit(kMaxListQuery)
                 .snapshots();
 
@@ -508,9 +541,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accent, strokeWidth: 2));
                 }
                 if (snapshot.hasError) {
+                  // friendlyError rather than the raw exception, which put
+                  // strings like "[cloud_firestore/failed-precondition] The
+                  // query requires an index…" in front of users.
                   return Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text('${snapshot.error}',
+                    child: Text(friendlyError(snapshot.error),
                         style: TextStyle(color: AppTheme.sub, fontSize: 12)),
                   );
                 }
@@ -573,7 +609,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return;
         }
         if (index == 2) {
-          Get.toNamed('/events/create')
+          Get.toNamed('/events')
               ?.then((_) { if (mounted) setState(() => _navIndex = 0); });
           return;
         }
@@ -609,7 +645,7 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (feature) {
       case 'Add Stats':      Get.toNamed('/stats/add');     return;
       case 'Record Match':   Get.toNamed('/matches/record'); return;
-      case 'My Events':      Get.toNamed('/events/create'); return;
+      case 'My Events':      Get.toNamed('/events');        return;
       case 'Leaderboard':    Get.toNamed('/leaderboard');   return;
       case 'Scout Athletes': Get.toNamed('/scout');         return;
       case 'My Dashboard':   Get.toNamed('/dashboard');     return;
@@ -811,25 +847,29 @@ class _HomeScreenState extends State<HomeScreen> {
             child: CircularProgressIndicator(
                 color: AppTheme.accent, strokeWidth: 2)));
         }
-        // Surface the real error instead of silently showing "No
-        // stats yet". A missing composite index (athleteId +
-        // createdAt) is the most common cause here — Firestore
-        // throws a FAILED_PRECONDITION with a direct console link
-        // to auto-create it.
+        // Say something went wrong instead of silently showing "No stats
+        // yet" — but in words a user can read. The raw exception (most often
+        // a missing athleteId + createdAt index) belongs in the debug console,
+        // not on an athlete's home screen.
         if (snapshot.hasError) {
           return _EmptyCard(
             icon: LucideIcons.alertCircle,
             title: 'Could not load activity',
-            subtitle: '${snapshot.error}',
+            subtitle: friendlyError(snapshot.error),
           );
         }
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
-          return const _EmptyCard(
+          // Organizers are the only role the rules let write stats — this
+          // used to say "coach or organizer". The action is the one thing an
+          // athlete can do alone while they wait: give coaches footage.
+          return _EmptyCard(
             icon: LucideIcons.barChart2,
             title: 'No stats yet',
-            subtitle:
-                'Your coach or organizer will add them after your first game',
+            subtitle: 'The organizer adds them after your first game. '
+                'Until then, give coaches something to watch.',
+            actionLabel: 'Add a highlight',
+            onAction: () => Get.toNamed('/profile'),
           );
         }
         return Container(
@@ -969,8 +1009,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ? (data['primarySports'] as List).first as String
         : (data['sportsOrganized'] as List?)?.isNotEmpty == true
             ? (data['sportsOrganized'] as List).first as String : '';
-    final emoji = role == 'athlete' ? '🏃'
-        : role == 'coach' ? '🧢' : '📋';
+    // The role-picker's icons (register_screen.dart) rather than emoji, so a
+    // role looks the same here as where it was chosen.
+    final icon = role == 'athlete' ? LucideIcons.zap
+        : role == 'coach' ? LucideIcons.binoculars : LucideIcons.calendarDays;
     final label = role == 'athlete' ? 'Athlete'
         : role == 'coach' ? 'Coach' : 'Organizer';
     return Padding(
@@ -980,10 +1022,14 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: BoxDecoration(color: AppTheme.accentSurface,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppTheme.accent)),
-        child: Text(
-          '$emoji  ${sport.isNotEmpty ? '$label · $sport' : label}',
-          style: TextStyle(color: AppTheme.accentText,
-              fontSize: 11, fontWeight: FontWeight.w700)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, color: AppTheme.accentText, size: 12),
+          const SizedBox(width: 6),
+          Text(
+            sport.isNotEmpty ? '$label · $sport' : label,
+            style: TextStyle(color: AppTheme.accentText,
+                fontSize: 11, fontWeight: FontWeight.w700)),
+        ]),
       ),
     );
   }
@@ -1015,24 +1061,40 @@ class _HomeScreenState extends State<HomeScreen> {
     final years    = data['yearsOfPlaying']    as String? ?? '—';
     final isOpen   = data['openToRecruitment'] as bool?   ?? false;
 
+    final ranked = points > 0;
+
     return Column(children: [
       Row(children: [
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('TOTAL POINTS', style: TextStyle(color: AppTheme.sub,
-              fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
-          const SizedBox(height: 4),
-          Text('$points', style: const TextStyle(color: AppTheme.accent,
-              fontSize: 36, fontWeight: FontWeight.w900, height: 1)),
-          const SizedBox(height: 2),
-          Text('Earn points by playing games',
-              style: TextStyle(color: AppTheme.sub, fontSize: 10)),
-        ]),
+        // The whole points block opens "How points work": a TOTAL POINTS
+        // that isn't the points you scored needs explaining somewhere.
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => showPointsExplainerSheet(context),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Text('TOTAL POINTS', style: TextStyle(color: AppTheme.sub,
+                  fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
+              const SizedBox(width: 4),
+              Icon(LucideIcons.info, color: AppTheme.sub, size: 12),
+            ]),
+            const SizedBox(height: 4),
+            Text('$points', style: const TextStyle(color: AppTheme.accent,
+                fontSize: 36, fontWeight: FontWeight.w900, height: 1)),
+            const SizedBox(height: 2),
+            Text(ranked
+                    ? 'Earn points by playing games'
+                    : 'Play a recorded game to get ranked',
+                style: TextStyle(color: AppTheme.sub, fontSize: 10)),
+          ]),
+        ),
         const Spacer(),
         // ── Real city rank ──
+        // No query while unranked: the answer would be a tie for first with
+        // everyone else on zero, which is exactly what used to be shown.
         FutureBuilder<int>(
-          future: _cityRankFuture(points),
+          future: ranked ? _cityRankFuture(points) : null,
           builder: (context, snap) {
-            final rank = snap.hasData ? '#${snap.data}' : '#—';
+            final rank = cityRankLabel(points: points, rank: snap.data);
             return Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 10),
@@ -1043,21 +1105,24 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(children: [
                 Text(rank, style: TextStyle(color: AppTheme.accentText,
                     fontSize: 20, fontWeight: FontWeight.w900)),
-                Text('City Rank',
-                    style: TextStyle(color: AppTheme.sub, fontSize: 9)),
+                Text(ranked ? 'City Rank' : 'Unranked',
+                    style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ]),
             );
           },
         ),
       ]),
       const SizedBox(height: 12),
-      Row(children: [
+      // A Wrap, not a Row: with the recruitment pill spelled out, a long
+      // position ("Defensive Specialist") no longer fits one line on a small
+      // phone, and a Row would overflow instead of wrapping.
+      Wrap(spacing: 6, runSpacing: 6, children: [
         _StatPill(label: position,
             icon: LucideIcons.activity),
-        const SizedBox(width: 6),
         _StatPill(label: years, icon: LucideIcons.clock),
-        const SizedBox(width: 6),
-        _StatPill(label: isOpen ? 'Open' : 'Closed',
+        // Said in full — a bare "Open"/"Closed" left the athlete guessing
+        // open to what.
+        _StatPill(label: isOpen ? 'Open to recruit' : 'Not recruiting',
             icon: LucideIcons.search, highlighted: isOpen),
       ]),
     ]);
@@ -1086,7 +1151,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(years, style: TextStyle(color: AppTheme.accentText,
                 fontSize: 14, fontWeight: FontWeight.w900)),
             Text('Experience',
-                style: TextStyle(color: AppTheme.sub, fontSize: 9)),
+                style: TextStyle(color: AppTheme.sub, fontSize: 11)),
           ]),
         ),
       ]),
@@ -1121,7 +1186,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(orgType, style: TextStyle(color: AppTheme.accentText,
                 fontSize: 13, fontWeight: FontWeight.w900)),
             Text('Type',
-                style: TextStyle(color: AppTheme.sub, fontSize: 9)),
+                style: TextStyle(color: AppTheme.sub, fontSize: 11)),
           ]),
         ),
       ]),
@@ -1220,13 +1285,33 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildOnTeamCard(List<TeamInvite> teams, int pendingCount) {
     final team = teams.first;
 
+    // The team name comes from the coach's live profile: the membership only
+    // holds a copy made when the invite was sent, so a renamed team used to
+    // keep its old name here. See utils/team_name.dart.
+    return MemberProfilesBuilder(
+      uids: [team.coachId],
+      builder: (context, coaches) => _buildOnTeamDeck(
+        teams,
+        pendingCount,
+        liveTeamName(
+            coachProfile: coaches[team.coachId],
+            storedTeamName: team.teamName,
+            coachName: team.coachName),
+      ),
+    );
+  }
+
+  Widget _buildOnTeamDeck(
+      List<TeamInvite> teams, int pendingCount, String teamName) {
+    final team = teams.first;
+
     return StreamBuilder<QuerySnapshot>(
       stream: TeamService.streamRoster(team.coachId),
       builder: (context, rosterSnap) {
         // The team name is already known here, so the placeholder keeps it and
         // only the deck below is stubbed out.
         if (rosterSnap.connectionState == ConnectionState.waiting) {
-          return TeamCarouselSkeleton(title: team.teamName);
+          return TeamCarouselSkeleton(title: teamName);
         }
         final everyone = (rosterSnap.data?.docs ?? [])
             .map((d) =>
@@ -1237,7 +1322,7 @@ class _HomeScreenState extends State<HomeScreen> {
               .compareTo(a.respondedAt ?? DateTime(0)));
 
         return TeamCarouselLoader(
-          title: team.teamName,
+          title: teamName,
           countLabel: '${teammates.length} '
               'teammate${teammates.length == 1 ? '' : 's'}',
           seeds: [
@@ -1270,7 +1355,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Get.toNamed('/team/mine', arguments: {
                   'coachId': team.coachId,
                   'coachName': team.coachName,
-                  'teamName': team.teamName,
+                  'teamName': teamName,
                 });
               } else {
                 Get.toNamed('/team/invites');
@@ -1317,12 +1402,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppTheme.accentText, fontSize: 14,
                   fontWeight: FontWeight.w800)),
               const SizedBox(height: 2),
-              Text(
-                  pendingCount > 1
-                      ? '$pendingCount pending invites'
-                      : 'Coach ${first.coachName} wants you for ${first.teamName}',
-                  style: TextStyle(color: AppTheme.sub, fontSize: 12),
-                  overflow: TextOverflow.ellipsis),
+              // The coach's current team name, never the stored copy — which
+              // could be an old name, or the "your team" placeholder Scout
+              // once sent.
+              MemberProfilesBuilder(
+                uids: [first.coachId],
+                builder: (context, coaches) => Text(
+                    pendingCount > 1
+                        ? '$pendingCount pending invites'
+                        : 'Coach ${first.coachName} wants you for '
+                            '${liveTeamName(coachProfile: coaches[first.coachId], storedTeamName: first.teamName, coachName: first.coachName)}',
+                    style: TextStyle(color: AppTheme.sub, fontSize: 12),
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           )),
           Icon(Icons.chevron_right_rounded,
@@ -1358,7 +1450,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: AppTheme.textPrimary, fontSize: 14,
                   fontWeight: FontWeight.w700)),
               const SizedBox(height: 2),
-              Text('Invites from coaches will appear here',
+              // Still about invites, since that is where this card goes, but
+              // it names the one thing an athlete can do to earn one.
+              Text('Coach invites land here. Highlights on your profile '
+                  'help you get noticed.',
                   style: TextStyle(color: AppTheme.sub, fontSize: 12)),
             ],
           )),
@@ -1376,7 +1471,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // outstanding invites — instead of duplicating nav entries.
 
   Widget _buildCoachTeamSection(Map<String, dynamic> data) {
-    final teamName = data['teamOrganization'] as String? ?? 'Your Team';
+    // The name athletes see on invites — see utils/team_name.dart.
+    final teamName = teamDisplayName(
+        teamOrganization: data['teamOrganization'] as String?,
+        coachName: data['fullName'] as String?);
 
     return StreamBuilder<QuerySnapshot>(
       stream: TeamService.streamRoster(_uid),
@@ -1416,13 +1514,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text('No athletes on your roster yet', style: TextStyle(
                     color: AppTheme.textPrimary, fontSize: 13,
                     fontWeight: FontWeight.w700)),
-                const SizedBox(height: 2),
-                GestureDetector(
-                  onTap: () => Get.toNamed('/scout'),
-                  child: const Text('Invite athletes from Scout', style: TextStyle(
-                      color: AppTheme.accent, fontSize: 12,
-                      fontWeight: FontWeight.w700)),
-                ),
+                const SizedBox(height: 12),
+                // A button rather than a line of small link text: this is
+                // the one thing a coach with no roster should do next.
+                _ActionPill(
+                    label: 'Invite athletes from Scout',
+                    onTap: () => Get.toNamed('/scout')),
               ]),
             ),
           );
@@ -1521,13 +1618,12 @@ class _HomeScreenState extends State<HomeScreen> {
               Text('No upcoming events', style: TextStyle(
                   color: AppTheme.textPrimary, fontSize: 13,
                   fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              GestureDetector(
-                onTap: () => Get.toNamed('/events/create'),
-                child: const Text('Create your first event', style: TextStyle(
-                    color: AppTheme.accent, fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-              ),
+              const SizedBox(height: 12),
+              // The organizer twin of the coach's empty-roster card, and the
+              // same fix: a button, not small link text.
+              _ActionPill(
+                  label: 'Create your first event',
+                  onTap: () => Get.toNamed('/events/create')),
             ]),
           );
         }
@@ -1776,12 +1872,18 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    // Coach: an OR across teamACoachId/teamBCoachId, mirroring the query in
+    // _showAllEventsSheet. Neither query orders in Firestore — sorting happens
+    // client-side below — so no composite index is needed for either.
     final stream = role == 'athlete'
         ? FirebaseFirestore.instance.collection('events')
             .where('playerUids', arrayContains: _uid)
             .limit(10).snapshots()
         : FirebaseFirestore.instance.collection('events')
-            .where('isPublic', isEqualTo: true)
+            .where(Filter.or(
+              Filter('teamACoachId', isEqualTo: _uid),
+              Filter('teamBCoachId', isEqualTo: _uid),
+            ))
             .limit(10).snapshots();
 
     return Padding(
@@ -1794,15 +1896,25 @@ class _HomeScreenState extends State<HomeScreen> {
               child: CircularProgressIndicator(
                   color: AppTheme.accent, strokeWidth: 2)));
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return _EmptyCard(
+          // Both empty branches below say the same thing. The action points at
+          // the Game Directory: being added to a game is up to an organizer,
+          // but seeing what is being played nearby is not.
+          Widget noUpcomingGames() => _EmptyCard(
               icon: LucideIcons.activity,
               title: role == 'athlete'
                   ? "You're not in any upcoming events"
                   : 'No upcoming games yet',
               subtitle: role == 'athlete'
                   ? 'An organizer will add you to events'
-                  : 'Check back soon');
+                  // No longer "check back soon": the list is now this coach's
+                  // own games, so the thing they are waiting on is an
+                  // organizer entering their team into one.
+                  : 'Games your team is entered in will appear here',
+              actionLabel: 'Browse games near you',
+              onAction: () => Get.toNamed('/venues'));
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return noUpcomingGames();
           }
           final events = snapshot.data!.docs
               .where((doc) {
@@ -1816,16 +1928,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (aT == null || bT == null) return 0;
             return aT.compareTo(bT);
           });
-          if (events.isEmpty) {
-            return _EmptyCard(
-              icon: LucideIcons.activity,
-              title: role == 'athlete'
-                  ? "You're not in any upcoming events"
-                  : 'No upcoming games yet',
-              subtitle: role == 'athlete'
-                  ? 'An organizer will add you to events'
-                  : 'Check back soon');
-          }
+          if (events.isEmpty) return noUpcomingGames();
           return _EventList(events: events.take(3).toList());
         },
       ),
@@ -1834,7 +1937,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Bottom nav ────────────────────────────
   // CHANGED: redesigned as a floating pill (margin on all sides,
-  // fully rounded), icon-only tabs, and a filled circular badge
+  // fully rounded), captioned tabs, and a filled circular badge
   // behind the active icon instead of just a color change — matches
   // the modern Android nav pattern you referenced.
 
@@ -1843,7 +1946,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
         decoration: BoxDecoration(
           color: AppTheme.card,
           borderRadius: BorderRadius.circular(30),
@@ -1856,14 +1959,18 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+        // Each tab takes an equal share so the captions line up under their
+        // icons whatever their length ("Add Stats" beside "Home").
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: List.generate(items.length, (i) {
             final active = i == _navIndex;
-            return _BottomNavItem(
-              icon: items[i]['icon'] as IconData,
-              active: active,
-              onTap: () => _onNavTap(i, role),
+            return Expanded(
+              child: _BottomNavItem(
+                icon: items[i]['icon'] as IconData,
+                label: items[i]['label'] as String,
+                active: active,
+                onTap: () => _onNavTap(i, role),
+              ),
             );
           }),
         ),
@@ -1906,13 +2013,19 @@ class _HomeScreenState extends State<HomeScreen> {
 // Adds real press feedback (a quick scale-down/release on tap) and, for
 // pointer-driven platforms like the Windows/web builds, a hover tint —
 // on top of the existing active-tab color fill, which stays untouched.
+//
+// Captioned. The labels had always been defined in _navItems but were never
+// drawn, so first-time users had to guess what the bar chart and the map pin
+// led to, and a screen reader announced five unlabeled buttons.
 class _BottomNavItem extends StatefulWidget {
   final IconData icon;
+  final String label;
   final bool active;
   final VoidCallback onTap;
 
   const _BottomNavItem({
     required this.icon,
+    required this.label,
     required this.active,
     required this.onTap,
   });
@@ -1927,35 +2040,58 @@ class _BottomNavItemState extends State<_BottomNavItem> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapUp: (_) => setState(() => _pressed = false),
-        onTapCancel: () => setState(() => _pressed = false),
-        child: AnimatedScale(
-          scale: _pressed ? 0.86 : 1.0,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: widget.active
-                  ? AppTheme.accent
-                  : _hovering
-                      ? AppTheme.accent.withValues(alpha: 0.12)
-                      : Colors.transparent,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              widget.icon,
-              color: widget.active ? AppTheme.buttonFg : AppTheme.muted,
-              size: 22,
-            ),
+    return Semantics(
+      button: true,
+      selected: widget.active,
+      label: widget.label,
+      excludeSemantics: true,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovering = true),
+        onExit: (_) => setState(() => _hovering = false),
+        child: GestureDetector(
+          // Opaque so the caption and the gaps beside it are part of the
+          // target, not just the circle.
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          child: AnimatedScale(
+            scale: _pressed ? 0.9 : 1.0,
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: widget.active
+                      ? AppTheme.accent
+                      : _hovering
+                          ? AppTheme.accent.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  widget.icon,
+                  color: widget.active ? AppTheme.buttonFg : AppTheme.muted,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: widget.active ? AppTheme.accentText : AppTheme.muted,
+                  fontSize: 10,
+                  fontWeight:
+                      widget.active ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ]),
           ),
         ),
       ),
@@ -2226,7 +2362,7 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
                                 children: [
                                   Text(r.key,
                                       style: TextStyle(
-                                          color: AppTheme.sub, fontSize: 9)),
+                                          color: AppTheme.sub, fontSize: 11)),
                                   Text(r.value,
                                       style: TextStyle(
                                           color: AppTheme.textPrimary,
@@ -2242,7 +2378,7 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
                     Text('Notes',
                         style: TextStyle(
                             color: AppTheme.sub,
-                            fontSize: 9,
+                            fontSize: 11,
                             fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(notes,
@@ -2266,10 +2402,18 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
   final String title;
   final String subtitle;
 
+  /// An optional next step. An athlete's first visit is almost all empty
+  /// states, and an empty state that only says "wait for someone else" gives
+  /// them nothing to do — so the ones they can act on offer a way forward.
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
   const _EmptyCard({
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.actionLabel,
+    this.onAction,
   });
 
   @override
@@ -2299,8 +2443,45 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
             style: TextStyle(color: AppTheme.muted, fontSize: 11),
             textAlign: TextAlign.center,
           ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 12),
+            _ActionPill(label: actionLabel!, onTap: onAction!),
+          ],
         ],
       ),
+    ),
+  );
+}
+
+/// The gold "next step" button on Home's empty states — shared by
+/// [_EmptyCard] and the coach and organizer cards that used to offer the
+/// same step as a line of small link text.
+class _ActionPill extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _ActionPill({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    behavior: HitTestBehavior.opaque,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: AppTheme.accentSurface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.accent),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(label,
+            style: TextStyle(
+                color: AppTheme.accentText,
+                fontSize: 12,
+                fontWeight: FontWeight.w700)),
+        const SizedBox(width: 4),
+        Icon(Icons.chevron_right_rounded,
+            color: AppTheme.accentText, size: 16),
+      ]),
     ),
   );
 }

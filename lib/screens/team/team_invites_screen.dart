@@ -8,7 +8,10 @@ import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
+import '../../utils/error_messages.dart';
+import '../../utils/team_name.dart';
 import '../../widgets/coach_profile_sheet.dart';
+import '../../widgets/member_profiles.dart';
 
 class TeamInvitesScreen extends StatefulWidget {
   const TeamInvitesScreen({super.key});
@@ -20,6 +23,10 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   String? _highlightId;
 
+  /// The invite whose Accept is in flight. Its buttons are disabled until it
+  /// settles, so a double tap cannot send the accept twice.
+  String? _busyInviteId;
+
   @override
   void initState() {
     super.initState();
@@ -27,9 +34,22 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
     if (args is Map) _highlightId = args['inviteId'] as String?;
   }
 
-  Future<void> _acceptInvite(String inviteId) async {
+  /// [teamName] is the live name (see liveTeamName), not the invite's copy.
+  Future<void> _acceptInvite(TeamInvite invite, String teamName) async {
+    if (_busyInviteId != null) return;
+    setState(() => _busyInviteId = invite.id);
     try {
-      await TeamService.acceptInvite(inviteId);
+      await TeamService.acceptInvite(invite.id);
+      // Joining a team is the moment an athlete has been waiting for; it used
+      // to pass in silence, with the card simply moving down the page.
+      Get.snackbar('Welcome to $teamName!',
+          "You're on Coach ${invite.coachName}'s roster now.",
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppTheme.successSurface,
+          colorText: AppTheme.successText,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+          duration: const Duration(seconds: 3));
     } on TeamFullException {
       Get.snackbar('Team Full',
           'Sorry — this team just reached its roster limit.',
@@ -53,8 +73,56 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
           margin: const EdgeInsets.all(16),
           borderRadius: 12,
           duration: const Duration(seconds: 4));
+    } catch (e) {
+      _errorSnack(e);
+    } finally {
+      if (mounted) setState(() => _busyInviteId = null);
     }
   }
+
+  /// Declining can't be undone — the coach has to send a fresh invite — so it
+  /// asks first, the same way leaving a team already does.
+  void _confirmDecline(TeamInvite invite, String teamName) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Decline $teamName?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+        content: Text(
+            '${invite.coachName} would need to invite you again.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Cancel', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await TeamService.declineInvite(invite.id);
+              } catch (e) {
+                _errorSnack(e);
+              }
+            },
+            child: const Text('Decline', style: TextStyle(
+                color: Color(0xFFFF5C5C), fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _errorSnack(Object e) => Get.snackbar('Something went wrong',
+      friendlyError(e),
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: const Color(0xFF2A1A1A),
+      colorText: const Color(0xFFFF5C5C),
+      margin: const EdgeInsets.all(16),
+      borderRadius: 12,
+      duration: const Duration(seconds: 3));
 
   String _relativeDate(DateTime? date) {
     if (date == null) return '';
@@ -142,13 +210,29 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
               subtitle: 'Coaches who invite you will show up here');
         }
 
-        return Column(children: invites.map((inv) => _InviteCard(
-          invite: inv,
-          highlighted: inv.id == _highlightId,
-          onAccept: () => _acceptInvite(inv.id),
-          onDecline: () => TeamService.declineInvite(inv.id),
-          relativeDate: _relativeDate,
-        )).toList());
+        // Team names come from each coach's live profile rather than the copy
+        // on the invite, which could be an old name or the "your team"
+        // placeholder Scout once sent — see utils/team_name.dart.
+        return MemberProfilesBuilder(
+          uids: invites.map((inv) => inv.coachId).toSet().toList(),
+          builder: (context, coaches) => Column(
+            children: invites.map((inv) {
+              final teamName = liveTeamName(
+                  coachProfile: coaches[inv.coachId],
+                  storedTeamName: inv.teamName,
+                  coachName: inv.coachName);
+              return _InviteCard(
+                invite: inv,
+                teamName: teamName,
+                highlighted: inv.id == _highlightId,
+                busy: inv.id == _busyInviteId,
+                onAccept: () => _acceptInvite(inv, teamName),
+                onDecline: () => _confirmDecline(inv, teamName),
+                relativeDate: _relativeDate,
+              );
+            }).toList(),
+          ),
+        );
       },
     );
   }
@@ -178,27 +262,40 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
               subtitle: 'Accept an invite above to join one');
         }
 
-        return Column(children: teams.map((t) => _TeamCard(
-          invite: t,
-          relativeDate: _relativeDate,
-          onLeave: () => _confirmLeave(t),
-          onTap: () => Get.toNamed('/team/mine', arguments: {
-            'coachId': t.coachId,
-            'coachName': t.coachName,
-            'teamName': t.teamName,
-          }),
-        )).toList());
+        // Live team names, as in the pending list above.
+        return MemberProfilesBuilder(
+          uids: teams.map((t) => t.coachId).toSet().toList(),
+          builder: (context, coaches) => Column(
+            children: teams.map((t) {
+              final teamName = liveTeamName(
+                  coachProfile: coaches[t.coachId],
+                  storedTeamName: t.teamName,
+                  coachName: t.coachName);
+              return _TeamCard(
+                invite: t,
+                teamName: teamName,
+                relativeDate: _relativeDate,
+                onLeave: () => _confirmLeave(t, teamName),
+                onTap: () => Get.toNamed('/team/mine', arguments: {
+                  'coachId': t.coachId,
+                  'coachName': t.coachName,
+                  'teamName': teamName,
+                }),
+              );
+            }).toList(),
+          ),
+        );
       },
     );
   }
 
-  void _confirmLeave(TeamInvite invite) {
+  void _confirmLeave(TeamInvite invite, String teamName) {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Leave ${invite.teamName}?', style: TextStyle(
+        title: Text('Leave $teamName?', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
         content: Text(
             "You'll need a new invite from ${invite.coachName} to rejoin.",
@@ -228,14 +325,22 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
 
 class _InviteCard extends StatelessWidget {
   final TeamInvite invite;
+  /// The coach's current team name — not `invite.teamName`, the copy made
+  /// when the invite was sent.
+  final String teamName;
   final bool highlighted;
+  /// True while this invite's Accept is in flight: both buttons go inert and
+  /// Accept shows a spinner.
+  final bool busy;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
   final String Function(DateTime?) relativeDate;
 
   const _InviteCard({
     required this.invite,
+    required this.teamName,
     required this.highlighted,
+    required this.busy,
     required this.onAccept,
     required this.onDecline,
     required this.relativeDate,
@@ -253,7 +358,7 @@ class _InviteCard extends StatelessWidget {
           width: highlighted ? 2 : 1),
     ),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(invite.teamName, style: TextStyle(
+      Text(teamName, style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w800)),
       const SizedBox(height: 2),
       // The coach is the thing being decided on here, so their name opens
@@ -282,17 +387,23 @@ class _InviteCard extends StatelessWidget {
         Expanded(child: SizedBox(
           height: 42,
           child: ElevatedButton(
-            onPressed: onAccept,
+            onPressed: busy ? null : onAccept,
             style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.success, foregroundColor: Colors.white),
-            child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w700)),
+                backgroundColor: AppTheme.success, foregroundColor: Colors.white,
+                // Keeps the busy state green rather than the theme's grey.
+                disabledBackgroundColor: AppTheme.success.withValues(alpha: 0.6)),
+            child: busy
+                ? const SizedBox(width: 18, height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Text('Accept', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         )),
         const SizedBox(width: 8),
         Expanded(child: SizedBox(
           height: 42,
           child: OutlinedButton(
-            onPressed: onDecline,
+            onPressed: busy ? null : onDecline,
             child: Text('Decline', style: TextStyle(color: AppTheme.sub)),
           ),
         )),
@@ -303,12 +414,15 @@ class _InviteCard extends StatelessWidget {
 
 class _TeamCard extends StatelessWidget {
   final TeamInvite invite;
+  /// The coach's current team name — see _InviteCard.teamName.
+  final String teamName;
   final String Function(DateTime?) relativeDate;
   final VoidCallback onLeave;
   final VoidCallback onTap;
 
   const _TeamCard({
     required this.invite,
+    required this.teamName,
     required this.relativeDate,
     required this.onLeave,
     required this.onTap,
@@ -328,7 +442,7 @@ class _TeamCard extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(invite.teamName, style: TextStyle(
+          Text(teamName, style: TextStyle(
               color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w800)),
           const SizedBox(height: 2),
           Text('Coach ${invite.coachName} · Member since ${relativeDate(invite.respondedAt)}',

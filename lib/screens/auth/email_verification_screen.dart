@@ -45,7 +45,16 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   Future<void> _silentCheck() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    await user.reload();
+    // The poll keeps running while the user is away in their mail app, which
+    // is exactly when the OS is most likely to cut the connection. A failed
+    // reload is not news — the next tick three seconds later tries again — so
+    // it is swallowed here rather than escaping as an uncaught error (it was
+    // the app's second most-reported Crashlytics issue).
+    try {
+      await user.reload();
+    } catch (_) {
+      return;
+    }
     if (FirebaseAuth.instance.currentUser?.emailVerified == true) {
       _pollTimer?.cancel();
       if (mounted) Get.offAllNamed('/home');
@@ -54,9 +63,25 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
   Future<void> _checkNow() async {
     setState(() => _isChecking = true);
-    final user = FirebaseAuth.instance.currentUser;
-    await user?.reload();
-    final verified = FirebaseAuth.instance.currentUser?.emailVerified ?? false;
+    bool verified;
+    try {
+      await FirebaseAuth.instance.currentUser?.reload();
+      verified = FirebaseAuth.instance.currentUser?.emailVerified ?? false;
+    } catch (e) {
+      // Without this the button stayed on its spinner forever: the reset
+      // below was never reached when reload() threw.
+      if (mounted) setState(() => _isChecking = false);
+      Get.snackbar(
+        "Couldn't check",
+        friendlyError(e),
+        snackPosition:   SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF2A1A1A),
+        colorText:       const Color(0xFFFF5C5C),
+        margin:          const EdgeInsets.all(16),
+        borderRadius:    12,
+      );
+      return;
+    }
     if (mounted) setState(() => _isChecking = false);
 
     if (verified) {

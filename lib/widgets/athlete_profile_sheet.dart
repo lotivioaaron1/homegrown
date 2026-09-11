@@ -9,6 +9,7 @@ import '../models/media_item.dart';
 import '../screens/profile/athlete_profile_view_screen.dart';
 import '../services/media_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/profile_format.dart';
 import 'athlete_profile_parts.dart';
 
 /// How many portfolio thumbnails the sheet previews. Four fits the strip
@@ -85,8 +86,8 @@ class _AthleteProfileContent extends StatelessWidget {
     final position = athlete['position'] as String? ?? '—';
     final barangay = athlete['barangay'] as String? ?? '—';
     final years = athlete['yearsOfPlaying'] as String? ?? '—';
-    final height = athlete['heightCm']?.toString() ?? '—';
-    final weight = athlete['weightKg']?.toString() ?? '—';
+    final height = formatMeasure(athlete['heightCm'], 'cm');
+    final weight = formatMeasure(athlete['weightKg'], 'kg');
     final bio = athlete['bio'] as String? ?? '';
     final sports = (athlete['primarySports'] as List?)
             ?.map((e) => e.toString())
@@ -179,9 +180,9 @@ class _AthleteProfileContent extends StatelessWidget {
             const SizedBox(width: 8),
             ProfileStatBox(value: years, label: 'Experience'),
             const SizedBox(width: 8),
-            ProfileStatBox(value: '${height}cm', label: 'Height'),
+            ProfileStatBox(value: height, label: 'Height'),
             const SizedBox(width: 8),
-            ProfileStatBox(value: '${weight}kg', label: 'Weight'),
+            ProfileStatBox(value: weight, label: 'Weight'),
           ]),
           const SizedBox(height: 16),
           // Sits directly under the headline figures, above the averages and

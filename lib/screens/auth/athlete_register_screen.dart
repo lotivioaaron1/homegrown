@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/privacy_consent_text.dart';
 import '../../widgets/barangay_picker_sheet.dart';
@@ -19,11 +20,15 @@ import '../../services/storage_service.dart';
 import '../../utils/auth_routing.dart';
 import '../../utils/registration_rollback.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/onboarding_flag.dart';
+import '../../constants/sport_icons.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
 const List<String> _kSports = ['Basketball', 'Volleyball', 'Badminton'];
-const List<String> _kYears  = ['1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
+// Same list as edit_profile_screen.dart. '<1 Yr' used to exist only there, so
+// a beginner had to overstate their experience to finish signing up.
+const List<String> _kYears  = ['<1 Yr', '1-2 Yrs', '3-5 Yrs', '5+ Yrs'];
 
 class AthleteRegisterScreen extends StatefulWidget {
   const AthleteRegisterScreen({super.key});
@@ -51,7 +56,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
 
   File? _profileImage;
   final _bioCtrl = TextEditingController();
-  bool _isPublic = true; bool _openToRecruitment = true;
+  bool _openToRecruitment = true;
 
   @override
   void dispose() {
@@ -139,7 +144,12 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
             'heightCm':          _heightCtrl.text.trim(),
             'weightKg':          _weightCtrl.text.trim(),
             'bio':               _bioCtrl.text.trim(),
-            'isPublic':          _isPublic,
+            // Always true, as google_profile_setup_screen.dart writes it. A
+            // Public/Private choice used to sit on step 3, but nothing reads
+            // this field for a user — a "Private" athlete still showed up in
+            // Rankings, Scout and rosters — so it was removed rather than
+            // left promising privacy the app does not provide.
+            'isPublic':          true,
             'openToRecruitment': _openToRecruitment,
             // Every avatar in the app reads 'photoUrl' (home, profile,
             // leaderboard, scout, team). Don't invent a second field name here.
@@ -153,6 +163,11 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
               uid: cred.user!.uid, email: _emailCtrl.text.trim());
         },
       );
+      // This device now has an account on it, so a later sign-out should land
+      // on /login rather than replay the intro. AuthController marks this for
+      // sign-in, but the role screens create accounts themselves and never
+      // passed through it.
+      await markOnboardingComplete();
       // Send verification email right after account creation
       await cred.user?.sendEmailVerification();
       await _uploadProfilePhoto(cred.user!.uid);
@@ -276,7 +291,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Form(key: _step1Key,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const _StepHeader(emoji: '👤', title: 'Personal Info',
+          const _StepHeader(icon: LucideIcons.user, title: 'Personal Info',
               subtitle: 'Step 1 of 3 — Your information'),
           const SizedBox(height: 24),
           Row(children: [
@@ -353,6 +368,8 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
               }
               return null;
             }),
+          // The rules up front, rather than revealed one failure at a time.
+          const _PasswordHint(),
           const SizedBox(height: 12),
           _Field(ctrl: _confirmCtrl, hint: 'Confirm Password',
             icon: Icons.lock_outline_rounded,
@@ -385,10 +402,11 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
     return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _StepHeader(emoji: '🏅', title: 'Your Sport',
+        const _StepHeader(icon: LucideIcons.medal, title: 'Your Sport',
             subtitle: 'Step 2 of 3 — Athletic details'),
         const SizedBox(height: 24),
-        const _SectionLabel(label: 'Primary Sport'),
+        // Plural on purpose: this is a multi-select.
+        const _SectionLabel(label: 'Sports you play'),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8,
           children: _kSports.map((s) {
@@ -422,7 +440,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
                     ? AppTheme.accent : AppTheme.border,
                 width: 1.5)),
             child: Row(children: [
-              Icon(Icons.sports_basketball_outlined,
+              Icon(positionIcon(_position, _selectedSports),
                   color: _position.isNotEmpty
                       ? AppTheme.accent : AppTheme.muted,
                   size: 20),
@@ -484,7 +502,7 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
     return FillViewportScroll(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _StepHeader(emoji: '🪪', title: 'Profile',
+        const _StepHeader(icon: LucideIcons.idCard, title: 'Profile',
             subtitle: 'Step 3 of 3 — Photo & visibility'),
         const SizedBox(height: 24),
         ProfilePhotoPicker(image: _profileImage, onTap: _pickImage),
@@ -512,26 +530,28 @@ class _AthleteRegisterScreenState extends State<AthleteRegisterScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        const _SectionLabel(label: 'Profile Visibility'),
-        const SizedBox(height: 8),
-        Row(children: [
-          _Chip(label: '🌐  Public', sel: _isPublic,
-              onTap: () => setState(() => _isPublic = true)),
-          const SizedBox(width: 8),
-          _Chip(label: '🔒  Private', sel: !_isPublic,
-              onTap: () => setState(() => _isPublic = false)),
-        ]),
-        const SizedBox(height: 16),
         const _SectionLabel(label: 'Open to Recruitment'),
         const SizedBox(height: 8),
         Row(children: [
-          _Chip(label: '✅  Yes, recruit me', sel: _openToRecruitment,
+          // Plain labels: the selected chip's gold already says which is on.
+          _Chip(label: 'Yes, recruit me', sel: _openToRecruitment,
               onTap: () => setState(() => _openToRecruitment = true)),
           const SizedBox(width: 8),
-          _Chip(label: '❌  Not now', sel: !_openToRecruitment,
+          _Chip(label: 'Not now', sel: !_openToRecruitment,
               onTap: () => setState(() => _openToRecruitment = false)),
         ]),
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
+        // Says plainly what the removed Public/Private choice implied could be
+        // hidden: rankings and scouting only work if profiles are visible.
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.public_rounded, color: AppTheme.muted, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text(
+            'Your name, sport and stats are visible to other Homegrown '
+            'users, so coaches can find you.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 12, height: 1.4))),
+        ]),
+        const SizedBox(height: 20),
         const PrivacyConsentText(),
         const SizedBox(height: 14),
         const Spacer(),
@@ -561,8 +581,8 @@ class _SuccessView extends StatelessWidget {
           decoration: BoxDecoration(color: AppTheme.accentSurface,
               shape: BoxShape.circle,
               border: Border.all(color: AppTheme.accent, width: 2)),
-          child: const Center(child: Text('🏆',
-              style: TextStyle(fontSize: 48)))),
+          child: const Center(child: Icon(LucideIcons.trophy,
+              color: AppTheme.accent, size: 46))),
         const SizedBox(height: 32),
         Text("You're in, Athlete!", textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.textPrimary, fontSize: 28,
@@ -578,7 +598,7 @@ class _SuccessView extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppTheme.accent)),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Text('⭐', style: TextStyle(fontSize: 16)),
+            const Icon(LucideIcons.star, color: AppTheme.accent, size: 16),
             const SizedBox(width: 8),
             Text('0 Points — Start playing to earn!',
               style: TextStyle(color: AppTheme.accentText,
@@ -599,9 +619,12 @@ class _SuccessView extends StatelessWidget {
 
 // ── Shared widgets ────────────────────────────────────────────
 
+/// An icon rather than the emoji it used to carry, so the sign-up steps share
+/// the Lucide icon set the rest of the app draws with.
 class _StepHeader extends StatelessWidget {
-  final String emoji, title, subtitle;
-  const _StepHeader({required this.emoji, required this.title,
+  final IconData icon;
+  final String title, subtitle;
+  const _StepHeader({required this.icon, required this.title,
       required this.subtitle});
   @override
   Widget build(BuildContext context) => Row(children: [
@@ -609,8 +632,7 @@ class _StepHeader extends StatelessWidget {
       decoration: BoxDecoration(color: AppTheme.card,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppTheme.border)),
-      child: Center(child: Text(emoji,
-          style: const TextStyle(fontSize: 20)))),
+      child: Center(child: Icon(icon, color: AppTheme.accent, size: 20))),
     const SizedBox(width: 14),
     Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(title, style: TextStyle(color: AppTheme.textPrimary,
@@ -627,6 +649,19 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(label,
     style: TextStyle(color: AppTheme.textPrimary,
         fontSize: 13, fontWeight: FontWeight.w700));
+}
+
+/// The password rules, stated before the user types rather than revealed one
+/// failed validation at a time. Must match the validator above it.
+class _PasswordHint extends StatelessWidget {
+  const _PasswordHint();
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+    child: Text(
+      'At least 8 characters, with one capital letter and one number.',
+      style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+  );
 }
 
 class _Chip extends StatelessWidget {

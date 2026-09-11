@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import '../../constants/sport_icons.dart';
 import '../../models/match_result.dart';
 import '../../models/report.dart';
 import '../../services/notification_service.dart';
@@ -152,8 +153,13 @@ class EventDetailScreen extends StatelessWidget {
         maxPlayers != null ? '$playerCount/$maxPlayers' : '$playerCount';
     final players = (ev['players'] as List?)
         ?.map((p) => p as Map<String, dynamic>).toList() ?? [];
-    final teamAName = ev['teamAName'] as String?;
-    final teamBName = ev['teamBName'] as String?;
+    // Null when blank, so every `?? 'Team A'` below also catches events
+    // created from a coach with no team name, which stored an empty string
+    // and rendered a side with no name at all.
+    String? nonBlank(Object? v) =>
+        (v as String? ?? '').trim().isEmpty ? null : (v as String).trim();
+    final teamAName = nonBlank(ev['teamAName']);
+    final teamBName = nonBlank(ev['teamBName']);
     final organizerId = ev['organizerId'] as String?;
     final isOrganizer = organizerId != null &&
         organizerId == FirebaseAuth.instance.currentUser?.uid;
@@ -213,7 +219,7 @@ class EventDetailScreen extends StatelessWidget {
                   ),
                 ]),
                 const SizedBox(height: 12),
-                _InfoRow(icon: Icons.sports_basketball_outlined, label: sport),
+                _InfoRow(icon: sportIcon(sport), label: sport),
                 const SizedBox(height: 8),
                 _InfoRow(icon: Icons.location_on_outlined,
                     label: venueAddress.isNotEmpty

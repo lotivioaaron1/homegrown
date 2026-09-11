@@ -7,9 +7,13 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../constants/sport_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../services/rating_service.dart';
 import '../../services/ranking_service.dart';
+import '../../utils/leaderboard_ranks.dart';
+import '../../utils/stats_view.dart';
+import '../../widgets/points_explainer_sheet.dart';
 
 class PerformanceDashboardScreen extends StatefulWidget {
   const PerformanceDashboardScreen({super.key});
@@ -23,6 +27,10 @@ class _PerformanceDashboardScreenState
     extends State<PerformanceDashboardScreen> {
   String get uid => FirebaseAuth.instance.currentUser?.uid ?? '';
   String? _selectedRatingSport;
+
+  /// The sport the chart and Game History are narrowed to, or null for all.
+  /// Only offered to athletes whose games span more than one sport.
+  String? _statsSport;
 
   int _toInt(dynamic v) {
     if (v is int) return v;
@@ -114,6 +122,19 @@ class _PerformanceDashboardScreenState
           Text('Performance Overview',
               style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         ]),
+        const Spacer(),
+        // Every number on this screen is Homegrown points or a match rating,
+        // neither of which is self-explanatory.
+        GestureDetector(
+          onTap: () => showPointsExplainerSheet(context),
+          child: Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(color: AppTheme.card,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.border)),
+            child: Icon(LucideIcons.info,
+                color: AppTheme.textPrimary, size: 18)),
+        ),
       ]),
     );
   }
@@ -127,12 +148,13 @@ class _PerformanceDashboardScreenState
     final gamesPlayed = stats.length;
     final avgPts = gamesPlayed > 0 ? (totalPts / gamesPlayed).round() : 0;
 
-    // CHANGED: Sport Breakdown section removed — with only one
-    // primary sport per athlete right now, it always showed a
-    // single 100% bar, which isn't real information. Bring it back
-    // once multi-sport athletes are supported.
-
-    final chartStats = stats.reversed.take(6).toList().reversed.toList();
+    // Multi-sport athletes get a sport filter over the chart and history;
+    // the headline totals above stay all-sport. A filter left pointing at a
+    // sport that is no longer in the list falls back to all.
+    final sports = sportsPlayed(stats);
+    final activeSport = sports.contains(_statsSport) ? _statsSport : null;
+    final shown = filterBySport(stats, activeSport);
+    final chartStats = chartGames(shown);
 
     return RefreshIndicator(
       color: AppTheme.accent,
@@ -148,15 +170,20 @@ class _PerformanceDashboardScreenState
           _buildHeroRow(totalPts, gamesPlayed, avgPts),
           const SizedBox(height: 16),
           _buildRatingsSection(userData),
+          if (sports.length > 1) ...[
+            _buildSportFilter(sports, activeSport),
+            const SizedBox(height: 14),
+          ],
           if (chartStats.isNotEmpty) ...[
-            _buildSectionTitle(LucideIcons.trendingUp, 'Points Per Game'),
+            _buildSectionTitle(
+                LucideIcons.trendingUp, 'Homegrown Points per Game'),
             const SizedBox(height: 8),
             _buildChart(context, chartStats),
             const SizedBox(height: 16),
           ],
           _buildSectionTitle(LucideIcons.history, 'Game History'),
           const SizedBox(height: 8),
-          _buildGameHistory(stats),
+          _buildGameHistory(shown),
         ],
       ),
     );
@@ -172,9 +199,11 @@ class _PerformanceDashboardScreenState
 
   Widget _buildHeroRow(int totalPts, int games, int avg) {
     return FutureBuilder<int>(
-      future: _cityRankFuture(totalPts),
+      // Unranked on zero points, so there is nothing to ask Firestore — see
+      // cityRankLabel.
+      future: totalPts > 0 ? _cityRankFuture(totalPts) : null,
       builder: (context, snap) {
-        final rank = snap.hasData ? '#${snap.data}' : '#—';
+        final rank = cityRankLabel(points: totalPts, rank: snap.data);
         return Row(children: [
           Expanded(child: _HeroCard(
               value: '$totalPts', label: 'Total Pts', isAccentText: true)),
@@ -183,7 +212,9 @@ class _PerformanceDashboardScreenState
           const SizedBox(width: 8),
           Expanded(child: _HeroCard(value: '$games', label: 'Games')),
           const SizedBox(width: 8),
-          Expanded(child: _HeroCard(value: '$avg', label: 'Avg Pts')),
+          // "Avg Pts" read as a scoring average (PPG) to basketball players;
+          // it is Homegrown points per game.
+          Expanded(child: _HeroCard(value: '$avg', label: 'Avg / Game')),
         ]);
       },
     );
@@ -293,7 +324,8 @@ class _PerformanceDashboardScreenState
             leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 34,
+              // Room for the two label lines at their readable 10/9px sizes.
+              reservedSize: 38,
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
                 if (i < 0 || i >= chartStats.length) return const SizedBox();
@@ -310,10 +342,10 @@ class _PerformanceDashboardScreenState
                   child: Column(children: [
                     Text(dateLabel, style: TextStyle(
                         color: AppTheme.sub,
-                        fontSize: 9,
+                        fontSize: 10,
                         fontWeight: FontWeight.w700)),
                     Text(nameLabel, style: TextStyle(
-                        color: AppTheme.muted, fontSize: 8)),
+                        color: AppTheme.muted, fontSize: 9)),
                   ]),
                 );
               },
@@ -357,11 +389,51 @@ class _PerformanceDashboardScreenState
     );
   }
 
+  // ── Sport filter ──────────────────────────
+  // Same pill shape as the leaderboard's sport chips.
+
+  Widget _buildSportFilter(List<String> sports, String? active) {
+    Widget chip(String label, String? value) {
+      final sel = active == value;
+      return GestureDetector(
+        onTap: () => setState(() => _statsSport = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: sel ? AppTheme.accentSurface : AppTheme.card,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: sel ? AppTheme.accent : AppTheme.border,
+                width: sel ? 2 : 1.5)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (value != null) ...[
+              Icon(sportIcon(value), size: 14,
+                  color: sel ? AppTheme.accentText : AppTheme.muted),
+              const SizedBox(width: 6),
+            ],
+            Text(label, style: TextStyle(
+                color: sel ? AppTheme.accentText : AppTheme.muted,
+                fontSize: 12,
+                fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
+          ]),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: [
+        chip('All Sports', null),
+        for (final s in sports) chip(s, s),
+      ]),
+    );
+  }
+
   // ── Game history ──────────────────────────
-  // CHANGED: rows are now tap-to-expand (matching the home screen's
-  // Recent Activity pattern) instead of always showing the stat
-  // summary inline, and the per-row sport icon is gone since it was
-  // always the same icon (only one sport supported today).
+  // Rows are tap-to-expand, matching the home screen's Recent Activity. Each
+  // row names its sport, since an athlete's games can span more than one.
 
   Widget _buildGameHistory(List<Map<String, dynamic>> stats) {
     return Container(
@@ -370,7 +442,11 @@ class _PerformanceDashboardScreenState
           border: Border.all(color: AppTheme.border)),
       child: Column(children: stats.asMap().entries.map((e) {
         final isLast = e.key == stats.length - 1;
-        return _GameHistoryTile(data: e.value, showDivider: !isLast);
+        // Keyed to the game itself: the sport filter reorders this list, and
+        // an unkeyed row would hand its expanded state to whichever game
+        // landed in its slot.
+        return _GameHistoryTile(
+            key: ObjectKey(e.value), data: e.value, showDivider: !isLast);
       }).toList()),
     );
   }
@@ -395,6 +471,27 @@ class _PerformanceDashboardScreenState
         Text('Your stats will appear here after an organizer records your game.',
           textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.6)),
+        const SizedBox(height: 20),
+        // The one thing an athlete can do here without waiting on anyone.
+        SizedBox(
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: () => Get.toNamed('/profile'),
+            icon: const Icon(LucideIcons.video, size: 18),
+            label: const Text('Add a highlight video'),
+          ),
+        ),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: () => showPointsExplainerSheet(context),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('How do points work?',
+                style: TextStyle(color: AppTheme.accentText, fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ),
       ]),
     ));
   }
@@ -429,7 +526,7 @@ class _HeroCard extends StatelessWidget {
               height: 1)),
           const SizedBox(height: 4),
           Text(label, textAlign: TextAlign.center, style: TextStyle(
-              color: AppTheme.muted, fontSize: 9, fontWeight: FontWeight.w600),
+              color: AppTheme.muted, fontSize: 11, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis),
         ]),
       );
@@ -452,7 +549,7 @@ class _RatingChip extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(sport[0].toUpperCase() + sport.substring(1), style: TextStyle(
               color: selected ? AppTheme.accentText : AppTheme.sub,
-              fontSize: 9, fontWeight: FontWeight.w600)),
+              fontSize: 11, fontWeight: FontWeight.w600)),
           Text('$rating', style: TextStyle(
               color: selected ? AppTheme.accentText : AppTheme.textPrimary,
               fontSize: 16, fontWeight: FontWeight.w800)),
@@ -467,7 +564,8 @@ class _RatingChip extends StatelessWidget {
 class _GameHistoryTile extends StatefulWidget {
   final Map<String, dynamic> data;
   final bool showDivider;
-  const _GameHistoryTile({required this.data, required this.showDivider});
+  const _GameHistoryTile(
+      {super.key, required this.data, required this.showDivider});
 
   @override
   State<_GameHistoryTile> createState() => _GameHistoryTileState();
@@ -548,11 +646,21 @@ class _GameHistoryTileState extends State<_GameHistoryTile> {
                         fontSize: 13,
                         fontWeight: FontWeight.w600),
                         overflow: TextOverflow.ellipsis),
-                    if (fmtDate.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(fmtDate, style: TextStyle(
-                          color: AppTheme.muted, fontSize: 10)),
-                    ],
+                    const SizedBox(height: 2),
+                    // The sport as well as the date: an athlete's history
+                    // can mix basketball, volleyball and badminton.
+                    Row(children: [
+                      Icon(sportIcon(sport), color: AppTheme.muted, size: 12),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                            [if (sport.isNotEmpty) sport,
+                             if (fmtDate.isNotEmpty) fmtDate].join(' · '),
+                            style: TextStyle(
+                                color: AppTheme.muted, fontSize: 11),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ]),
                   ],
                 ),
               ),
@@ -602,7 +710,7 @@ class _GameHistoryTileState extends State<_GameHistoryTile> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(r.key, style: TextStyle(
-                                      color: AppTheme.sub, fontSize: 9)),
+                                      color: AppTheme.sub, fontSize: 11)),
                                   Text(r.value, style: TextStyle(
                                       color: AppTheme.textPrimary,
                                       fontSize: 14,
@@ -616,7 +724,7 @@ class _GameHistoryTileState extends State<_GameHistoryTile> {
                     const SizedBox(height: 10),
                     Text('Notes', style: TextStyle(
                         color: AppTheme.sub,
-                        fontSize: 9,
+                        fontSize: 11,
                         fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(notes, style: TextStyle(
