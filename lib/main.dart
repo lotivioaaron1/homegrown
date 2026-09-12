@@ -176,8 +176,14 @@ class HomegrownApp extends StatelessWidget {
       theme:     AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: initialThemeMode,
-      builder:   (context, child) => NoInternetOverlay(
-          child: child ?? const SizedBox()),
+      // Every screen hardcodes its font sizes inline and was laid out against
+      // unscaled metrics, so an uncapped OS font setting breaks layouts
+      // app-wide — chip rows wrapping mid-card on a real phone while the
+      // emulator (always 1.0) looked fine. 1.2x still honours the setting;
+      // past that the app stops growing rather than falling apart.
+      builder:   (context, child) => MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.2,
+          child: NoInternetOverlay(child: child ?? const SizedBox())),
       initialBinding: BindingsBuilder(() {
         Get.put(ConnectivityService());
         Get.put(ThemeController());

@@ -377,49 +377,59 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   // their athletes. Here a legacy two-sport coach sees both
                   // chips lit, because that is what is stored; it collapses to
                   // one only when they tap, which is a choice they made.
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _kSports
-                        .map((s) => _chip(
-                            s,
-                            _sports.contains(s),
-                            () => setState(() {
-                                  if (_role == 'coach') {
-                                    _sports = [s];
-                                  } else if (_sports.contains(s)) {
-                                    _sports.remove(s);
-                                  } else {
-                                    _sports.add(s);
-                                  }
-                                  // Dropping a sport can orphan the position
-                                  // picked under it. Only clears a position the
-                                  // picker itself produced — a legacy free-text
-                                  // value is never in the list, and wiping it on
-                                  // an unrelated sport tap would be the silent
-                                  // data loss the load path avoids.
-                                  if (_position.isNotEmpty &&
-                                      !isKnownPosition(_position, _sports) &&
-                                      isCatalogPosition(_position)) {
-                                    _position = '';
-                                  }
-                                })))
-                        .toList(),
+                  // Align, like the labels above: the parent Column centres
+                  // its children, so a Wrap that breaks onto a second row
+                  // would sit centred instead of flush under its label.
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _kSports
+                          .map((s) => _chip(
+                              s,
+                              _sports.contains(s),
+                              () => setState(() {
+                                    if (_role == 'coach') {
+                                      _sports = [s];
+                                    } else if (_sports.contains(s)) {
+                                      _sports.remove(s);
+                                    } else {
+                                      _sports.add(s);
+                                    }
+                                    // Dropping a sport can orphan the position
+                                    // picked under it. Only clears a position
+                                    // the picker itself produced — a legacy
+                                    // free-text value is never in the list, and
+                                    // wiping it on an unrelated sport tap would
+                                    // be the silent data loss the load path
+                                    // avoids.
+                                    if (_position.isNotEmpty &&
+                                        !isKnownPosition(_position, _sports) &&
+                                        isCatalogPosition(_position)) {
+                                      _position = '';
+                                    }
+                                  })))
+                          .toList(),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   Align(
                       alignment: Alignment.centerLeft,
                       child: _label('Experience')),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: (_role == 'coach'
-                            ? _kCoachExperience
-                            : _kExperience)
-                        .map((e) => _chip(e, _experience == e,
-                            () => setState(() => _experience = e)))
-                        .toList(),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: (_role == 'coach'
+                              ? _kCoachExperience
+                              : _kExperience)
+                          .map((e) => _chip(e, _experience == e,
+                              () => setState(() => _experience = e)))
+                          .toList(),
+                    ),
                   ),
                   if (_role == 'coach') ...[
                     const SizedBox(height: 20),
@@ -427,13 +437,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         alignment: Alignment.centerLeft,
                         child: _label('Coaching Level')),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _kCoachLevels
-                          .map((l) => _chip(l, _coachingLevel == l,
-                              () => setState(() => _coachingLevel = l)))
-                          .toList(),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _kCoachLevels
+                            .map((l) => _chip(l, _coachingLevel == l,
+                                () => setState(() => _coachingLevel = l)))
+                            .toList(),
+                      ),
                     ),
                   ],
                 ],
@@ -450,17 +463,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         style: TextStyle(color: AppTheme.sub, fontSize: 11)),
                   ),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _kSports
-                        .map((s) => _chip(
-                            s,
-                            _sportsOrganized.contains(s),
-                            () => setState(() => _sportsOrganized.contains(s)
-                                ? _sportsOrganized.remove(s)
-                                : _sportsOrganized.add(s))))
-                        .toList(),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _kSports
+                          .map((s) => _chip(
+                              s,
+                              _sportsOrganized.contains(s),
+                              () => setState(() => _sportsOrganized.contains(s)
+                                  ? _sportsOrganized.remove(s)
+                                  : _sportsOrganized.add(s))))
+                          .toList(),
+                    ),
                   ),
                 ],
                 // Athletes only — a coach or organizer is never the one being

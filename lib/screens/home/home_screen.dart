@@ -1063,31 +1063,40 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final ranked = points > 0;
 
-    return Column(children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         // The whole points block opens "How points work": a TOTAL POINTS
         // that isn't the points you scored needs explaining somewhere.
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => showPointsExplainerSheet(context),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Text('TOTAL POINTS', style: TextStyle(color: AppTheme.sub,
-                  fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
-              const SizedBox(width: 4),
-              Icon(LucideIcons.info, color: AppTheme.sub, size: 12),
+        //
+        // Expanded, not a bare child + Spacer: measured unbounded, the
+        // "Play a recorded game to get ranked" line plus the rank badge
+        // overflowed the card on a phone with a large system font instead
+        // of wrapping.
+        Expanded(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => showPointsExplainerSheet(context),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+              Row(children: [
+                Text('TOTAL POINTS', style: TextStyle(color: AppTheme.sub,
+                    fontSize: 10, fontWeight: FontWeight.w700,
+                    letterSpacing: 1)),
+                const SizedBox(width: 4),
+                Icon(LucideIcons.info, color: AppTheme.sub, size: 12),
+              ]),
+              const SizedBox(height: 4),
+              Text('$points', style: const TextStyle(color: AppTheme.accent,
+                  fontSize: 36, fontWeight: FontWeight.w900, height: 1)),
+              const SizedBox(height: 2),
+              Text(ranked
+                      ? 'Earn points by playing games'
+                      : 'Play a recorded game to get ranked',
+                  style: TextStyle(color: AppTheme.sub, fontSize: 10)),
             ]),
-            const SizedBox(height: 4),
-            Text('$points', style: const TextStyle(color: AppTheme.accent,
-                fontSize: 36, fontWeight: FontWeight.w900, height: 1)),
-            const SizedBox(height: 2),
-            Text(ranked
-                    ? 'Earn points by playing games'
-                    : 'Play a recorded game to get ranked',
-                style: TextStyle(color: AppTheme.sub, fontSize: 10)),
-          ]),
+          ),
         ),
-        const Spacer(),
+        const SizedBox(width: 12),
         // ── Real city rank ──
         // No query while unranked: the answer would be a tie for first with
         // everyone else on zero, which is exactly what used to be shown.
