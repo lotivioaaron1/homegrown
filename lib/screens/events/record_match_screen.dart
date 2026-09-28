@@ -66,6 +66,15 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           .get();
       final data = doc.data();
       if (data != null && mounted) {
+        if (!canRecordResult(data)) {
+          Get.back();
+          _notice(
+              hasResult(data) ? 'Already recorded' : 'Not played yet',
+              hasResult(data)
+                  ? "This game's result is already recorded."
+                  : 'Record this game once its start time has passed.');
+          return;
+        }
         setState(() => _selectedEvent = data);
         _prefillSides(data);
       }
@@ -203,6 +212,14 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
 
     setState(() => _isSaving = true);
     try {
+      if (await RatingService.eventHasResult(
+          _selectedEvent!['eventId'] as String)) {
+        if (!mounted) return;
+        Get.back();
+        _notice('Already recorded',
+            "This game's result was already recorded, so it wasn't saved again.");
+        return;
+      }
       if (tournamentId != null && slotId != null) {
         await _recordBracketMatch(
           tournamentId: tournamentId,
@@ -247,6 +264,15 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
       if (mounted) setState(() => _isSaving = false);
     }
   }
+
+  void _notice(String title, String message) => Get.snackbar(
+        title, message,
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: AppTheme.card,
+        colorText: AppTheme.textPrimary,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
+      );
 
   /// Records a bracket matchup and advances its winner in one commit.
   ///
@@ -432,13 +458,19 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
         // The game that just ended first — it is the one being recorded. The
         // query's 'upcoming' status is only ever the creation-time value, so
         // this list has always held finished games too.
+        // Only played games with no result: a result is recorded once, and
+        // never for a game that hasn't started.
         final docs = eventsForResults(snapshot.data?.docs ?? [],
-            data: (d) => d.data() as Map<String, dynamic>);
+                data: (d) => d.data() as Map<String, dynamic>)
+            .where((d) => canRecordResult(d.data() as Map<String, dynamic>))
+            .toList();
         if (docs.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: Text('No events to record a match for yet',
+              child: Text(
+                'No games waiting for a result.\nA game appears here once '
+                'its start time has passed.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppTheme.sub, fontSize: 14)),
             ),

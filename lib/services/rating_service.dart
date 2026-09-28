@@ -61,6 +61,13 @@ class RatingService {
     return doc.id;
   }
 
+  /// Read fresh rather than trusted from a list loaded earlier: another
+  /// device may have recorded the result since.
+  static Future<bool> eventHasResult(String eventId) async {
+    final doc = await _events.doc(eventId).get();
+    return doc.data()?['hasMatchData'] == true;
+  }
+
   static Stream<QuerySnapshot> pendingMatchesForEvent(String eventId) =>
       _matches
           .where('eventId', isEqualTo: eventId)

@@ -24,6 +24,7 @@ import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/points_explainer_sheet.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/event_history.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/leaderboard_ranks.dart';
 import '../../utils/team_name.dart';
@@ -2121,16 +2122,10 @@ class _EventList extends StatelessWidget {
       child: Column(children: events.asMap().entries.map((e) {
         final isLast = e.key == events.length - 1;
         final ev     = e.value.data() as Map<String, dynamic>;
-        // The raw `status` field is only ever 'draft' or 'upcoming' and
-        // never updates itself once a game happens, so the displayed
-        // label is derived from the real eventDate instead of trusted
-        // as-is — see isEventUpcoming() in firestore_helpers.dart.
-        final isCancelled = ev['status'] == 'cancelled';
-        final isDraft     = ev['status'] == 'draft';
-        final isCompleted = !isCancelled && !isDraft && !isEventUpcoming(ev);
-        final badgeLabel  = isCancelled ? 'CANCELLED'
-            : isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
-        final isNeutral   = isCancelled || isDraft || isCompleted;
+        // Same badge as My Events and event detail, so they can't disagree.
+        final badge       = badgeFor(ev);
+        final badgeText   = badgeLabel(badge);
+        final isNeutral   = badge != EventBadge.upcoming;
         final date   = asTimestamp(ev['eventDate']);
         final fmtDate = date != null
             ? DateFormat('MMM dd').format(date.toDate()) : '—';
@@ -2161,7 +2156,7 @@ class _EventList extends StatelessWidget {
                 border: Border.all(
                   color: isNeutral
                       ? AppTheme.border : AppTheme.accent)),
-              child: Text(badgeLabel, style: TextStyle(
+              child: Text(badgeText, style: TextStyle(
                 color: isNeutral
                     ? AppTheme.muted : AppTheme.accentText,
                 fontSize: 9, fontWeight: FontWeight.w700)),

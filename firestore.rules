@@ -36,6 +36,13 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/events/$(eventId)).data.organizerId;
     }
 
+    // Read before the write lands, so the batch that records the first
+    // result (and sets the flag) still passes.
+    function eventHasResult(eventId) {
+      return get(/databases/$(database)/documents/events/$(eventId)).data
+        .get('hasMatchData', false) == true;
+    }
+
     // ── users ──────────────────────────────────────────
     match /users/{uid} {
       // role is set once at registration (or once, from '' to a real
@@ -140,9 +147,13 @@ service cloud.firestore {
         request.resource.data.organizerId == request.auth.uid &&
         isApprovedOrganizer(request.auth.uid);
 
+      // Once a result exists the flag can't be cleared, or the one-result
+      // rule on matches could be sidestepped.
       allow update: if isSignedIn() &&
         resource.data.organizerId == request.auth.uid &&
-        request.resource.data.organizerId == resource.data.organizerId;
+        request.resource.data.organizerId == resource.data.organizerId &&
+        (resource.data.get('hasMatchData', false) != true ||
+          request.resource.data.get('hasMatchData', false) == true);
 
       // The super-admin moderating content — see admin_content_screen.dart.
       // Restricted to `status`, which in practice means cancelling: the admin
@@ -177,9 +188,12 @@ service cloud.firestore {
 
     // ── matches ────────────────────────────────────────
     match /matches/{matchId} {
+      // One result per event: a second recording is refused even if the app
+      // were bypassed.
       allow create: if isSignedIn() &&
         request.resource.data.recordedBy == request.auth.uid &&
-        eventOrganizerId(request.resource.data.eventId) == request.auth.uid;
+        eventOrganizerId(request.resource.data.eventId) == request.auth.uid &&
+        !eventHasResult(request.resource.data.eventId);
 
       // finalizeMatch only ever changes status/finalizedAt.
       allow update: if isSignedIn() &&

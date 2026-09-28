@@ -75,26 +75,39 @@ List<T> eventsForResults<T>(
       ...eventsForTab(events, data: data, tab: EventTab.upcoming, now: now),
     ];
 
+/// Whether a match result has been recorded for this event. RatingService
+/// sets `hasMatchData` in the same write that records the match.
+bool hasResult(Map<String, dynamic> event) => event['hasMatchData'] == true;
+
+/// Whether Record Match may take a result for this event: a real game whose
+/// start time has passed and that has no result yet. The one-result part is
+/// also enforced by the Firestore rules.
+bool canRecordResult(Map<String, dynamic> event, {DateTime? now}) {
+  final status = event['status'];
+  if (status == 'draft' || status == 'cancelled') return false;
+  return !isEventUpcoming(event, now: now) && !hasResult(event);
+}
+
 /// The badge an event row carries, derived the same way the bucket is.
-enum EventBadge { upcoming, completed, draft, cancelled }
+enum EventBadge { upcoming, awaitingResult, completed, draft, cancelled }
 
 /// The badge for one event document.
 ///
-/// Only [EventBadge.upcoming] is a live state worth highlighting; the other
-/// three are rendered in the neutral style. Cancelled and draft are read off
-/// `status`, which does own those two; "completed" is derived from the date,
-/// since nothing ever writes it.
+/// Cancelled and draft are read off `status`. A game is completed only once
+/// its result is recorded; a past game without one is awaiting its result.
 EventBadge badgeFor(Map<String, dynamic> event, {DateTime? now}) {
   if (event['status'] == 'cancelled') return EventBadge.cancelled;
   if (event['status'] == 'draft') return EventBadge.draft;
+  if (hasResult(event)) return EventBadge.completed;
   return isEventUpcoming(event, now: now)
       ? EventBadge.upcoming
-      : EventBadge.completed;
+      : EventBadge.awaitingResult;
 }
 
 /// The uppercase label shown in the pill.
 String badgeLabel(EventBadge badge) => switch (badge) {
       EventBadge.upcoming => 'UPCOMING',
+      EventBadge.awaitingResult => 'AWAITING RESULT',
       EventBadge.completed => 'COMPLETED',
       EventBadge.draft => 'DRAFT',
       EventBadge.cancelled => 'CANCELLED',
