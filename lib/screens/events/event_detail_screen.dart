@@ -11,8 +11,10 @@ import '../../models/report.dart';
 import '../../services/notification_service.dart';
 import '../../services/team_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/event_history.dart';
 import '../../utils/event_recipients.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/match_players.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/member_profiles.dart';
 import '../../widgets/organizer_profile_parts.dart';
@@ -97,48 +99,42 @@ class EventDetailScreen extends StatelessWidget {
         ),
       );
 
-  Widget _buildMatchResults(String? teamAName, String? teamBName) {
-    return StreamBuilder<QuerySnapshot>(
+  /// Hands [header] the event's recorded result, if any. Read from the match
+  /// as soon as it's saved, not only once every player's stats are in and it
+  /// is finalized, which left the score hidden until then.
+  Widget _buildScoreboard(
+      Map<String, dynamic> ev, Widget Function(MatchResult? result) header) {
+    if (!hasResult(ev)) return header(null);
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('matches')
           .where('eventId', isEqualTo: _eventId)
-          .where('status', isEqualTo: 'finalized')
           .snapshots(),
       builder: (context, snapshot) {
-        final docs = snapshot.data?.docs ?? [];
-        if (docs.isEmpty) return const SizedBox.shrink();
-        final matches = docs
-            .map((d) => MatchResult.fromMap(d.id, d.data() as Map<String, dynamic>))
-            .toList();
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('RESULT', style: TextStyle(
-                color: AppTheme.muted, fontSize: 12,
-                fontWeight: FontWeight.w800, letterSpacing: 1)),
-            const SizedBox(height: 10),
-            ...matches.map((m) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _MatchResultCard(
-                    match: m, teamAName: teamAName, teamBName: teamBName))),
-          ]),
-        );
+        final doc =
+            latestMatch(snapshot.data?.docs ?? [], data: (d) => d.data());
+        return header(
+            doc == null ? null : MatchResult.fromMap(doc.id, doc.data()));
       },
     );
   }
 
   Widget _buildContent(BuildContext context, Map<String, dynamic> ev) {
     final name = ev['name'] as String? ?? 'Untitled Event';
-    // The raw `status` field is only ever 'draft' or 'upcoming' and never
-    // updates itself once a game happens, so the displayed label is derived
-    // from the real eventDate instead — see isEventUpcoming() in
-    // firestore_helpers.dart.
+    // Same badge as My Events and Home, so the three can't disagree.
     final isCancelled = ev['status'] == 'cancelled';
-    final isDraft = ev['status'] == 'draft';
-    final isCompleted = !isCancelled && !isDraft && !isEventUpcoming(ev);
-    final statusLabel = isCancelled ? 'CANCELLED'
-        : isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
-    final isNeutralStatus = isCancelled || isDraft || isCompleted;
+    final badge = badgeFor(ev);
+    final statusLabel = badgeLabel(badge);
+    final isNeutralStatus = badge != EventBadge.upcoming;
+    // The same check Record Match makes. The button explains itself when the
+    // game can't take a result yet, and is left out where it never will.
+    final canRecord = canRecordResult(ev);
+    final recordLabel = switch (badge) {
+      EventBadge.awaitingResult => 'Record Match Results',
+      EventBadge.completed => 'Result Recorded',
+      EventBadge.upcoming => 'Results Open at Kickoff',
+      EventBadge.draft || EventBadge.cancelled => null,
+    };
     final sport = ev['sport'] as String? ?? '—';
     final venue = ev['venue'] as String? ?? '—';
     final venueAddress = ev['venueAddress'] as String? ?? '';
@@ -237,15 +233,15 @@ class EventDetailScreen extends StatelessWidget {
               OrganizerByline(organizerId: organizerId),
             ],
             const SizedBox(height: 20),
-            _buildMatchResults(teamAName, teamBName),
-            _TeamVsTeamHeader(
+            _buildScoreboard(ev, (result) => _TeamVsTeamHeader(
               teamACoachId: ev['teamACoachId'] as String?,
               teamBCoachId: ev['teamBCoachId'] as String?,
               teamAName: teamAName ?? 'Team A',
               teamBName: teamBName ?? 'Team B',
               countA: players.where((p) => (p['team'] as String? ?? 'A') == 'A').length,
               countB: players.where((p) => (p['team'] as String? ?? 'A') == 'B').length,
-            ),
+              result: result,
+            )),
             const SizedBox(height: 16),
             Row(children: [
               Text('ROSTER', style: TextStyle(
@@ -330,21 +326,29 @@ class EventDetailScreen extends StatelessWidget {
               ),
             ],
             if (isOrganizer) ...[
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity, height: 50,
-                child: ElevatedButton(
-                  onPressed: () => Get.toNamed('/matches/record',
-                      arguments: isBracketMatch ? {'eventId': _eventId} : null),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.accent,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12))),
-                  child: const Text('Record Match Results', style: TextStyle(
-                      color: AppTheme.buttonFg, fontSize: 14,
-                      fontWeight: FontWeight.w700)),
+              if (recordLabel != null) ...[
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity, height: 50,
+                  child: ElevatedButton(
+                    // Straight to this game's lineup and score, not the list
+                    // of every game waiting for a result.
+                    onPressed: canRecord
+                        ? () => Get.toNamed('/matches/record',
+                            arguments: {'eventId': _eventId})
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.accent,
+                        disabledBackgroundColor: AppTheme.cardNested,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12))),
+                    child: Text(recordLabel, style: TextStyle(
+                        color: canRecord ? AppTheme.buttonFg : AppTheme.muted,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700)),
+                  ),
                 ),
-              ),
+              ],
               if (!isCancelled && !isBracketMatch)
                 _buildDangerZone(context, ev),
             ],
@@ -561,82 +565,9 @@ class _InfoRow extends StatelessWidget {
   ]);
 }
 
-/// One finalized match's score, with the winning side highlighted. An event
-/// can technically have more than one recorded match, so the caller renders
-/// one of these per finalized match rather than assuming a single result.
-class _MatchResultCard extends StatelessWidget {
-  final MatchResult match;
-  final String? teamAName;
-  final String? teamBName;
-  const _MatchResultCard({
-    required this.match,
-    required this.teamAName,
-    required this.teamBName,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-          color: AppTheme.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border)),
-      child: Row(children: [
-        Expanded(
-          child: _TeamScore(
-              name: teamAName ?? 'Team A',
-              score: match.scoreA,
-              isWinner: match.winner == 'A'),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text('vs', style: TextStyle(color: AppTheme.muted,
-              fontSize: 12, fontWeight: FontWeight.w700)),
-        ),
-        Expanded(
-          child: _TeamScore(
-              name: teamBName ?? 'Team B',
-              score: match.scoreB,
-              isWinner: match.winner == 'B'),
-        ),
-      ]),
-    );
-  }
-}
-
-class _TeamScore extends StatelessWidget {
-  final String name;
-  final int score;
-  final bool isWinner;
-  const _TeamScore({
-    required this.name,
-    required this.score,
-    required this.isWinner,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(children: [
-      Text(name, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-              color: isWinner ? AppTheme.textPrimary : AppTheme.sub,
-              fontSize: 13, fontWeight: FontWeight.w700)),
-      const SizedBox(height: 6),
-      Text('$score', style: TextStyle(
-          color: isWinner ? AppTheme.accent : AppTheme.muted,
-          fontSize: 24, fontWeight: FontWeight.w900)),
-      if (isWinner) ...[
-        const SizedBox(height: 4),
-        const Icon(Icons.emoji_events_rounded, color: AppTheme.accent, size: 14),
-      ],
-    ]);
-  }
-}
-
 /// The two teams facing off, each with its coach-set logo (or a generic
 /// placeholder if this side wasn't built from a picked coach team) and
-/// player count.
+/// player count. Once a result is recorded, its score replaces "VS".
 class _TeamVsTeamHeader extends StatelessWidget {
   final String? teamACoachId;
   final String? teamBCoachId;
@@ -644,6 +575,7 @@ class _TeamVsTeamHeader extends StatelessWidget {
   final String teamBName;
   final int countA;
   final int countB;
+  final MatchResult? result;
 
   const _TeamVsTeamHeader({
     required this.teamACoachId,
@@ -652,26 +584,66 @@ class _TeamVsTeamHeader extends StatelessWidget {
     required this.teamBName,
     required this.countA,
     required this.countB,
+    this.result,
   });
 
   @override
   Widget build(BuildContext context) {
+    final result = this.result;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: AppTheme.card,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.border)),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-            child: _TeamBlock(coachId: teamACoachId, name: teamAName, count: countA)),
-        Padding(
-          padding: const EdgeInsets.only(top: 18),
-          child: Text('VS', style: TextStyle(
-              color: AppTheme.muted, fontSize: 12, fontWeight: FontWeight.w800)),
-        ),
-        Expanded(
-            child: _TeamBlock(coachId: teamBCoachId, name: teamBName, count: countB)),
+      child: Column(children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+              child: _TeamBlock(coachId: teamACoachId, name: teamAName, count: countA)),
+          if (result == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 18),
+              child: Text('VS', style: TextStyle(
+                  color: AppTheme.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+            )
+          else
+            _buildScore(result),
+          Expanded(
+              child: _TeamBlock(coachId: teamBCoachId, name: teamBName, count: countB)),
+        ]),
+        // The score is final once recorded; ratings wait for Add Stats.
+        if (result != null && !result.isFinalized) ...[
+          const SizedBox(height: 12),
+          Text("Ratings update once every player's stats are in.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+        ],
+      ]),
+    );
+  }
+
+  /// "FINAL" over the score, the winner's number in gold. Sized to sit level
+  /// with the 56dp team logos either side.
+  Widget _buildScore(MatchResult result) {
+    TextStyle scoreStyle(bool won) => TextStyle(
+        color: won ? AppTheme.accentText : AppTheme.sub,
+        fontSize: 24, fontWeight: FontWeight.w900);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Column(children: [
+        Text('FINAL', style: TextStyle(
+            color: AppTheme.muted, fontSize: 10,
+            fontWeight: FontWeight.w800, letterSpacing: 1)),
+        const SizedBox(height: 2),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('${result.scoreA}', style: scoreStyle(result.winner == 'A')),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Text('–', style: TextStyle(
+                color: AppTheme.muted, fontSize: 20, fontWeight: FontWeight.w700)),
+          ),
+          Text('${result.scoreB}', style: scoreStyle(result.winner == 'B')),
+        ]),
       ]),
     );
   }

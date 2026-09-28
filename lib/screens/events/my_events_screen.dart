@@ -9,11 +9,14 @@ import '../../constants/query_limits.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_history.dart';
+import '../../utils/event_sections.dart';
 import '../../utils/firestore_helpers.dart';
 
 const _kRadius = 16.0;
 
-/// The organizer's own events, split into Upcoming and Past.
+/// The organizer's own events, split into Upcoming and Past. Past is grouped
+/// by status, with games still awaiting a result first, since those are the
+/// organizer's to-do list; each of those cards opens Record Match directly.
 ///
 /// Structured after [TournamentListScreen], the organizer's other list screen,
 /// rather than after the "View All Events" sheet on the home screen. The sheet
@@ -109,64 +112,28 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
               ),
             ]),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-            child: Row(children: [
-              _EventTabToggle(
-                showPast: _showPast,
-                onChanged: (value) => setState(() => _showPast = value),
-              ),
-            ]),
-          ),
+          // The toggle sits inside the stream so the Past option can show how
+          // many games are waiting for a result.
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _stream,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                      child: CircularProgressIndicator(
-                          color: AppTheme.accent, strokeWidth: 2.5));
-                }
-                if (snapshot.hasError) {
-                  return _empty(
-                    icon: Icons.error_outline,
-                    title: 'Something went wrong',
-                    subtitle: friendlyError(snapshot.error),
-                  );
-                }
-
-                // Bucketing and ordering both live in event_history.dart so
-                // they can be unit-tested away from Firestore.
-                final docs = eventsForTab(
-                  snapshot.data?.docs ?? [],
-                  data: (d) => d.data(),
-                  tab: _showPast ? EventTab.past : EventTab.upcoming,
-                );
-
-                if (docs.isEmpty) {
-                  return _showPast
-                      ? _empty(
-                          icon: Icons.history_rounded,
-                          title: 'No past events yet',
-                          subtitle:
-                              'Events you have run will be kept here once '
-                              'their date has passed.',
-                        )
-                      : _empty(
-                          icon: Icons.calendar_today_outlined,
-                          title: 'No upcoming events',
-                          subtitle:
-                              'Create an event and athletes can register for it.',
-                          actionLabel: 'New Event',
-                        );
-                }
-
-                return ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                  itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, i) => _card(docs[i]),
-                );
+                final all = snapshot.data?.docs ?? [];
+                return Column(children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                    child: Row(children: [
+                      _EventTabToggle(
+                        showPast: _showPast,
+                        awaitingCount:
+                            awaitingResultCount(all, data: (d) => d.data()),
+                        onChanged: (value) =>
+                            setState(() => _showPast = value),
+                      ),
+                    ]),
+                  ),
+                  Expanded(child: _buildList(snapshot)),
+                ]);
               },
             ),
           ),
@@ -175,14 +142,120 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
     );
   }
 
-  Widget _card(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _buildList(
+      AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return const Center(
+          child: CircularProgressIndicator(
+              color: AppTheme.accent, strokeWidth: 2.5));
+    }
+    if (snapshot.hasError) {
+      return _empty(
+        icon: Icons.error_outline,
+        title: 'Something went wrong',
+        subtitle: friendlyError(snapshot.error),
+      );
+    }
+
+    // Bucketing, grouping and ordering live in event_history.dart and
+    // event_sections.dart so they can be unit-tested away from Firestore.
+    final all = snapshot.data?.docs ?? [];
+
+    if (_showPast) {
+      final sections = pastSections(all, data: (d) => d.data());
+      if (sections.isEmpty) {
+        return _empty(
+          icon: Icons.history_rounded,
+          title: 'No past events yet',
+          subtitle: 'Events you have run will be kept here once '
+              'their date has passed.',
+        );
+      }
+      // The group heading names the status, so the cards drop their pill.
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        children: [
+          for (var i = 0; i < sections.length; i++) ...[
+            if (i > 0) const SizedBox(height: 14),
+            _sectionHeader(sections[i]),
+            for (final doc in sections[i].events)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _card(doc, showPill: false),
+              ),
+          ],
+        ],
+      );
+    }
+
+    final docs =
+        eventsForTab(all, data: (d) => d.data(), tab: EventTab.upcoming);
+    if (docs.isEmpty) {
+      return _empty(
+        icon: Icons.calendar_today_outlined,
+        title: 'No upcoming events',
+        subtitle: 'Create an event and athletes can register for it.',
+        actionLabel: 'New Event',
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      itemCount: docs.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, i) => _card(docs[i]),
+    );
+  }
+
+  /// A Past group's heading. Awaiting Result also says why it matters, since
+  /// it is the one group the organizer has to act on.
+  Widget _sectionHeader(
+      EventSection<QueryDocumentSnapshot<Map<String, dynamic>>> section) {
+    final awaiting = section.badge == EventBadge.awaitingResult;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          if (awaiting) ...[
+            Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                    color: AppTheme.accent, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+          ],
+          Text('${badgeLabel(section.badge)} · ${section.events.length}',
+              style: TextStyle(
+                  color: awaiting ? AppTheme.textPrimary : AppTheme.muted,
+                  fontSize: 11,
+                  letterSpacing: 1,
+                  fontWeight: FontWeight.w800)),
+        ]),
+        if (awaiting) ...[
+          const SizedBox(height: 4),
+          Text(
+              'Record each result so Elo ratings update and stats can be '
+              'added.',
+              style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+        ],
+      ]),
+    );
+  }
+
+  Widget _card(QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      {bool showPill = true}) {
     final ev = doc.data();
 
     // Same derivation as the home screen's event rows, shared with the tab
     // split so a row can never disagree with the bucket it was put in.
     final badge = badgeFor(ev);
     final label = badgeLabel(badge);
-    final highlight = badge == EventBadge.upcoming;
+    // Awaiting-result games are highlighted too: they're the organizer's
+    // to-do, not history.
+    final highlight = badge == EventBadge.upcoming ||
+        badge == EventBadge.awaitingResult;
+    // The same check Record Match makes, so the button only appears on a game
+    // it will accept.
+    final canRecord = canRecordResult(ev);
 
     final date = asTimestamp(ev['eventDate'])?.toDate();
     final fmtDate =
@@ -205,7 +278,10 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
       onTap: () =>
           Get.toNamed('/events/detail', arguments: {'eventId': doc.id}),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        // The Record button's padded tap area fills the top gap instead.
+        padding: canRecord
+            ? const EdgeInsets.fromLTRB(14, 8, 14, 14)
+            : const EdgeInsets.all(14),
         decoration: BoxDecoration(
             color: AppTheme.card,
             borderRadius: BorderRadius.circular(_kRadius),
@@ -224,10 +300,13 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
                       fontSize: 15,
                       fontWeight: FontWeight.w800)),
             ),
-            const SizedBox(width: 8),
-            _statusPill(label, highlight: highlight),
+            if (showPill) ...[
+              const SizedBox(width: 8),
+              _statusPill(label, highlight: highlight),
+            ],
+            if (canRecord) _recordButton(doc.id),
           ]),
-          const SizedBox(height: 6),
+          SizedBox(height: canRecord ? 0 : 6),
           Row(children: [
             Expanded(
               child: Text(meta,
@@ -244,6 +323,37 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
                     fontWeight: FontWeight.w700)),
           ]),
         ]),
+      ),
+    );
+  }
+
+  /// Opens Record Match on this game. The 32dp button is padded out to a 44dp
+  /// tap area, so a near miss still lands on it rather than the card.
+  Widget _recordButton(String eventId) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () =>
+          Get.toNamed('/matches/record', arguments: {'eventId': eventId}),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.only(left: 12, right: 8),
+          decoration: BoxDecoration(
+              color: AppTheme.accentSurface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.accent)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('Record',
+                style: TextStyle(
+                    color: AppTheme.accentText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800)),
+            const SizedBox(width: 2),
+            Icon(Icons.chevron_right_rounded,
+                color: AppTheme.accentText, size: 16),
+          ]),
+        ),
       ),
     );
   }
@@ -307,8 +417,15 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
 /// home_screen.dart, relabelled — see the note on [MyEventsScreen].
 class _EventTabToggle extends StatelessWidget {
   final bool showPast;
+
+  /// Games played but not yet recorded; shown on the Past option when any.
+  final int awaitingCount;
   final ValueChanged<bool> onChanged;
-  const _EventTabToggle({required this.showPast, required this.onChanged});
+  const _EventTabToggle({
+    required this.showPast,
+    required this.awaitingCount,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -321,7 +438,8 @@ class _EventTabToggle extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         _buildOption('Upcoming',
             selected: !showPast, onTap: () => onChanged(false)),
-        _buildOption('Past', selected: showPast, onTap: () => onChanged(true)),
+        _buildOption(awaitingCount > 0 ? 'Past · $awaitingCount' : 'Past',
+            selected: showPast, onTap: () => onChanged(true)),
       ]),
     );
   }
