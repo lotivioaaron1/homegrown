@@ -10,6 +10,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_history.dart';
 import '../../utils/event_sections.dart';
+import '../../utils/event_sport_filter.dart';
 import '../../utils/firestore_helpers.dart';
 
 const _kRadius = 16.0;
@@ -42,10 +43,18 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
 
   bool _showPast = false;
 
+  /// The sport chip picked, or null for All.
+  String? _sport;
+
+  /// The sports on the organizer's profile, so a sport with nothing scheduled
+  /// yet still gets a chip.
+  List<String> _organized = const [];
+
   @override
   void initState() {
     super.initState();
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    _loadOrganizedSports(uid);
 
     // Equality-only, and deliberately without an orderBy. Adding
     // .orderBy('eventDate') alongside the organizerId filter would need a new
@@ -58,6 +67,24 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
         .where('organizerId', isEqualTo: uid)
         .limit(kMaxListQuery)
         .snapshots();
+  }
+
+  /// Read once, the same way Create Event reads it. Until it arrives, or if
+  /// it can't be read, the chips come from the events alone.
+  Future<void> _loadOrganizedSports(String uid) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final sports = (doc.data()?['sportsOrganized'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[];
+      if (mounted) setState(() => _organized = sports);
+    } catch (_) {
+      // Keep the event-derived chips; the list itself is unaffected.
+    }
   }
 
   @override
@@ -118,10 +145,21 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _stream,
               builder: (context, snapshot) {
-                final all = snapshot.data?.docs ?? [];
+                final everything = snapshot.data?.docs ?? [];
+                final sports = sportFilterOptions(
+                  organized: _organized,
+                  eventSports:
+                      everything.map((d) => asString(d.data()['sport'])),
+                );
+                // Chips only when there is more than one sport to pick from.
+                final showChips = sports.length > 1;
+                final sport = sports.contains(_sport) ? _sport : null;
+                // The tabs, the Past groups and the count all follow the chip.
+                final all = eventsForSport(everything,
+                    data: (d) => d.data(), sport: sport);
                 return Column(children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                    padding: EdgeInsets.fromLTRB(20, 0, 20, showChips ? 10 : 14),
                     child: Row(children: [
                       _EventTabToggle(
                         showPast: _showPast,
@@ -132,7 +170,8 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
                       ),
                     ]),
                   ),
-                  Expanded(child: _buildList(snapshot)),
+                  if (showChips) _sportChips(sports, sport, everything),
+                  Expanded(child: _buildList(snapshot, all, sport)),
                 ]);
               },
             ),
@@ -142,8 +181,78 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
     );
   }
 
+  /// All, then one chip per sport. A sport with games awaiting a result gets
+  /// a gold dot, so a filtered view still hints at unrecorded games elsewhere.
+  Widget _sportChips(List<String> sports, String? selected,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> everything) {
+    bool hasAwaiting(String sport) =>
+        awaitingResultCount(
+            eventsForSport(everything, data: (d) => d.data(), sport: sport),
+            data: (d) => d.data()) >
+        0;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(20, 0, 12, 10),
+      child: Row(children: [
+        _sportChip('All',
+            selected: selected == null,
+            awaiting: false,
+            onTap: () => setState(() => _sport = null)),
+        for (final sport in sports)
+          _sportChip(sport,
+              selected: selected == sport,
+              awaiting: hasAwaiting(sport),
+              onTap: () => setState(() => _sport = sport)),
+      ]),
+    );
+  }
+
+  /// Styled like the leaderboard's sport chips. The 36dp chip is padded out
+  /// to a 44dp tap area.
+  Widget _sportChip(String label,
+      {required bool selected,
+      required bool awaiting,
+      required VoidCallback onTap}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(0, 4, 8, 4),
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+              color: selected ? AppTheme.accentSurface : AppTheme.card,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                  color: selected ? AppTheme.accent : AppTheme.border,
+                  width: selected ? 2 : 1.5)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(label,
+                style: TextStyle(
+                    color: selected ? AppTheme.accentText : AppTheme.muted,
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+            if (awaiting) ...[
+              const SizedBox(width: 6),
+              Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                      color: AppTheme.accent, shape: BoxShape.circle)),
+            ],
+          ]),
+        ),
+      ),
+    );
+  }
+
   Widget _buildList(
-      AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
+      AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> all,
+      String? sport) {
     if (snapshot.connectionState == ConnectionState.waiting) {
       return const Center(
           child: CircularProgressIndicator(
@@ -159,14 +268,15 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
 
     // Bucketing, grouping and ordering live in event_history.dart and
     // event_sections.dart so they can be unit-tested away from Firestore.
-    final all = snapshot.data?.docs ?? [];
+    // [all] is already narrowed to the chosen sport.
+    final sportWord = sport == null ? '' : '$sport ';
 
     if (_showPast) {
       final sections = pastSections(all, data: (d) => d.data());
       if (sections.isEmpty) {
         return _empty(
           icon: Icons.history_rounded,
-          title: 'No past events yet',
+          title: 'No past ${sportWord}events yet',
           subtitle: 'Events you have run will be kept here once '
               'their date has passed.',
         );
@@ -193,7 +303,7 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
     if (docs.isEmpty) {
       return _empty(
         icon: Icons.calendar_today_outlined,
-        title: 'No upcoming events',
+        title: 'No upcoming ${sportWord}events',
         subtitle: 'Create an event and athletes can register for it.',
         actionLabel: 'New Event',
       );
