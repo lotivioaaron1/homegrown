@@ -9,10 +9,14 @@ import '../../theme/app_theme.dart';
 import '../../constants/query_limits.dart';
 import '../../models/tournament.dart';
 import '../../services/rating_service.dart';
+import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_history.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/match_lineup.dart';
+import '../../widgets/member_profiles.dart';
+import '../../widgets/player_avatar.dart';
 
 const _kSideA = 'A';
 const _kSideB = 'B';
@@ -70,8 +74,11 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     }
   }
 
-  /// uid -> 'A' | 'B'. A player absent from this map is unassigned.
-  final Map<String, String> _sides = {};
+  /// uid -> 'A' | 'B' from the coach's roster the player came in with, or
+  /// null on an older event that never recorded teams.
+  final Map<String, String?> _teamOf = {};
+  final Set<String> _satOut = {};
+  final Set<String> _collapsed = {};
   final _scoreACtrl = TextEditingController();
   final _scoreBCtrl = TextEditingController();
   bool _isSaving = false;
@@ -83,32 +90,42 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     super.dispose();
   }
 
-  /// Prefills the split from each player's team, assigned at event
-  /// creation, so the organizer isn't re-splitting the same roster from
-  /// scratch every time a match is recorded. Any individual player can
-  /// still be flipped afterwards — which is how a no-show is dropped.
+  List<Map<String, dynamic>> get _players =>
+      (_selectedEvent?['players'] as List? ?? []).cast<Map<String, dynamic>>();
+
+  /// Starts every player on the team saved at event creation, marked as
+  /// played, so the organizer only unchecks no-shows.
   void _prefillSides(Map<String, dynamic> ev) {
     setState(() {
-      _sides.clear();
-      for (final p
-          in (ev['players'] as List? ?? []).cast<Map<String, dynamic>>()) {
-        final team = p['team'] as String?;
-        if (team == _kSideA || team == _kSideB) {
-          _sides[p['uid'] as String] = team!;
-        }
-      }
+      _teamOf
+        ..clear()
+        ..addAll(initialTeams(
+            (ev['players'] as List? ?? []).cast<Map<String, dynamic>>()));
+      _satOut.clear();
+      _collapsed.clear();
     });
   }
 
-  bool get _canSubmit {
-    final sideA = _sides.entries.where((e) => e.value == _kSideA);
-    final sideB = _sides.entries.where((e) => e.value == _kSideB);
-    if (sideA.isEmpty || sideB.isEmpty) return false;
-    final scoreA = int.tryParse(_scoreACtrl.text.trim());
-    final scoreB = int.tryParse(_scoreBCtrl.text.trim());
-    if (scoreA == null || scoreB == null) return false;
-    return scoreA != scoreB;
+  void _resetLineup() {
+    _teamOf.clear();
+    _satOut.clear();
+    _collapsed.clear();
   }
+
+  MatchLineup get _lineup => deriveLineup(_players, _teamOf, _satOut);
+
+  String? get _blockReason => recordBlockReason(
+      _lineup, _scoreACtrl.text, _scoreBCtrl.text,
+      nameA: _sideName(_kSideA), nameB: _sideName(_kSideB));
+
+  void _toggleSatOut(String uid) => setState(() {
+        if (!_satOut.remove(uid)) _satOut.add(uid);
+      });
+
+  /// Only for a player with no team yet; nobody is ever switched between
+  /// teams, since a player belongs to exactly one.
+  void _assignTo(String uid, String side) =>
+      setState(() => _teamOf[uid] = side);
 
   /// Every result is confirmed before it is written. A bracket result also
   /// advances a team, which has its own dialog; an ordinary match used to go
@@ -135,6 +152,11 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     return name.isNotEmpty ? name : 'Team $side';
   }
 
+  String get _lineupCounts {
+    final l = _lineup;
+    return '${l.sideA.length} vs ${l.sideB.length} players';
+  }
+
   Future<bool> _confirmRecord() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -146,7 +168,8 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
             fontWeight: FontWeight.w800)),
         content: Text(
             '${_sideName(_kSideA)} ${_scoreACtrl.text.trim()} — '
-            '${_scoreBCtrl.text.trim()} ${_sideName(_kSideB)}\n\n'
+            '${_scoreBCtrl.text.trim()} ${_sideName(_kSideB)}\n'
+            '$_lineupCounts\n\n'
             "Check the score: it can't be changed after this, and it decides "
             "every player's rating.",
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
@@ -169,14 +192,9 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
   }
 
   Future<void> _submit() async {
-    final sideA = _sides.entries
-        .where((e) => e.value == _kSideA)
-        .map((e) => e.key)
-        .toList();
-    final sideB = _sides.entries
-        .where((e) => e.value == _kSideB)
-        .map((e) => e.key)
-        .toList();
+    final lineup = _lineup;
+    final sideA = lineup.sideA;
+    final sideB = lineup.sideB;
     final scoreA = int.parse(_scoreACtrl.text.trim());
     final scoreB = int.parse(_scoreBCtrl.text.trim());
 
@@ -220,8 +238,8 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
       Get.snackbar(
         'Error', friendlyError(e),
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF2A1A1A),
-        colorText: AppTheme.error,
+        backgroundColor: AppTheme.errorSurface,
+        colorText: AppTheme.errorText,
         margin: const EdgeInsets.all(16),
         borderRadius: 12,
       );
@@ -293,12 +311,9 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
   /// has been shuffled onto the wrong side becomes visible, while it can
   /// still be corrected. Advancing is not undoable.
   Future<bool> _confirmAdvance() async {
-    final ev = _selectedEvent!;
     final scoreA = int.parse(_scoreACtrl.text.trim());
     final scoreB = int.parse(_scoreBCtrl.text.trim());
-    final aWins = scoreA > scoreB;
-    final winnerName =
-        (aWins ? ev['teamAName'] : ev['teamBName']) as String? ?? 'The winner';
+    final winnerName = _sideName(scoreA > scoreB ? _kSideA : _kSideB);
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -311,7 +326,8 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
                 fontSize: 16,
                 fontWeight: FontWeight.w800)),
         content: Text(
-            '${ev['teamAName']} $scoreA — $scoreB ${ev['teamBName']}\n\n'
+            '${_sideName(_kSideA)} $scoreA — $scoreB ${_sideName(_kSideB)}\n'
+            '$_lineupCounts\n\n'
             '$winnerName moves on in the bracket. This cannot be undone.',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
@@ -367,7 +383,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
             } else {
               setState(() {
                 _selectedEvent = null;
-                _sides.clear();
+                _resetLineup();
                 _scoreACtrl.clear();
                 _scoreBCtrl.clear();
               });
@@ -390,7 +406,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Record Match', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 17, fontWeight: FontWeight.w800)),
-          Text(_selectedEvent == null ? 'Select an event' : 'Split the roster & enter the score',
+          Text(_selectedEvent == null ? 'Select an event' : 'Confirm who played & enter the score',
             style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         ]),
       ]),
@@ -477,16 +493,43 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
   }
 
   Widget _buildSidesForm() {
-    final players = (_selectedEvent?['players'] as List? ?? [])
-        .cast<Map<String, dynamic>>();
+    final byUid = {
+      for (final p in _players)
+        if (p['uid'] is String) p['uid'] as String: p,
+    };
+    final lineup = _lineup;
+    final reason = _blockReason;
 
+    // One builder over every uid in the event: it refetches only when that
+    // set changes, so checking or moving a player never reloads the avatars.
+    return MemberProfilesBuilder(
+      uids: byUid.keys.toList(),
+      builder: (context, profiles) =>
+          _buildFormBody(byUid, lineup, reason, profiles),
+    );
+  }
+
+  Widget _buildFormBody(
+    Map<String, Map<String, dynamic>> byUid,
+    MatchLineup lineup,
+    String? reason,
+    Map<String, Map<String, dynamic>> profiles,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text("Tap each player's team. Leave out anyone who sat out.",
+        Text('Uncheck anyone who sat out.',
           style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         const SizedBox(height: 12),
-        ...players.map((p) => _buildPlayerRow(p)),
+        if (lineup.unassigned.isNotEmpty) ...[
+          _buildUnassignedCard(lineup.unassigned, byUid, profiles),
+          const SizedBox(height: 12),
+        ],
+        _buildTeamCard(_kSideA, lineup.rosterA, lineup.sideA.length, byUid,
+            profiles),
+        const SizedBox(height: 12),
+        _buildTeamCard(_kSideB, lineup.rosterB, lineup.sideB.length, byUid,
+            profiles),
         const SizedBox(height: 20),
         Text('Final Score', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
@@ -506,68 +549,232 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
             : SizedBox(
                 width: double.infinity, height: 54,
                 child: ElevatedButton(
-                  onPressed: _canSubmit ? _onSubmitPressed : null,
+                  onPressed: reason == null ? _onSubmitPressed : null,
                   child: Text(
                       _isBracketMatch ? 'Record & Advance' : 'Record Match'),
                 ),
               ),
+        // Neutral, not red: "Enter both scores" is where everyone starts.
+        if (!_isSaving && reason != null) ...[
+          const SizedBox(height: 10),
+          Center(
+            child: Text(reason,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+          ),
+        ],
       ]),
     );
   }
 
-  void _toggleSide(String uid, String side) {
-    setState(() {
-      if (_sides[uid] == side) {
-        _sides.remove(uid);
-      } else {
-        _sides[uid] = side;
-      }
-    });
-  }
+  Widget _buildTeamCard(
+    String side,
+    List<String> roster,
+    int playedCount,
+    Map<String, Map<String, dynamic>> byUid,
+    Map<String, Map<String, dynamic>> profiles,
+  ) {
+    final name = _sideName(side);
+    final collapsed = _collapsed.contains(side);
+    final nobodyPlayed = playedCount == 0;
 
-  Widget _buildPlayerRow(Map<String, dynamic> p) {
-    final uid = p['uid'] as String;
-    final side = _sides[uid];
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppTheme.card,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.border)),
-        child: Row(children: [
-          Expanded(child: Text(p['fullName'] as String? ?? '',
-            style: TextStyle(color: AppTheme.textPrimary,
-                fontSize: 14, fontWeight: FontWeight.w600))),
-          const SizedBox(width: 8),
-          _sideChip(_sideName(_kSideA), side == _kSideA,
-              () => _toggleSide(uid, _kSideA)),
-          const SizedBox(width: 8),
-          _sideChip(_sideName(_kSideB), side == _kSideB,
-              () => _toggleSide(uid, _kSideB)),
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border)),
+      child: Material(
+        color: Colors.transparent,
+        child: Column(children: [
+          InkWell(
+            onTap: () => setState(() =>
+                collapsed ? _collapsed.remove(side) : _collapsed.add(side)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+              child: Row(children: [
+                Expanded(child: Text(name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppTheme.textPrimary,
+                      fontSize: 15, fontWeight: FontWeight.w800))),
+                const SizedBox(width: 8),
+                // Stays visible when folded, so a team can't be hidden empty.
+                if (nobodyPlayed) ...[
+                  Icon(Icons.error_outline_rounded,
+                      color: AppTheme.errorText, size: 15),
+                  const SizedBox(width: 4),
+                ],
+                Text('$playedCount of ${roster.length} played',
+                  style: TextStyle(
+                    color: nobodyPlayed ? AppTheme.errorText : AppTheme.sub,
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 4),
+                Icon(collapsed
+                        ? Icons.expand_more_rounded
+                        : Icons.expand_less_rounded,
+                    color: AppTheme.muted, size: 22),
+              ]),
+            ),
+          ),
+          if (!collapsed) ...[
+            Container(height: 1, color: AppTheme.border),
+            if (nobodyPlayed) _buildEmptyTeamNote(name, roster.isEmpty),
+            for (final uid in roster)
+              _buildPlayerRow(byUid[uid]!, profiles),
+          ],
         ]),
       ),
     );
   }
 
-  Widget _sideChip(String label, bool selected, VoidCallback onTap) {
+  Widget _buildEmptyTeamNote(String name, bool nobodyOnTeam) => Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.info_outline_rounded, color: AppTheme.errorText, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              nobodyOnTeam
+                  ? 'No players on $name. This event was created with only '
+                      "one team's roster, so its result can't be recorded."
+                  : 'Everyone on $name is marked sat out. Check each player '
+                      'who played.',
+              style: TextStyle(
+                  color: AppTheme.errorText, fontSize: 12, height: 1.4)),
+          ),
+        ]),
+      );
+
+  Widget _buildPlayerRow(Map<String, dynamic> p,
+      Map<String, Map<String, dynamic>> profiles) {
+    final uid = p['uid'] as String;
+    final played = !_satOut.contains(uid);
+    final identity = resolveMemberIdentity(profiles[uid],
+        fallbackName: p['fullName'] as String? ?? '');
+    final position = p['position'] as String? ?? '';
+
+    return InkWell(
+      onTap: () => _toggleSatOut(uid),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 4, 14, 4),
+        child: Row(children: [
+          Checkbox(
+            value: played,
+            onChanged: (_) => _toggleSatOut(uid),
+            activeColor: AppTheme.accent,
+            checkColor: AppTheme.buttonFg,
+            side: BorderSide(color: AppTheme.muted, width: 1.5),
+          ),
+          Expanded(
+            child: Opacity(
+              opacity: played ? 1 : 0.45,
+              child: Row(children: [
+                PlayerAvatar(
+                    name: identity.name,
+                    photoUrl: identity.photoUrl,
+                    size: 36, radius: 10, fontSize: 12),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(identity.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppTheme.textPrimary,
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                      if (position.isNotEmpty)
+                        Text(position,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+                    ],
+                  ),
+                ),
+              ]),
+            ),
+          ),
+          // Outside the Opacity, so the label stays readable on a dimmed row.
+          if (!played)
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Text('Sat out', style: TextStyle(color: AppTheme.sub,
+                  fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  /// Only shown for older events whose players were never split into teams.
+  Widget _buildUnassignedCard(
+    List<String> uids,
+    Map<String, Map<String, dynamic>> byUid,
+    Map<String, Map<String, dynamic>> profiles,
+  ) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.accent)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Not on a team', style: TextStyle(color: AppTheme.textPrimary,
+            fontSize: 15, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 2),
+        Text("Won't be recorded unless added. Tap a team to add them.",
+          style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+        const SizedBox(height: 10),
+        for (final uid in uids) _buildUnassignedRow(byUid[uid]!, profiles),
+      ]),
+    );
+  }
+
+  Widget _buildUnassignedRow(Map<String, dynamic> p,
+      Map<String, Map<String, dynamic>> profiles) {
+    final uid = p['uid'] as String;
+    final identity = resolveMemberIdentity(profiles[uid],
+        fallbackName: p['fullName'] as String? ?? '');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(children: [
+        PlayerAvatar(
+            name: identity.name,
+            photoUrl: identity.photoUrl,
+            size: 32, radius: 9, fontSize: 11),
+        const SizedBox(width: 10),
+        Expanded(child: Text(identity.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: AppTheme.textPrimary,
+              fontSize: 14, fontWeight: FontWeight.w600))),
+        const SizedBox(width: 8),
+        _sideChip(_sideName(_kSideA), () => _assignTo(uid, _kSideA)),
+        const SizedBox(width: 8),
+        _sideChip(_sideName(_kSideB), () => _assignTo(uid, _kSideB)),
+      ]),
+    );
+  }
+
+  Widget _sideChip(String label, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 32,
+        height: 44,
         // Capped so a long team name can't crowd out the player's name.
-        constraints: const BoxConstraints(minWidth: 36, maxWidth: 88),
+        constraints: const BoxConstraints(minWidth: 44, maxWidth: 88),
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
-          color: selected ? AppTheme.accentSurface : AppTheme.cardNested,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? AppTheme.accent : AppTheme.border)),
+          color: AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.border)),
         child: Center(widthFactor: 1, child: Text(label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: selected ? AppTheme.accentText : AppTheme.muted,
+            color: AppTheme.textPrimary,
             fontSize: 12, fontWeight: FontWeight.w700))),
       ),
     );
