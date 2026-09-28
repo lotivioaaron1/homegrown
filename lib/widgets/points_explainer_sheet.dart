@@ -52,11 +52,10 @@ const Map<String, String> _kSportEmoji = {
 
 /// "How points work" — the one place the app explains its numbers.
 ///
-/// Home's TOTAL POINTS, the dashboard and the leaderboard all show Homegrown
-/// points, a weighted score rather than points scored: a basketball player who
-/// scores 10 is credited with more than 10. Nothing used to say so, and the
-/// leaderboard's sport filter quietly switched to a different number — match
-/// rating — without saying that either.
+/// Home's TOTAL POINTS and the dashboard show Homegrown points, a weighted
+/// score rather than points scored: a basketball player who scores 10 is
+/// credited with more than 10. The leaderboard ranks by a different number,
+/// the per-sport Elo rating, which the last section explains.
 void showPointsExplainerSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
@@ -164,8 +163,9 @@ class _PointsExplainer extends StatelessWidget {
         const SizedBox(height: 14),
         const _Section(
           icon: LucideIcons.swords,
-          title: 'Match rating (Rankings by sport)',
-          body: 'Each sport has its own rating, starting at $kStartingRating. '
+          title: 'Elo rating (Leaderboard)',
+          body: 'The leaderboard ranks each sport by its own Elo rating, '
+              'starting at $kStartingRating. '
               'After a recorded match it goes up when your side wins and down '
               'when it loses — more for beating a higher-rated side, and a '
               'little more for a standout game.',

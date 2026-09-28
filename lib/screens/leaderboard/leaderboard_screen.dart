@@ -13,14 +13,13 @@ import '../../widgets/athlete_profile_sheet.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/leaderboard_ranks.dart';
-import '../../utils/sports.dart';
 import '../../widgets/points_explainer_sheet.dart';
 import '../../widgets/skeleton.dart';
 
-const List<String> _kFilters = ['All', 'Basketball', 'Volleyball', 'Badminton'];
+/// No cross-sport view: points are a stat total, not a skill ranking like Elo.
+const List<String> _kFilters = ['Basketball', 'Volleyball', 'Badminton'];
 
-/// Glyph per sport, shared by the filter chips and the row subtitles so the
-/// two read as the same vocabulary.
+/// Glyph per sport for the filter chips.
 const Map<String, String> _kSportEmoji = {
   'Basketball': '🏀',
   'Volleyball': '🏐',
@@ -29,9 +28,9 @@ const Map<String, String> _kSportEmoji = {
 
 /// Hard ceiling on how many athlete documents one leaderboard view will read.
 ///
-/// The ranking can't be pushed into the query: the "All" view sorts on `points`,
-/// but a sport filter sorts on `ratings.<sport>` and treats a missing rating as
-/// [kStartingRating]. Firestore's `orderBy` drops documents that lack the field
+/// The ranking can't be pushed into the query: the board sorts on
+/// `ratings.<sport>` and treats a missing rating as [kStartingRating].
+/// Firestore's `orderBy` drops documents that lack the field
 /// entirely, so ordering server-side would silently hide every athlete who has
 /// never been rated in that sport. Ranking therefore stays client-side, and this
 /// bounds what it costs.
@@ -50,7 +49,7 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-  String _filter = 'All';
+  String _filter = _kFilters.first;
 
   // Name search, filtered client-side over the already-streamed result set —
   // Firestore has no substring operator, and the board is capped at
@@ -86,13 +85,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       return _athletesStream!;
     }
 
-    Query query = FirebaseFirestore.instance
+    final query = FirebaseFirestore.instance
         .collection('users')
-        .where('role', isEqualTo: 'athlete');
-
-    if (_filter != 'All') {
-      query = query.where('primarySports', arrayContains: _filter);
-    }
+        .where('role', isEqualTo: 'athlete')
+        .where('primarySports', arrayContains: _filter);
 
     _streamedFilter = _filter;
     return _athletesStream = query.limit(_kMaxRankedAthletes).snapshots();
@@ -198,7 +194,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   color: sel ? AppTheme.accent : AppTheme.border,
                   width: sel ? 2 : 1.5)),
               child: Text(
-                f == 'All' ? 'All Sports' : '${_kSportEmoji[f] ?? ''} $f'.trim(),
+                '${_kSportEmoji[f] ?? ''} $f'.trim(),
                 style: TextStyle(
                   color: sel ? AppTheme.accentText : AppTheme.muted,
                   fontSize: 12, fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
@@ -209,10 +205,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  /// Says what the numbers are. The All view ranks by Homegrown points and a
-  /// sport filter by match rating, and the switch between the two used to
-  /// happen without a word — a new athlete could jump from #12 to #1 just by
-  /// tapping a chip.
+  /// Names the number, so a rating like 1040 isn't misread as points scored.
   Widget _buildRankingBasis() => GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => showPointsExplainerSheet(context),
@@ -222,10 +215,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             Icon(LucideIcons.info, color: AppTheme.muted, size: 13),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(
-                  _filter == 'All'
-                      ? 'Ranked by total Homegrown points'
-                      : 'Ranked by $_filter match rating',
+              child: Text('Ranked by $_filter Elo rating',
                   style: TextStyle(
                       color: AppTheme.muted,
                       fontSize: 11,
@@ -263,10 +253,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                      _filter == 'All'
-                          ? 'No recorded games yet'
-                          : 'No rated $_filter matches yet',
+                  Text('No rated $_filter matches yet',
                       style: TextStyle(
                           color: AppTheme.textPrimary,
                           fontSize: 14,
@@ -298,10 +285,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
         final docs = snapshot.data?.docs ?? [];
 
-        // The "All" filter constrains on role alone, so — unlike Scout, whose
-        // primarySports clause happens to exclude them — the deletion
-        // tombstones reach this list and would rank as nameless rows on 0
-        // points. See isListableProfile, which is a safety net only: an
+        // The primarySports clause already keeps deletion tombstones out, as
+        // it does in Scout. isListableProfile is a safety net only: an
         // orphaned profile that kept its name still needs a data cleanup.
         final athletes = docs
             .map((d) => d.data() as Map<String, dynamic>)
@@ -318,9 +303,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             title: 'No athletes yet',
             // Addressed to whoever is looking — usually an athlete — rather
             // than to an admin who can "register athletes".
-            subtitle: _filter == 'All'
-                ? 'Athletes appear here once they sign up'
-                : 'No $_filter athletes found');
+            subtitle: 'No $_filter athletes found');
         }
 
         final searching = _searchQuery.isNotEmpty;
@@ -333,8 +316,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         // Equal scores share a rank and consume the numbers behind them
         // (1, 2, 2, 4), which lines the board up with RankingService.cityRank.
         //
-        // Athletes with nothing recorded — no points in the All view, no
-        // rating in a filtered sport — get no rank at all (null, shown "—").
+        // Athletes with no rating yet in this sport get no rank at all
+        // (null, shown "—").
         // They used to be numbered too, and because they all sit on the same
         // value they all tied for first: with no stats recorded yet, the
         // whole city was "#1". See leaderboard_ranks.dart.
@@ -558,7 +541,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           style: TextStyle(
             color: isMe ? AppTheme.accent : AppTheme.textPrimary,
             fontSize: 10, fontWeight: FontWeight.w600))),
-        Text('$pts $_unitLabel', style: TextStyle(
+        Text('$pts Elo', style: TextStyle(
           color: accentColor, fontSize: 10, fontWeight: FontWeight.w800)),
         const SizedBox(height: 6),
         Container(
@@ -582,12 +565,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   Widget _buildMyRankBanner(int? rank, Map<String, dynamic> athlete) {
     final pts = _rankValue(athlete);
     final detail = rank == null
-        ? (_filter == 'All'
-            ? 'Unranked · play a recorded game to get ranked'
-            : 'Unranked in $_filter · no rated matches yet')
-        : (_filter == 'All'
-            ? '$pts points earned so far'
-            : '$pts $_unitLabel rating');
+        ? 'Unranked in $_filter · no rated matches yet'
+        : '$_filter Elo rating: $pts';
     return GestureDetector(
       onTap: () => _showAthleteProfile(athlete),
       child: Container(
@@ -642,10 +621,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final subtitle = [
       if (position.isNotEmpty) position,
       if (barangay.isNotEmpty) barangay,
-      // Only in the All view, where the board mixes sports and the row is
-      // otherwise silent about which one this athlete plays. Under a sport
-      // filter every row already answers that.
-      if (_filter == 'All') ..._sportMarks(athlete),
     ].join(' · ');
 
     final initials = Center(
@@ -739,7 +714,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     color: isOpen ? AppTheme.success : AppTheme.muted,
                     fontSize: 11, fontWeight: FontWeight.w700)),
               if (!isCoach && isMe)
-                Text(_unitLabel, style: TextStyle(
+                Text('Elo', style: TextStyle(
                   color: AppTheme.muted, fontSize: 11)),
             ]),
             const SizedBox(width: 6),
@@ -748,18 +723,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         ),
       ),
     );
-  }
-
-  /// Sport glyphs for a row's subtitle, in the same vocabulary as the filter
-  /// chips. Returns at most one entry so it drops straight into the
-  /// `·`-joined subtitle, and a sport with no glyph contributes nothing rather
-  /// than a gap.
-  List<String> _sportMarks(Map<String, dynamic> athlete) {
-    final marks = sportsOf(athlete)
-        .map((s) => _kSportEmoji[s] ?? '')
-        .where((e) => e.isNotEmpty)
-        .join(' ');
-    return marks.isEmpty ? const [] : [marks];
   }
 
   void _showAthleteProfile(Map<String, dynamic> athlete) {
@@ -787,18 +750,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     ));
   }
 
-  int _toInt(dynamic val) {
-    if (val is int) return val;
-    if (val is double) return val.toInt();
-    return 0;
-  }
-
-  /// Whether [athlete] has earned a place on the current board: any points in
-  /// the All view, or a recorded rating in the filtered sport. A missing
+  /// Whether [athlete] has no recorded rating in the current sport. A missing
   /// rating is read as kStartingRating by [_rankValue], which is right for
   /// display but would otherwise tie every unrated athlete for first.
   bool _isUnranked(Map<String, dynamic> athlete) {
-    if (_filter == 'All') return _toInt(athlete['points']) <= 0;
     final ratings = athlete['ratings'] as Map?;
     return ratings?[RatingService.sportKey(_filter)] == null;
   }
@@ -819,16 +774,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   /// The number this leaderboard ranks and displays by: the sport's Elo
-  /// rating when filtered to a sport, raw cumulative points otherwise
-  /// (there's no single cross-sport rating to sort the "All" view by).
+  /// rating.
   int _rankValue(Map<String, dynamic> athlete) {
-    if (_filter == 'All') return _toInt(athlete['points']);
     final ratings = athlete['ratings'] as Map?;
     return (ratings?[RatingService.sportKey(_filter)] as num?)?.toInt() ??
         kStartingRating;
   }
-
-  String get _unitLabel => _filter == 'All' ? 'pts' : 'Rating';
 
   String _displayName(Map<String, dynamic> athlete) {
     final fullName = (athlete['fullName'] as String? ?? '').trim();
