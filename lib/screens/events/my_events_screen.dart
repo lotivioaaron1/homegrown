@@ -159,16 +159,13 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
                     data: (d) => d.data(), sport: sport);
                 return Column(children: [
                   Padding(
-                    padding: EdgeInsets.fromLTRB(20, 0, 20, showChips ? 10 : 14),
-                    child: Row(children: [
-                      _EventTabToggle(
-                        showPast: _showPast,
-                        awaitingCount:
-                            awaitingResultCount(all, data: (d) => d.data()),
-                        onChanged: (value) =>
-                            setState(() => _showPast = value),
-                      ),
-                    ]),
+                    padding: EdgeInsets.fromLTRB(20, 0, 20, showChips ? 8 : 14),
+                    child: _EventTabToggle(
+                      showPast: _showPast,
+                      awaitingCount:
+                          awaitingResultCount(all, data: (d) => d.data()),
+                      onChanged: (value) => setState(() => _showPast = value),
+                    ),
                   ),
                   if (showChips) _sportChips(sports, sport, everything),
                   Expanded(child: _buildList(snapshot, all, sport)),
@@ -191,20 +188,25 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
             data: (d) => d.data()) >
         0;
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(20, 0, 12, 10),
-      child: Row(children: [
-        _sportChip('All',
-            selected: selected == null,
-            awaiting: false,
-            onTap: () => setState(() => _sport = null)),
-        for (final sport in sports)
-          _sportChip(sport,
-              selected: selected == sport,
-              awaiting: hasAwaiting(sport),
-              onTap: () => setState(() => _sport = sport)),
-      ]),
+    // Pinned left, in line with the toggle and cards; on its own the scroll
+    // view sizes to its chips and the column centres it.
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 0, 12, 10),
+        child: Row(children: [
+          _sportChip('All',
+              selected: selected == null,
+              awaiting: false,
+              onTap: () => setState(() => _sport = null)),
+          for (final sport in sports)
+            _sportChip(sport,
+                selected: selected == sport,
+                awaiting: hasAwaiting(sport),
+                onTap: () => setState(() => _sport = sport)),
+        ]),
+      ),
     );
   }
 
@@ -523,8 +525,10 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
   }
 }
 
-/// Segmented Upcoming/Past toggle. A copy of `_EventTabToggle` from
-/// home_screen.dart, relabelled — see the note on [MyEventsScreen].
+/// Full-width Upcoming/Past switch, the screen's main control. It started as
+/// a copy of `_EventTabToggle` in home_screen.dart (see the note on
+/// [MyEventsScreen]) and was widened here so it reads above the sport chips
+/// and each half is a 44dp tap target.
 class _EventTabToggle extends StatelessWidget {
   final bool showPast;
 
@@ -540,34 +544,45 @@ class _EventTabToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(3),
+      height: 44,
       decoration: BoxDecoration(
           color: AppTheme.cardNested,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
           border: Border.all(color: AppTheme.border)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _buildOption('Upcoming',
-            selected: !showPast, onTap: () => onChanged(false)),
-        _buildOption(awaitingCount > 0 ? 'Past · $awaitingCount' : 'Past',
-            selected: showPast, onTap: () => onChanged(true)),
+      child: Row(children: [
+        Expanded(
+          child: _buildOption('Upcoming',
+              selected: !showPast, onTap: () => onChanged(false)),
+        ),
+        Expanded(
+          child: _buildOption(
+              awaitingCount > 0 ? 'Past · $awaitingCount' : 'Past',
+              selected: showPast,
+              onTap: () => onChanged(true)),
+        ),
       ]),
     );
   }
 
+  /// The whole half is tappable, including the inset around the pill.
   Widget _buildOption(String label,
       {required bool selected, required VoidCallback onTap}) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-            color: selected ? AppTheme.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(17)),
-        child: Text(label,
-            style: TextStyle(
-                color: selected ? AppTheme.buttonFg : AppTheme.sub,
-                fontSize: 11,
-                fontWeight: FontWeight.w700)),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+              color: selected ? AppTheme.accent : Colors.transparent,
+              borderRadius: BorderRadius.circular(18)),
+          child: Text(label,
+              style: TextStyle(
+                  color: selected ? AppTheme.buttonFg : AppTheme.sub,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+        ),
       ),
     );
   }
