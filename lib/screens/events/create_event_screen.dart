@@ -17,6 +17,7 @@ import '../../widgets/player_avatar.dart';
 import '../profile/edit_profile_screen.dart';
 import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/event_roster_check.dart';
 import '../../utils/team_name.dart';
 
 const _kRadius   = 14.0;
@@ -426,11 +427,23 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       if (_eventDate == null) { _snack('Select Date', 'Please select a date.'); return; }
       if (_selectedVenue == null) { _snack('Select Venue', 'Please select a venue.'); return; }
     }
-    if (_step == 1 && _addedPlayers.isEmpty) {
-      _snack('No Players', 'Pick at least one team with players.'); return;
+    if (_step == 1) {
+      final problem = teamsProblem(
+        sport: _sport,
+        pickedA: _teamACoachId != null,
+        pickedB: _teamBCoachId != null,
+        countA: _sideCount('A'),
+        countB: _sideCount('B'),
+        nameA: _teamAName,
+        nameB: _teamBName,
+      );
+      if (problem != null) { _snack('Teams Not Ready', problem); return; }
     }
     setState(() => _step++);
   }
+
+  int _sideCount(String side) =>
+      _addedPlayers.where((p) => p['source'] == 'team$side').length;
 
   void _prevStep() { if (_step > 0) setState(() => _step--); }
 
@@ -550,7 +563,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 child: Center(child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2)));
           }
+          // The other side's coach is left out: one team can't play itself.
+          final otherCoach = side == 'A' ? _teamBCoachId : _teamACoachId;
           final allTeams = (snapshot.data?.docs ?? [])
+              .where((d) => d.id != otherCoach)
               .map((d) => {...d.data() as Map<String, dynamic>, 'uid': d.id})
               .toList();
 
@@ -768,6 +784,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final logoUrl   = side == 'A' ? _teamALogoUrl : _teamBLogoUrl;
     final expanded  = side == 'A' ? _expandedA : _expandedB;
     final players   = _addedPlayers.where((p) => p['source'] == 'team$side').toList();
+    final min       = minPlayersPerSide(_sport);
+    final short     = players.length < min;
 
     return Container(
       decoration: BoxDecoration(
@@ -810,9 +828,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         style: TextStyle(color: AppTheme.sub, fontSize: 11)),
                   ],
                   const SizedBox(height: 2),
-                  Text('${players.length} player${players.length == 1 ? '' : 's'}',
-                      style: const TextStyle(color: AppTheme.accent, fontSize: 11,
-                          fontWeight: FontWeight.w700)),
+                  Text(
+                      '${players.length} player${players.length == 1 ? '' : 's'}'
+                      '${short ? ' · needs $min' : ''}',
+                      style: TextStyle(
+                          color: short ? AppTheme.errorText : AppTheme.accent,
+                          fontSize: 11, fontWeight: FontWeight.w700)),
                 ]),
               ),
               GestureDetector(
@@ -1262,7 +1283,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           const SizedBox(height: 16),
           const _SectionLabel(label: 'Pick a team for each side'),
           const SizedBox(height: 4),
-          Text('Tap a picked team to review its roster.',
+          Text('$_sport needs at least ${minPlayersPerSide(_sport)} players '
+              'per side. Tap a picked team to review its roster.',
               style: TextStyle(color: AppTheme.muted, fontSize: 11)),
           const SizedBox(height: 8),
           _teamCard('A'),
