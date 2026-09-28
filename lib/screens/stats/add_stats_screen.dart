@@ -523,14 +523,15 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFF0D3020),
+              color: AppTheme.successSurface,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: AppTheme.success)),
-            child: const Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.check_circle_outline, color: AppTheme.success, size: 12),
-              SizedBox(width: 4),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.check_circle_outline,
+                  color: AppTheme.successText, size: 12),
+              const SizedBox(width: 4),
               Text('= Stats submitted',
-                style: TextStyle(color: AppTheme.success, fontSize: 10,
+                style: TextStyle(color: AppTheme.successText, fontSize: 10,
                     fontWeight: FontWeight.w600)),
             ]),
           ),
@@ -596,12 +597,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                             ],
                           )),
                           done
-                              ? const Row(children: [
+                              ? Row(children: [
                                   Icon(Icons.check_circle_rounded,
-                                      color: AppTheme.success, size: 18),
-                                  SizedBox(width: 4),
+                                      color: AppTheme.successText, size: 18),
+                                  const SizedBox(width: 4),
                                   Text('Done', style: TextStyle(
-                                    color: AppTheme.success, fontSize: 11,
+                                    color: AppTheme.successText, fontSize: 11,
                                     fontWeight: FontWeight.w600)),
                                 ])
                               : const Icon(Icons.add_circle_outline_rounded,
@@ -719,10 +720,14 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
             ),
             ..._pendingMatches.map((doc) {
               final m = doc.data() as Map<String, dynamic>;
+              final teamAName = _selectedEvent?['teamAName'] as String? ?? 'Team A';
+              final teamBName = _selectedEvent?['teamBName'] as String? ?? 'Team B';
               return DropdownMenuItem<String?>(
                 value: doc.id,
                 child: Text(
-                  'Side A (${m['sideA']?.length ?? 0}) vs Side B (${m['sideB']?.length ?? 0}) · ${m['scoreA']}-${m['scoreB']}',
+                  '$teamAName ${m['scoreA']} — ${m['scoreB']} $teamBName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: AppTheme.textPrimary, fontSize: 13)),
               );
             }),

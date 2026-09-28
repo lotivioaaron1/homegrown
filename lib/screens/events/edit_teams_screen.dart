@@ -225,6 +225,7 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
 
   Widget _teamNameField(TextEditingController ctrl, String hint) => TextField(
     controller: ctrl,
+    onChanged: (_) => setState(() {}),
     style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
     decoration: InputDecoration(
       hintText: hint,
@@ -243,19 +244,29 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
     ),
   );
 
+  String _teamLabel(String value) {
+    final typed = (value == 'A' ? _teamACtrl : _teamBCtrl).text.trim();
+    return typed.isNotEmpty ? typed : 'Team $value';
+  }
+
   Widget _teamToggle(Map<String, dynamic> p) {
     final team = p['team'] as String? ?? 'A';
     Widget seg(String value) => GestureDetector(
       onTap: () => setState(() => p['team'] = value),
       child: Container(
-        width: 28, height: 28,
+        // Fixed so a long team name can't crowd out the player's name.
+        width: 72, height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: team == value ? AppTheme.accentSurface : Colors.transparent,
           borderRadius: BorderRadius.circular(6)),
-        child: Text(value, style: TextStyle(
-            color: team == value ? AppTheme.accentText : AppTheme.muted,
-            fontSize: 11, fontWeight: FontWeight.w700))));
+        child: Text(_teamLabel(value),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                color: team == value ? AppTheme.accentText : AppTheme.muted,
+                fontSize: 11, fontWeight: FontWeight.w700))));
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(

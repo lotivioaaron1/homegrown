@@ -483,9 +483,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Says which letter is which team — the chips are only "A" and "B".
-        Text('Tap A for ${_sideName(_kSideA)} or B for ${_sideName(_kSideB)}. '
-            'Leave out anyone who sat out.',
+        Text("Tap each player's team. Leave out anyone who sat out.",
           style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         const SizedBox(height: 12),
         ...players.map((p) => _buildPlayerRow(p)),
@@ -542,9 +540,12 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           Expanded(child: Text(p['fullName'] as String? ?? '',
             style: TextStyle(color: AppTheme.textPrimary,
                 fontSize: 14, fontWeight: FontWeight.w600))),
-          _sideChip('A', side == _kSideA, () => _toggleSide(uid, _kSideA)),
           const SizedBox(width: 8),
-          _sideChip('B', side == _kSideB, () => _toggleSide(uid, _kSideB)),
+          _sideChip(_sideName(_kSideA), side == _kSideA,
+              () => _toggleSide(uid, _kSideA)),
+          const SizedBox(width: 8),
+          _sideChip(_sideName(_kSideB), side == _kSideB,
+              () => _toggleSide(uid, _kSideB)),
         ]),
       ),
     );
@@ -554,14 +555,20 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 36, height: 32,
+        height: 32,
+        // Capped so a long team name can't crowd out the player's name.
+        constraints: const BoxConstraints(minWidth: 36, maxWidth: 88),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected ? AppTheme.accentSurface : AppTheme.cardNested,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: selected ? AppTheme.accent : AppTheme.border)),
-        child: Center(child: Text(label, style: TextStyle(
-          color: selected ? AppTheme.accentText : AppTheme.muted,
-          fontSize: 13, fontWeight: FontWeight.w700))),
+        child: Center(widthFactor: 1, child: Text(label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: selected ? AppTheme.accentText : AppTheme.muted,
+            fontSize: 12, fontWeight: FontWeight.w700))),
       ),
     );
   }
