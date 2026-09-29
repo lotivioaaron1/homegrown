@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/championships.dart';
 import '../../widgets/member_profiles.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/team_name.dart';
@@ -45,6 +46,8 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               _buildTeamIdentityCard(),
+              // The team's titles; nothing until it has won one.
+              TeamTitlesRow(coachId: _uid),
               const SizedBox(height: 20),
               _buildSectionLabel('ROSTER'),
               const SizedBox(height: 10),

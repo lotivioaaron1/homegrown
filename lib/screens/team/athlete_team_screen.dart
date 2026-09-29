@@ -10,6 +10,7 @@ import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
 import '../../utils/team_name.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/championships.dart';
 import '../../widgets/coach_profile_sheet.dart';
 import '../../widgets/member_profiles.dart';
 
@@ -80,6 +81,8 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
                       _buildSectionLabel('COACH'),
                       const SizedBox(height: 10),
                       _buildCoachCard(),
+                      // The team's titles; nothing until it has won one.
+                      TeamTitlesRow(coachId: _coachId),
                       const SizedBox(height: 20),
                       _buildSectionLabel('TEAMMATES'),
                       const SizedBox(height: 10),
