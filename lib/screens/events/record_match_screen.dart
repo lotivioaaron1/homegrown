@@ -587,7 +587,13 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
         _buildTeamCard(_kSideB, lineup.rosterB, lineup.sideB.length, byUid,
             profiles),
         const SizedBox(height: 20),
-        Text('Final Score', style: TextStyle(
+        // A badminton result is the sets each side won (2–1), which is what
+        // Add Stats checks each player's Sets Won against.
+        Text(
+            _selectedEvent?['sport'] == 'Badminton'
+                ? 'Final Score (sets won)'
+                : 'Final Score',
+            style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         Row(children: [

@@ -12,6 +12,7 @@ import '../../services/team_service.dart';
 import '../../utils/event_history.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/match_players.dart';
+import '../../utils/stat_limits.dart';
 import '../../utils/stat_scoring.dart';
 import '../../utils/error_messages.dart';
 import '../../widgets/member_profiles.dart';
@@ -35,6 +36,9 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
   /// key-by-key when the stat entry is written.
   String? _selectedPlayerPhotoUrl;
   Set<String> _submittedUids = {};
+  /// Each athlete's basketball points already saved for the selected match,
+  /// so teammates can't be given more than their team scored between them.
+  Map<String, int> _enteredByAthlete = {};
   List<QueryDocumentSnapshot> _pendingMatches = [];
   String? _selectedMatchId;
   bool _openingEvent = false;
@@ -261,6 +265,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           _submittedUids = snap.docs
               .map((d) => d['athleteId'] as String)
               .toSet();
+          _enteredByAthlete = {
+            for (final d in snap.docs)
+              d['athleteId'] as String:
+                  ((d.data()['stats'] as Map?)?['points'] as num?)?.toInt() ??
+                      0,
+          };
         });
       }
     } catch (_) {}
@@ -273,7 +283,58 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     ]) { c.clear(); }
     _matchWon = false;
   }
+  /// The limit on the selected player's points (basketball) or sets
+  /// (badminton) in this match; null when the sport isn't capped.
+  ScoreCap? get _scoreCap {
+    final match = _selectedMatch;
+    final uid = _selectedPlayer?['uid'] as String?;
+    if (match == null || uid == null) return null;
+    return scoreCapFor(
+      sport: _selectedEvent?['sport'] as String? ?? '',
+      match: match,
+      athleteId: uid,
+      nameA: _teamAName,
+      nameB: _teamBName,
+      enteredByAthlete: _enteredByAthlete,
+    );
+  }
+
+  /// Why the capped stat as typed can't be saved, or null.
+  String? get _capError {
+    final cap = _scoreCap;
+    if (cap == null) return null;
+    final ctrl = cap.statKey == 'setsWon' ? _setsCtrl : _ptsCtrl;
+    return scoreCapError(cap, _n(ctrl).toInt());
+  }
+
+  /// Whether badminton's Win/Loss comes from the recorded result. Only an
+  /// event without recorded sides leaves it to the organizer.
+  bool get _resultLocked {
+    final match = _selectedMatch;
+    final uid = _selectedPlayer?['uid'] as String?;
+    return match != null && uid != null && matchWonFor(match, uid) != null;
+  }
+
+  /// Badminton's Win/Loss and Sets Won follow from the recorded result, so
+  /// they're filled in rather than left to be got wrong.
+  void _prefillFromResult() {
+    if (_selectedEvent?['sport'] != 'Badminton') return;
+    final match = _selectedMatch;
+    final uid = _selectedPlayer?['uid'] as String?;
+    if (match == null || uid == null) return;
+    final won = matchWonFor(match, uid);
+    if (won != null) _matchWon = won;
+    final cap = _scoreCap;
+    if (cap != null) _setsCtrl.text = '${cap.teamScore}';
+  }
+
   Future<void> _saveStats() async {
+    // The button is disabled while this is set; this is the backstop.
+    final capError = _capError;
+    if (capError != null) {
+      _snack('Check the stats', capError, isError: true);
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final statId     = const Uuid().v4();
@@ -323,6 +384,8 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       if (!mounted) return;
       setState(() {
         _submittedUids.add(athleteId);
+        _enteredByAthlete[athleteId] =
+            (statsData['points'] as num?)?.toInt() ?? 0;
         _step = _titles.indexOf('Select Player');
         _selectedPlayer = null;
         _selectedPlayerPhotoUrl = null;
@@ -711,6 +774,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                         // Held beside the selection rather than injected into
                         // the map, which is the source for the stats write.
                         _selectedPlayerPhotoUrl = identity.photoUrl;
+                        _prefillFromResult();
                         _step++;
                       });
                     },
@@ -820,6 +884,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
             if (sport == 'Basketball') ..._basketballFields(setInnerState),
             if (sport == 'Volleyball') ..._volleyballFields(setInnerState),
             if (sport == 'Badminton')  ..._badmintonFields(setInnerState),
+            ..._capBar(),
             const SizedBox(height: 16),
             _label('Notes (Optional)'),
             const SizedBox(height: 8),
@@ -835,7 +900,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 : SizedBox(
                     width: double.infinity, height: 54,
                     child: ElevatedButton(
-                      onPressed: _saveStats,
+                      onPressed: _capError == null ? _saveStats : null,
                       child: Text('Save Stats (+$pts pts)'),
                     ),
                   ),
@@ -882,7 +947,8 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       crossAxisSpacing: 10, mainAxisSpacing: 10,
       childAspectRatio: 2.2,
       children: [
-        _statField(_ptsCtrl, 'Points',     '0', set, multiplier: '×1.0'),
+        _statField(_ptsCtrl, 'Points',     '0', set,
+            multiplier: '×1.0', invalid: _capError != null),
         _statField(_astCtrl, 'Assists',    '0', set, multiplier: '×1.5'),
         _statField(_rebCtrl, 'Rebounds',   '0', set, multiplier: '×1.0'),
         _statField(_stlCtrl, 'Steals',     '0', set, multiplier: '×2.0'),
@@ -913,21 +979,32 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     const SizedBox(height: 8),
     Row(children: [
       Expanded(child: GestureDetector(
-        onTap: () => set(() { _matchWon = true; setState(() {}); }),
+        // Read-only once the recorded result says who won.
+        onTap: _resultLocked
+            ? null
+            : () => set(() { _matchWon = true; setState(() {}); }),
         // "Win", matching the plain "Loss" beside it.
         child: _resultTile('Win', _matchWon, true),
       )),
       const SizedBox(width: 10),
       Expanded(child: GestureDetector(
-        onTap: () => set(() { _matchWon = false; setState(() {}); }),
+        onTap: _resultLocked
+            ? null
+            : () => set(() { _matchWon = false; setState(() {}); }),
         child: _resultTile('Loss', !_matchWon, false),
       )),
     ]),
+    if (_resultLocked) ...[
+      const SizedBox(height: 6),
+      Text('Set from the recorded result.',
+          style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+    ],
     const SizedBox(height: 16),
     _label('Statistics'),
     const SizedBox(height: 8),
     Row(children: [
-      Expanded(child: _statField(_setsCtrl, 'Sets Won',       '0', set, multiplier: '×3.0')),
+      Expanded(child: _statField(_setsCtrl, 'Sets Won',       '0', set,
+          multiplier: '×3.0', invalid: _capError != null)),
       const SizedBox(width: 10),
       Expanded(child: _statField(_bPtsCtrl, 'Points Scored',  '0', set, multiplier: '×0.5')),
     ]),
@@ -952,13 +1029,45 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         fontSize: 14, fontWeight: FontWeight.w700))),
     );
   }
+  /// The limit this player's points (or sets) must stay within, and why
+  /// once they don't. Its own row, since the grid cells have no room for it.
+  List<Widget> _capBar() {
+    final cap = _scoreCap;
+    if (cap == null) return const [];
+    final error = _capError;
+    final bad = error != null;
+    return [
+      const SizedBox(height: 10),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: bad ? AppTheme.errorSurface : AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: bad ? AppTheme.errorText : AppTheme.border)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(bad ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+              color: bad ? AppTheme.errorText : AppTheme.muted, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(error ?? scoreCapHint(cap),
+                style: TextStyle(
+                    color: bad ? AppTheme.errorText : AppTheme.sub,
+                    fontSize: 12, height: 1.35)),
+          ),
+        ]),
+      ),
+    ];
+  }
   Widget _statField(TextEditingController ctrl, String label,
-      String hint, StateSetter set, {String multiplier = ''}) {
+      String hint, StateSetter set,
+      {String multiplier = '', bool invalid = false}) {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
         color: AppTheme.card, borderRadius: BorderRadius.circular(_kRadius),
-        border: Border.all(color: AppTheme.border)),
+        border: Border.all(
+            color: invalid ? AppTheme.errorText : AppTheme.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(label, style: TextStyle(color: AppTheme.sub,
