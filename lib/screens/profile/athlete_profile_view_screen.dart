@@ -13,6 +13,7 @@ import '../../utils/error_messages.dart';
 import '../../utils/profile_format.dart';
 import '../../utils/sports.dart';
 import '../../widgets/athlete_profile_parts.dart';
+import '../../widgets/championships.dart';
 import '../../widgets/photo_viewer_dialog.dart';
 import '../../widgets/report_dialog.dart';
 import '../../widgets/video_player_sheet.dart';
@@ -191,6 +192,9 @@ class AthleteProfileViewScreen extends StatelessWidget {
           const SizedBox(width: 8),
           ProfileStatBox(value: weight, label: 'Weight'),
         ]),
+
+        // Titles won; nothing at all for an athlete without one.
+        ChampionshipShelf(uid: athleteId),
 
         const SizedBox(height: 18),
         AthleteStatAverages(athleteId: athleteId),

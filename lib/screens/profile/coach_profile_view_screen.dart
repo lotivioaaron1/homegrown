@@ -12,6 +12,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/sports.dart';
 import '../../widgets/athlete_profile_parts.dart';
+import '../../widgets/championships.dart';
 import '../../widgets/report_dialog.dart';
 import '../../widgets/team_roster_grid.dart';
 
@@ -185,6 +186,9 @@ class CoachProfileViewScreen extends StatelessWidget {
               style: TextStyle(
                   color: AppTheme.textPrimary, fontSize: 13, height: 1.5)),
         ],
+
+        // Titles the coach's team won; nothing at all without one.
+        ChampionshipShelf(uid: coachId),
 
         const SizedBox(height: 18),
         _team(context, coach, level: level, years: years, org: org),

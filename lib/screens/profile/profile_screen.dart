@@ -12,6 +12,7 @@ import '../../services/media_service.dart';
 import '../../services/team_service.dart';
 import '../../utils/team_name.dart';
 import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/championships.dart';
 import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/photo_viewer_dialog.dart';
 import '../../widgets/team_roster_grid.dart';
@@ -163,6 +164,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 18),
                 ] else
                   const SizedBox(height: 4),
+
+                // Titles won, for athletes and coaches alike. Renders nothing
+                // until there is one.
+                if (role == 'athlete' || role == 'coach')
+                  ChampionshipShelf(
+                      uid: _uid, padding: const EdgeInsets.only(bottom: 18)),
 
                 // Own-profile shortcuts (athlete only). Edit Profile used to be
                 // reachable only through the gear and Settings, and the card a
