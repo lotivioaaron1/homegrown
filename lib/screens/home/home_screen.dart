@@ -19,6 +19,7 @@ import '../../services/notification_service.dart';
 import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
+import '../../widgets/championships.dart';
 import '../../widgets/member_profiles.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
@@ -737,6 +738,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _buildRoleBadge(data, role),
       const SizedBox(height: 12),
       _buildHeroCard(data, role),
+      // Every role sees who has just won a tournament, for a week after the
+      // final. Renders nothing the rest of the time.
+      const ChampionsSpotlight(),
       if (role == 'athlete') ...[
         _buildSectionTitle('My Team'),
         // No horizontal padding here: the team deck runs to the screen edges
