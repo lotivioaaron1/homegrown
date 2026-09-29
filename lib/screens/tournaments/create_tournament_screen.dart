@@ -714,7 +714,9 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         Expanded(
           child: Text(
             '$count teams · $rounds rounds · starts at the $opener\n'
-            '${count - 1} matches to play'
+            // Single elimination plays count − 1 games; the battle for
+            // third adds one more.
+            '$count matches to play, including a battle for third'
             '${byes == 0 ? '' : ' · top $byes ${byes == 1 ? 'seed gets a bye' : 'seeds get byes'}'}',
             style: TextStyle(color: AppTheme.sub, fontSize: 11, height: 1.5),
           ),

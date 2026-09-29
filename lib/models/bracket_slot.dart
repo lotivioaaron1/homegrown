@@ -87,6 +87,11 @@ class BracketSlot {
   final int round;
   final int slot;
 
+  /// The battle for third place: the two semifinal losers, playing for 2nd
+  /// and 3rd runner-up. It sits in the final round as slot 2 and, like the
+  /// final, advances nobody, so this flag is what tells the two apart.
+  final bool isThirdPlace;
+
   final SlotEntrant? entrantA;
   final SlotEntrant? entrantB;
 
@@ -118,6 +123,7 @@ class BracketSlot {
     required this.organizerId,
     required this.round,
     required this.slot,
+    this.isThirdPlace = false,
     this.entrantA,
     this.entrantB,
     this.nextSlotId,
@@ -132,7 +138,7 @@ class BracketSlot {
     this.completedAt,
   });
 
-  bool get isFinal => nextSlotId == null;
+  bool get isFinal => nextSlotId == null && !isThirdPlace;
   bool get isDecided => winnerCoachId != null;
   bool get isBye => status == statusBye;
   bool get isScheduled => status == statusScheduled;
@@ -149,6 +155,7 @@ class BracketSlot {
         'organizerId': organizerId,
         'round': round,
         'slot': slot,
+        'thirdPlace': isThirdPlace,
         'entrantA': entrantA?.toMap(),
         'entrantB': entrantB?.toMap(),
         'nextSlotId': nextSlotId,
@@ -174,6 +181,7 @@ class BracketSlot {
       organizerId: map['organizerId'] as String? ?? '',
       round: (map['round'] as num?)?.toInt() ?? 1,
       slot: (map['slot'] as num?)?.toInt() ?? 1,
+      isThirdPlace: map['thirdPlace'] as bool? ?? false,
       entrantA: entrant(map['entrantA']),
       entrantB: entrant(map['entrantB']),
       nextSlotId: map['nextSlotId'] as String?,

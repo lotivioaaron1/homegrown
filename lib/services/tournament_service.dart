@@ -190,11 +190,28 @@ class TournamentService {
       ...tournament.toMap(),
       'createdAt': FieldValue.serverTimestamp(),
     });
-    for (final slot in generateBracket(seeded, organizerId: organizerId)) {
+    final bracket = generateBracket(seeded, organizerId: organizerId);
+    // Every bracket also has a battle for third, filled as the semifinals
+    // are played.
+    for (final slot in [
+      ...bracket,
+      thirdPlaceSlotFor(bracket, tournament.roundCount,
+          organizerId: organizerId),
+    ]) {
       batch.set(slotsOf(tournamentId).doc(slot.id), slot.toMap());
     }
     await batch.commit();
     return tournamentId;
+  }
+
+  /// Adds a battle for third to a bracket made before every bracket had one.
+  /// Semifinals already played put their losers straight in, so on a
+  /// finished bracket it's ready to schedule at once.
+  static Future<void> addThirdPlace(
+      Tournament tournament, List<BracketSlot> slots) {
+    final third = thirdPlaceSlotFor(slots, tournament.roundCount,
+        organizerId: tournament.organizerId);
+    return slotsOf(tournament.id).doc(third.id).set(third.toMap());
   }
 
   // ── Scheduling a matchup ─────────────────────────────
@@ -225,13 +242,16 @@ class TournamentService {
       for (final p in a.players) {...p.toMap(), 'team': 'A'},
       for (final p in b.players) {...p.toMap(), 'team': 'B'},
     ];
-    final label = roundLabel(slot.round, tournament.roundCount);
+    final label = slotLabel(slot, tournament.roundCount);
 
     final batch = _db.batch();
     batch.set(_events.doc(eventId), {
       'eventId': eventId,
       'organizerId': tournament.organizerId,
       'name': '${tournament.name} — $label: ${a.teamName} vs ${b.teamName}',
+      // Which game of the bracket this is ("Final", "Battle for third"), so
+      // Record Match can word its confirmation to suit.
+      'bracketStage': label,
       'description': '$label of ${tournament.name}.',
       'sport': tournament.sport,
       'eventType': 'Tournament',
@@ -275,6 +295,7 @@ class TournamentService {
         opponent: opponent.teamName,
         kickoff: kickoff,
         venue: tournament.venue,
+        stage: label,
       );
       for (final uid
           in teamRecipients(team.coachId, team.players.map((p) => p.uid))) {
@@ -324,6 +345,10 @@ class TournamentService {
   /// the moment a score is entered. The bracket therefore moves on
   /// immediately while the Elo update waits for per-player stats, so a
   /// sixteen-team draw is never stalled behind box scores.
+  ///
+  /// [thirdPlaceSlot] is the bracket's battle for third, if it has one: a
+  /// semifinal's loser is placed into it the same way the winner is placed
+  /// into the final.
   static Future<void> stageAdvance(
     WriteBatch batch, {
     required Tournament tournament,
@@ -333,17 +358,24 @@ class TournamentService {
     required int scoreA,
     required int scoreB,
     required String winnerSide, // 'A' | 'B'
+    BracketSlot? thirdPlaceSlot,
   }) async {
     final winner = winnerSide == 'A' ? slot.entrantA : slot.entrantB;
+    final loser = winnerSide == 'A' ? slot.entrantB : slot.entrantA;
     if (winner == null) {
       throw StateError('Slot ${slot.id} has no team on side $winnerSide');
     }
+    final loserPlaysOn = thirdPlaceSlot != null &&
+        !slot.isThirdPlace &&
+        slot.round == tournament.roundCount - 1;
+
     await _stageResultNotices(batch,
         tournament: tournament,
         slot: slot,
         winnerSide: winnerSide,
         scoreA: scoreA,
-        scoreB: scoreB);
+        scoreB: scoreB,
+        thirdPlaceNext: loserPlaysOn);
 
     batch.update(slotsOf(tournament.id).doc(slot.id), {
       'matchId': matchId,
@@ -353,6 +385,24 @@ class TournamentService {
       'status': BracketSlot.statusCompleted,
       'completedAt': FieldValue.serverTimestamp(),
     });
+
+    // Checked before the final, which it resembles (neither advances
+    // anyone): the battle for third settles 2nd and 3rd runner-up and
+    // leaves the champion alone.
+    if (slot.isThirdPlace) {
+      batch.update(_tournaments.doc(tournament.id), {'hasMatchData': true});
+      return;
+    }
+
+    if (loserPlaysOn && loser != null) {
+      final onSideA = slot.nextSlotSide == 'A';
+      final otherSide =
+          onSideA ? thirdPlaceSlot.entrantB : thirdPlaceSlot.entrantA;
+      batch.update(slotsOf(tournament.id).doc(thirdPlaceSlot.id), {
+        onSideA ? 'entrantA' : 'entrantB': loser.toMap(),
+        if (otherSide != null) 'status': BracketSlot.statusReady,
+      });
+    }
 
     if (slot.nextSlotId == null || nextSlot == null) {
       // That was the final.
@@ -392,20 +442,32 @@ class TournamentService {
     required String winnerSide,
     required int scoreA,
     required int scoreB,
+    bool thirdPlaceNext = false,
   }) async {
     final winnerSlot = winnerSide == 'A' ? slot.entrantA : slot.entrantB;
     final loserSlot = winnerSide == 'A' ? slot.entrantB : slot.entrantA;
     if (winnerSlot == null || loserSlot == null) return;
 
-    final notices = resultNotices(
-      tournamentName: tournament.name,
-      round: slot.round,
-      roundCount: tournament.roundCount,
-      winnerTeam: winnerSlot.teamName,
-      loserTeam: loserSlot.teamName,
-      winnerScore: winnerSide == 'A' ? scoreA : scoreB,
-      loserScore: winnerSide == 'A' ? scoreB : scoreA,
-    );
+    final winnerScore = winnerSide == 'A' ? scoreA : scoreB;
+    final loserScore = winnerSide == 'A' ? scoreB : scoreA;
+    final notices = slot.isThirdPlace
+        ? thirdPlaceNotices(
+            tournamentName: tournament.name,
+            winnerTeam: winnerSlot.teamName,
+            loserTeam: loserSlot.teamName,
+            winnerScore: winnerScore,
+            loserScore: loserScore,
+          )
+        : resultNotices(
+            tournamentName: tournament.name,
+            round: slot.round,
+            roundCount: tournament.roundCount,
+            winnerTeam: winnerSlot.teamName,
+            loserTeam: loserSlot.teamName,
+            winnerScore: winnerScore,
+            loserScore: loserScore,
+            thirdPlaceNext: thirdPlaceNext,
+          );
 
     // The roster snapshot taken when the team was entered, as scheduleSlot
     // uses for the matchup itself.

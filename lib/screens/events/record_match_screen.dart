@@ -305,6 +305,8 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     );
     final followOn = slots.where((s) => s.id == slot.nextSlotId).toList();
     final nextSlot = followOn.isEmpty ? null : followOn.first;
+    // Where a semifinal's loser goes, when the bracket has a battle for third.
+    final third = slots.where((s) => s.isThirdPlace).toList();
 
     final batch = db.batch();
     final matchId = await RatingService.recordMatch(
@@ -326,6 +328,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
       scoreA: scoreA,
       scoreB: scoreB,
       winnerSide: scoreA > scoreB ? _kSideA : _kSideB,
+      thirdPlaceSlot: third.isEmpty ? null : third.first,
     );
     await batch.commit();
   }
@@ -341,12 +344,33 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     final scoreB = int.parse(_scoreBCtrl.text.trim());
     final winnerName = _sideName(scoreA > scoreB ? _kSideA : _kSideB);
 
+    // Worded for the game being settled. Bracket events scheduled before
+    // `bracketStage` was stored fall through to the plain advance wording.
+    final (title, outcome, action) =
+        switch (_selectedEvent?['bracketStage'] as String?) {
+      'Final' => (
+          'Crown $winnerName champion?',
+          '$winnerName wins the tournament.',
+          'Crown champion',
+        ),
+      'Battle for third' => (
+          'Confirm third place?',
+          '$winnerName finishes 2nd runner-up.',
+          'Confirm',
+        ),
+      _ => (
+          'Advance $winnerName?',
+          '$winnerName moves on in the bracket.',
+          'Advance',
+        ),
+    };
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Advance $winnerName?',
+        title: Text(title,
             style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 16,
@@ -354,7 +378,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
         content: Text(
             '${_sideName(_kSideA)} $scoreA — $scoreB ${_sideName(_kSideB)}\n'
             '$_lineupCounts\n\n'
-            '$winnerName moves on in the bracket. This cannot be undone.',
+            '$outcome This cannot be undone.',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
           TextButton(
@@ -364,8 +388,8 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Advance',
-                style: TextStyle(
+            child: Text(action,
+                style: const TextStyle(
                     color: AppTheme.accent,
                     fontSize: 14,
                     fontWeight: FontWeight.w700)),

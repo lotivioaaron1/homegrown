@@ -44,6 +44,10 @@ class RoundSummary {
   /// come out of it.
   final int size;
 
+  /// Whether the round also holds the battle for third (only ever the final
+  /// round).
+  final bool hasThirdPlace;
+
   const RoundSummary({
     required this.round,
     required this.label,
@@ -52,6 +56,7 @@ class RoundSummary {
     required this.played,
     required this.total,
     required this.size,
+    this.hasThirdPlace = false,
   });
 }
 
@@ -92,6 +97,7 @@ List<RoundSummary> roundSummaries(List<BracketSlot> slots, int roundCount) {
       played: played,
       total: games.length,
       size: inRound.length,
+      hasThirdPlace: inRound.any((s) => s.isThirdPlace),
     ));
   }
   return summaries;
@@ -107,8 +113,19 @@ int initialRound(List<RoundSummary> summaries) {
 }
 
 /// "Winner of Match 3" for the empty [side] of [slot], naming the matchup
-/// whose winner will fill it; null if nothing feeds that side.
+/// whose winner will fill it, or "Loser of Match 1" on the battle for third;
+/// null if nothing feeds that side.
 String? feederLabel(BracketSlot slot, String side, List<BracketSlot> slots) {
+  if (slot.isThirdPlace) {
+    for (final s in slots) {
+      if (s.round == slot.round - 1 &&
+          !s.isThirdPlace &&
+          s.nextSlotSide == side) {
+        return 'Loser of Match ${s.slot}';
+      }
+    }
+    return null;
+  }
   for (final s in slots) {
     if (s.nextSlotId == slot.id && s.nextSlotSide == side) {
       return 'Winner of Match ${s.slot}';
@@ -134,6 +151,7 @@ String? upNextNote(List<RoundSummary> summaries) {
     2 => 'both $games are',
     _ => 'all ${before.total} $games are',
   };
+  final third = next.hasThirdPlace ? ' The 2 losers play for third.' : '';
   return 'Up next: ${next.title}. '
-      'The ${before.size} winners meet once $which played.';
+      'The ${before.size} winners meet once $which played.$third';
 }

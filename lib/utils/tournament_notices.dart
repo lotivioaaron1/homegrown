@@ -29,6 +29,9 @@ bool isChampionNotice(String title) => title.startsWith(kChampionTitlePrefix);
 /// [roundCount]) is recorded. Each side reads the scoreline from its own point
 /// of view, and every win is congratulated. Titles never put "is" or "are"
 /// after a team name, so any name reads correctly.
+///
+/// [thirdPlaceNext] is set for a semifinal in a bracket with a battle for
+/// third: its loser isn't out yet, so they're told what comes next instead.
 ResultNotices resultNotices({
   required String tournamentName,
   required int round,
@@ -37,6 +40,7 @@ ResultNotices resultNotices({
   required String loserTeam,
   required int winnerScore,
   required int loserScore,
+  bool thirdPlaceNext = false,
 }) {
   final won = '$winnerScore–$loserScore';
   final lost = '$loserScore–$winnerScore';
@@ -55,13 +59,36 @@ ResultNotices resultNotices({
     winner: Notice(
         "Congratulations! You're in the ${roundLabel(round + 1, roundCount)}",
         '$winnerTeam beat $loserTeam $won in the $thisRound of $tournamentName.'),
-    loser: Notice('Eliminated from $tournamentName',
-        '$loserTeam lost $lost to $winnerTeam in the $thisRound.'),
+    loser: thirdPlaceNext
+        ? Notice('Battle for third next',
+            '$loserTeam lost $lost to $winnerTeam in the $thisRound. '
+            "You'll play for third place.")
+        : Notice('Eliminated from $tournamentName',
+            '$loserTeam lost $lost to $winnerTeam in the $thisRound.'),
   );
 }
 
+/// What both sides of the battle for third are told: the winner finishes 2nd
+/// runner-up, the loser 3rd runner-up.
+ResultNotices thirdPlaceNotices({
+  required String tournamentName,
+  required String winnerTeam,
+  required String loserTeam,
+  required int winnerScore,
+  required int loserScore,
+}) =>
+    ResultNotices(
+      winner: Notice('Congratulations, 2nd runner-up in $tournamentName!',
+          '$winnerTeam won the battle for third $winnerScore–$loserScore '
+          'against $loserTeam.'),
+      loser: Notice('3rd runner-up in $tournamentName',
+          '$loserTeam lost the battle for third $loserScore–$winnerScore '
+          'to $winnerTeam.'),
+    );
+
 /// What a team is told when the organizer sets its matchup's kickoff: the
-/// round, its own opponent (its own name first), when, and where.
+/// round, its own opponent (its own name first), when, and where. [stage]
+/// names a game that isn't a round, such as the battle for third.
 Notice scheduledNotice({
   required int round,
   required int roundCount,
@@ -69,10 +96,11 @@ Notice scheduledNotice({
   required String opponent,
   required DateTime kickoff,
   required String venue,
+  String? stage,
 }) {
   final when = DateFormat('EEE, MMM d · h:mm a').format(kickoff);
   final where = venue.trim().isEmpty ? '' : ' at ${venue.trim()}';
-  return Notice('${roundLabel(round, roundCount)} scheduled',
+  return Notice('${stage ?? roundLabel(round, roundCount)} scheduled',
       '$team vs $opponent · $when$where');
 }
 

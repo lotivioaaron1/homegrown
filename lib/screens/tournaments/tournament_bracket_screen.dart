@@ -336,6 +336,12 @@ class _BracketBoardState extends State<_BracketBoard> {
                   slots: widget.slots,
                   isOrganizer: widget.isOrganizer,
                 ),
+        // Brackets made before every bracket had a battle for third can
+        // add one from the final round.
+        if (widget.isOrganizer &&
+            summary.round == t.roundCount &&
+            !widget.slots.any((s) => s.isThirdPlace))
+          _AddThirdPlaceCard(tournament: t, slots: widget.slots),
         if (note != null) ...[
           const SizedBox(height: 6),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -479,6 +485,98 @@ class _StageStepper extends StatelessWidget {
   }
 }
 
+/// Offers an older bracket the battle for third it was made without. The
+/// semifinal losers already known go straight in.
+class _AddThirdPlaceCard extends StatelessWidget {
+  final Tournament tournament;
+  final List<BracketSlot> slots;
+  const _AddThirdPlaceCard({required this.tournament, required this.slots});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _confirm(context),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: AppTheme.cardNested,
+            borderRadius: BorderRadius.circular(_kRadius),
+            border: Border.all(color: AppTheme.border)),
+        child: Row(children: [
+          Icon(Icons.add_circle_outline_rounded,
+              color: AppTheme.accentText, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Add battle for third',
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(
+                      'The two semifinal losers play for 2nd and 3rd '
+                      'runner-up.',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  void _confirm(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Add a battle for third?',
+            style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w800)),
+        content: Text(
+            'The two semifinal losers play one more game. The winner '
+            'finishes 2nd runner-up and the loser 3rd runner-up. The '
+            'champion is not affected.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child:
+                Text('Back', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await TournamentService.addThirdPlace(tournament, slots);
+              } catch (e) {
+                Get.snackbar('Error', friendlyError(e),
+                    snackPosition: SnackPosition.BOTTOM,
+                    backgroundColor: AppTheme.errorSurface,
+                    colorText: AppTheme.errorText,
+                    margin: const EdgeInsets.all(16),
+                    borderRadius: 12);
+              }
+            },
+            child: const Text('Add',
+                style: TextStyle(
+                    color: AppTheme.accent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// A seed that goes straight through to the next round. Decided when the
 /// bracket was made, so it's a line rather than a game card.
 class _ByeCard extends StatelessWidget {
@@ -575,7 +673,7 @@ class _MatchCard extends StatelessWidget {
                 color: needsOrganizer ? AppTheme.accent : AppTheme.border)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Text('MATCH ${slot.slot}',
+            Text(slot.isThirdPlace ? 'BATTLE FOR THIRD' : 'MATCH ${slot.slot}',
                 style: TextStyle(
                     color: AppTheme.muted,
                     fontSize: 10,
