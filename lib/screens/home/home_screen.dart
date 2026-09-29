@@ -263,6 +263,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         }.contains(n.type);
                     final opensInvite =
                         n.type == NotificationType.teamInvite;
+                    // A bracket result carries its tournamentId.
+                    final opensBracket = relatedId.isNotEmpty &&
+                        n.type == NotificationType.tournamentResult;
                     return GestureDetector(
                       onTap: () {
                         Get.back();
@@ -272,6 +275,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         } else if (opensInvite) {
                           Get.toNamed('/team/invites',
                               arguments: {'inviteId': n.relatedId});
+                        } else if (opensBracket) {
+                          Get.toNamed('/tournaments/detail',
+                              arguments: {'tournamentId': relatedId});
                         }
                       },
                       child: Container(
@@ -307,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         // Only the tiles that actually go somewhere get the
                         // chevron, so a tap that does nothing never looks
                         // like a broken link.
-                        if (opensEvent || opensInvite) ...[
+                        if (opensEvent || opensInvite || opensBracket) ...[
                           const SizedBox(width: 8),
                           Icon(LucideIcons.chevronRight,
                               color: AppTheme.muted, size: 16),
@@ -342,6 +348,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return LucideIcons.userPlus;
       case NotificationType.teamFull:
         return LucideIcons.userX;
+      case NotificationType.tournamentResult:
+        return LucideIcons.trophy;
       default:
         return LucideIcons.bell;
     }

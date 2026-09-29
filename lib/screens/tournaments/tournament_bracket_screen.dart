@@ -22,11 +22,28 @@ const _kColumnWidth = 210.0;
 /// result — while everyone else sees the same board read-only. Both read
 /// exactly the same documents; the difference is only whether the buttons
 /// are drawn, which is what firestore.rules enforces for real.
-class TournamentBracketScreen extends StatelessWidget {
+class TournamentBracketScreen extends StatefulWidget {
   const TournamentBracketScreen({super.key});
 
-  String get _tournamentId =>
+  @override
+  State<TournamentBracketScreen> createState() =>
+      _TournamentBracketScreenState();
+}
+
+class _TournamentBracketScreenState extends State<TournamentBracketScreen> {
+  /// Read once, while this route is on top. `Get.arguments` always describes
+  /// the top route, so reading it on every build picked up Record Match's
+  /// `{'eventId'}` while it was open above this screen: recording a result
+  /// updates the tournament, this rebuilt underneath with an empty id, and
+  /// `doc('')` threw.
+  final String _tournamentId =
       (Get.arguments as Map?)?['tournamentId'] as String? ?? '';
+
+  // Held here rather than created in build, so a rebuild doesn't tear the
+  // listeners down and re-subscribe.
+  late final _tournamentStream =
+      TournamentService.tournamentStream(_tournamentId);
+  late final _slotsStream = TournamentService.slotsStream(_tournamentId);
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +53,7 @@ class TournamentBracketScreen extends StatelessWidget {
       backgroundColor: AppTheme.bg,
       body: SafeArea(
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: TournamentService.tournamentStream(_tournamentId),
+          stream: _tournamentStream,
           builder: (context, tSnap) {
             if (tSnap.connectionState == ConnectionState.waiting) {
               return const Center(
@@ -54,7 +71,7 @@ class TournamentBracketScreen extends StatelessWidget {
               _TopBar(tournament: tournament, isOrganizer: isOrganizer),
               Expanded(
                 child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: TournamentService.slotsStream(_tournamentId),
+                  stream: _slotsStream,
                   builder: (context, sSnap) {
                     if (sSnap.connectionState == ConnectionState.waiting) {
                       return const Center(

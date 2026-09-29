@@ -317,7 +317,7 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
       recordedBy: _uid,
       writeBatch: batch,
     );
-    TournamentService.stageAdvance(
+    await TournamentService.stageAdvance(
       batch,
       tournament: tournament,
       slot: slot,

@@ -21,10 +21,28 @@ import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/player_avatar.dart';
 import '../../widgets/report_dialog.dart';
 
-class EventDetailScreen extends StatelessWidget {
+class EventDetailScreen extends StatefulWidget {
   const EventDetailScreen({super.key});
 
-  String get _eventId => (Get.arguments as Map?)?['eventId'] as String? ?? '';
+  @override
+  State<EventDetailScreen> createState() => _EventDetailScreenState();
+}
+
+class _EventDetailScreenState extends State<EventDetailScreen> {
+  /// Read once, while this route is on top. `Get.arguments` always describes
+  /// the top route, so reading it on every build would pick up the bracket's
+  /// `{'tournamentId'}` while that is open above this screen, and a rebuild
+  /// underneath would ask for `doc('')`.
+  final String _eventId = (Get.arguments as Map?)?['eventId'] as String? ?? '';
+
+  // Held here rather than created in build, so a rebuild doesn't
+  // re-subscribe. The matches stream is only opened once a result exists.
+  late final _eventStream = FirebaseFirestore.instance
+      .collection('events').doc(_eventId).snapshots();
+  late final _matchesStream = FirebaseFirestore.instance
+      .collection('matches')
+      .where('eventId', isEqualTo: _eventId)
+      .snapshots();
 
   @override
   Widget build(BuildContext context) {
@@ -32,8 +50,7 @@ class EventDetailScreen extends StatelessWidget {
       backgroundColor: AppTheme.bg,
       body: SafeArea(
         child: StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('events').doc(_eventId).snapshots(),
+          stream: _eventStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator(
@@ -106,10 +123,7 @@ class EventDetailScreen extends StatelessWidget {
       Map<String, dynamic> ev, Widget Function(MatchResult? result) header) {
     if (!hasResult(ev)) return header(null);
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('matches')
-          .where('eventId', isEqualTo: _eventId)
-          .snapshots(),
+      stream: _matchesStream,
       builder: (context, snapshot) {
         final doc =
             latestMatch(snapshot.data?.docs ?? [], data: (d) => d.data());

@@ -275,7 +275,7 @@ service cloud.firestore {
         request.resource.data.type in [
           'event_added', 'event_cancelled', 'event_updated',
           'organizer_pending', 'organizer_status', 'stats_added',
-          'team_full', 'team_invite'
+          'team_full', 'team_invite', 'tournament_result'
         ];
 
       // Reading, marking read, and deleting are owner-only — closes a

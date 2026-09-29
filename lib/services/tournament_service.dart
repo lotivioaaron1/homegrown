@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/bracket_slot.dart';
 import '../models/tournament.dart';
 import '../utils/bracket.dart';
+import '../utils/tournament_notices.dart';
 import 'notification_service.dart';
 import 'team_service.dart';
 
@@ -309,7 +310,7 @@ class TournamentService {
   /// the moment a score is entered. The bracket therefore moves on
   /// immediately while the Elo update waits for per-player stats, so a
   /// sixteen-team draw is never stalled behind box scores.
-  static void stageAdvance(
+  static Future<void> stageAdvance(
     WriteBatch batch, {
     required Tournament tournament,
     required BracketSlot slot,
@@ -318,11 +319,17 @@ class TournamentService {
     required int scoreA,
     required int scoreB,
     required String winnerSide, // 'A' | 'B'
-  }) {
+  }) async {
     final winner = winnerSide == 'A' ? slot.entrantA : slot.entrantB;
     if (winner == null) {
       throw StateError('Slot ${slot.id} has no team on side $winnerSide');
     }
+    await _stageResultNotices(batch,
+        tournament: tournament,
+        slot: slot,
+        winnerSide: winnerSide,
+        scoreA: scoreA,
+        scoreB: scoreB);
 
     batch.update(slotsOf(tournament.id).doc(slot.id), {
       'matchId': matchId,
@@ -358,6 +365,54 @@ class TournamentService {
     batch.update(slotsOf(tournament.id).doc(nextSlot.id), advance);
 
     batch.update(_tournaments.doc(tournament.id), {'hasMatchData': true});
+  }
+
+  /// Tells both teams (every player on the entered roster, plus the coach)
+  /// how the game went: advanced or eliminated, or champion and runner-up
+  /// after the final. Staged on the result's own batch, so nobody hears about
+  /// a result that didn't save. At most 32 writes, well inside the batch cap.
+  static Future<void> _stageResultNotices(
+    WriteBatch batch, {
+    required Tournament tournament,
+    required BracketSlot slot,
+    required String winnerSide,
+    required int scoreA,
+    required int scoreB,
+  }) async {
+    final winnerSlot = winnerSide == 'A' ? slot.entrantA : slot.entrantB;
+    final loserSlot = winnerSide == 'A' ? slot.entrantB : slot.entrantA;
+    if (winnerSlot == null || loserSlot == null) return;
+
+    final notices = resultNotices(
+      tournamentName: tournament.name,
+      round: slot.round,
+      roundCount: tournament.roundCount,
+      winnerTeam: winnerSlot.teamName,
+      loserTeam: loserSlot.teamName,
+      winnerScore: winnerSide == 'A' ? scoreA : scoreB,
+      loserScore: winnerSide == 'A' ? scoreB : scoreA,
+    );
+
+    // The roster snapshot taken when the team was entered, as scheduleSlot
+    // uses for the matchup itself.
+    List<String> recipients(String coachId) => teamRecipients(coachId,
+        tournament.entrantFor(coachId)?.players.map((p) => p.uid) ?? const []);
+
+    for (final (coachId, notice) in [
+      (winnerSlot.coachId, notices.winner),
+      (loserSlot.coachId, notices.loser),
+    ]) {
+      for (final uid in recipients(coachId)) {
+        await NotificationService.create(
+          userId: uid,
+          type: 'tournament_result',
+          title: notice.title,
+          body: notice.body,
+          relatedId: tournament.id,
+          writeBatch: batch,
+        );
+      }
+    }
   }
 
   // ── Deleting ─────────────────────────────────────────
