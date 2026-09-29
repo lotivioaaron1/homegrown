@@ -248,6 +248,7 @@ class TournamentService {
 
     batch.update(slotsOf(tournament.id).doc(slot.id), {
       'eventId': eventId,
+      'kickoff': Timestamp.fromDate(kickoff),
       'status': BracketSlot.statusScheduled,
     });
 
@@ -290,6 +291,7 @@ class TournamentService {
   static Future<void> unscheduleSlot(String tournamentId, String slotId) =>
       slotsOf(tournamentId).doc(slotId).update({
         'eventId': null,
+        'kickoff': null,
         'status': BracketSlot.statusReady,
       });
 

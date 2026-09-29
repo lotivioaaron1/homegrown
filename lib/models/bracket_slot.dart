@@ -100,6 +100,11 @@ class BracketSlot {
   /// The events/{id} spawned for this matchup, once scheduled.
   final String? eventId;
 
+  /// When the scheduled game starts, copied from its event so the bracket
+  /// can show it without reading every event. Null before scheduling, and on
+  /// matchups scheduled before this was stored.
+  final DateTime? kickoff;
+
   /// The matches/{id} written when the result was recorded.
   final String? matchId;
 
@@ -119,6 +124,7 @@ class BracketSlot {
     this.nextSlotSide,
     this.status = statusAwaiting,
     this.eventId,
+    this.kickoff,
     this.matchId,
     this.scoreA,
     this.scoreB,
@@ -149,6 +155,7 @@ class BracketSlot {
         'nextSlotSide': nextSlotSide,
         'status': status,
         'eventId': eventId,
+        'kickoff': kickoff != null ? Timestamp.fromDate(kickoff!) : null,
         'matchId': matchId,
         'scoreA': scoreA,
         'scoreB': scoreB,
@@ -173,6 +180,7 @@ class BracketSlot {
       nextSlotSide: map['nextSlotSide'] as String?,
       status: map['status'] as String? ?? statusAwaiting,
       eventId: map['eventId'] as String?,
+      kickoff: (map['kickoff'] as Timestamp?)?.toDate(),
       matchId: map['matchId'] as String?,
       scoreA: (map['scoreA'] as num?)?.toInt(),
       scoreB: (map['scoreB'] as num?)?.toInt(),
