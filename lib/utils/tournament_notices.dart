@@ -1,5 +1,7 @@
 // lib/utils/tournament_notices.dart
 
+import 'package:intl/intl.dart';
+
 import 'bracket.dart';
 
 /// One notification's wording.
@@ -18,7 +20,8 @@ class ResultNotices {
 
 /// The wording sent to both teams when a bracket game in [round] (1-based, of
 /// [roundCount]) is recorded. Each side reads the scoreline from its own point
-/// of view. Titles never say "is" or "are", so any team name reads correctly.
+/// of view, and every win is congratulated. Titles never put "is" or "are"
+/// after a team name, so any name reads correctly.
 ResultNotices resultNotices({
   required String tournamentName,
   required int round,
@@ -33,7 +36,7 @@ ResultNotices resultNotices({
 
   if (round >= roundCount) {
     return ResultNotices(
-      winner: Notice('Champions of $tournamentName!',
+      winner: Notice('Congratulations, champions of $tournamentName!',
           '$winnerTeam won the final $won against $loserTeam.'),
       loser: Notice('Runner-up in $tournamentName',
           '$loserTeam lost the final $lost to $winnerTeam.'),
@@ -42,11 +45,28 @@ ResultNotices resultNotices({
 
   final thisRound = roundLabel(round, roundCount);
   return ResultNotices(
-    winner: Notice('Advanced to the ${roundLabel(round + 1, roundCount)}',
+    winner: Notice(
+        "Congratulations! You're in the ${roundLabel(round + 1, roundCount)}",
         '$winnerTeam beat $loserTeam $won in the $thisRound of $tournamentName.'),
     loser: Notice('Eliminated from $tournamentName',
         '$loserTeam lost $lost to $winnerTeam in the $thisRound.'),
   );
+}
+
+/// What a team is told when the organizer sets its matchup's kickoff: the
+/// round, its own opponent (its own name first), when, and where.
+Notice scheduledNotice({
+  required int round,
+  required int roundCount,
+  required String team,
+  required String opponent,
+  required DateTime kickoff,
+  required String venue,
+}) {
+  final when = DateFormat('EEE, MMM d · h:mm a').format(kickoff);
+  final where = venue.trim().isEmpty ? '' : ' at ${venue.trim()}';
+  return Notice('${roundLabel(round, roundCount)} scheduled',
+      '$team vs $opponent · $when$where');
 }
 
 /// Everyone on a team who hears about its result: the coach and every player,

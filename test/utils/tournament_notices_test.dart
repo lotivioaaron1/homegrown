@@ -19,10 +19,10 @@ void main() {
       );
 
   group('resultNotices before the final', () {
-    test('tells the winner which round they reached', () {
+    test('congratulates the winner and names the round they reached', () {
       final n = notices(round: 1).winner;
 
-      expect(n.title, 'Advanced to the Semifinal');
+      expect(n.title, "Congratulations! You're in the Semifinal");
       expect(n.body,
           'Rawis Rockets beat Bitano Bulls 84–70 in the Quarterfinal of Mayon Cup.');
     });
@@ -39,17 +39,17 @@ void main() {
     test('names an early round in a big bracket', () {
       final n = notices(round: 1, roundCount: 4);
 
-      expect(n.winner.title, 'Advanced to the Quarterfinal');
+      expect(n.winner.title, "Congratulations! You're in the Quarterfinal");
       expect(n.winner.body, contains('in the Round of 16 of Mayon Cup'));
       expect(n.loser.body, contains('in the Round of 16.'));
     });
   });
 
   group('resultNotices in the final', () {
-    test('crowns the champion', () {
+    test('congratulates the champion', () {
       final n = notices(round: 3).winner;
 
-      expect(n.title, 'Champions of Mayon Cup!');
+      expect(n.title, 'Congratulations, champions of Mayon Cup!');
       expect(n.body, 'Rawis Rockets won the final 84–70 against Bitano Bulls.');
     });
 
@@ -58,6 +58,49 @@ void main() {
 
       expect(n.title, 'Runner-up in Mayon Cup');
       expect(n.body, 'Bitano Bulls lost the final 70–84 to Rawis Rockets.');
+    });
+  });
+
+  // Sent to each team when the organizer sets a matchup's kickoff.
+  group('scheduledNotice', () {
+    final kickoff = DateTime(2026, 9, 29, 17, 30); // a Tuesday
+
+    Notice scheduled({
+      int round = 2,
+      int roundCount = 3,
+      String team = 'Rawis Rockets',
+      String opponent = 'Bitano Bulls',
+      String venue = 'Albay Astrodome',
+    }) =>
+        scheduledNotice(
+          round: round,
+          roundCount: roundCount,
+          team: team,
+          opponent: opponent,
+          kickoff: kickoff,
+          venue: venue,
+        );
+
+    test('names the round in the title', () {
+      expect(scheduled(round: 2).title, 'Semifinal scheduled');
+      expect(scheduled(round: 3).title, 'Final scheduled');
+      expect(scheduled(round: 1, roundCount: 4).title,
+          'Round of 16 scheduled');
+    });
+
+    test('gives the opponent, kickoff and venue', () {
+      expect(scheduled().body,
+          'Rawis Rockets vs Bitano Bulls · Tue, Sep 29 · 5:30 PM at Albay Astrodome');
+    });
+
+    test("puts the team's own name first", () {
+      expect(scheduled(team: 'Bitano Bulls', opponent: 'Rawis Rockets').body,
+          startsWith('Bitano Bulls vs Rawis Rockets'));
+    });
+
+    test('leaves the venue out when there is none', () {
+      expect(scheduled(venue: ' ').body,
+          'Rawis Rockets vs Bitano Bulls · Tue, Sep 29 · 5:30 PM');
     });
   });
 

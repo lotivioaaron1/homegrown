@@ -251,29 +251,29 @@ class TournamentService {
       'status': BracketSlot.statusScheduled,
     });
 
-    for (final p in players) {
-      await NotificationService.create(
-        userId: p['uid'] as String,
-        type: 'event_added',
-        title: "You're in an upcoming game",
-        body: '$label of ${tournament.name} at ${tournament.venue}',
-        relatedId: eventId,
-        writeBatch: batch,
+    // Each side's roster and head coach, told the round, their own opponent,
+    // the kickoff and the venue. The coach is included because their team is
+    // in the matchup even though they aren't on the roster.
+    for (final (team, opponent) in [(a, b), (b, a)]) {
+      final notice = scheduledNotice(
+        round: slot.round,
+        roundCount: tournament.roundCount,
+        team: team.teamName,
+        opponent: opponent.teamName,
+        kickoff: kickoff,
+        venue: tournament.venue,
       );
-    }
-
-    // Both head coaches too — their team is in the matchup even though they
-    // aren't on the roster. A Set dedupes the (unlikely) case of one coach
-    // fielding both entrants.
-    for (final coachId in {a.coachId, b.coachId}) {
-      await NotificationService.create(
-        userId: coachId,
-        type: 'event_added',
-        title: 'Your team has an upcoming game',
-        body: '${a.teamName} vs ${b.teamName} — $label of ${tournament.name}',
-        relatedId: eventId,
-        writeBatch: batch,
-      );
+      for (final uid
+          in teamRecipients(team.coachId, team.players.map((p) => p.uid))) {
+        await NotificationService.create(
+          userId: uid,
+          type: 'event_added',
+          title: notice.title,
+          body: notice.body,
+          relatedId: eventId,
+          writeBatch: batch,
+        );
+      }
     }
 
     await batch.commit();
