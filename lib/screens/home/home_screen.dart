@@ -28,6 +28,7 @@ import '../../utils/event_history.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/leaderboard_ranks.dart';
 import '../../utils/team_name.dart';
+import '../../utils/tournament_notices.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -276,7 +277,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           Get.toNamed('/team/invites',
                               arguments: {'inviteId': n.relatedId});
                         } else if (opensBracket) {
-                          Get.toNamed('/tournaments/detail',
+                          // The champion's notice opens the celebration;
+                          // every other result opens the bracket.
+                          Get.toNamed(
+                              isChampionNotice(n.title)
+                                  ? '/tournaments/champion'
+                                  : '/tournaments/detail',
                               arguments: {'tournamentId': relatedId});
                         }
                       },

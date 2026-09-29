@@ -2,6 +2,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/query_limits.dart';
 import '../models/bracket_slot.dart';
 import '../models/tournament.dart';
 import '../utils/bracket.dart';
@@ -62,6 +63,17 @@ class TournamentService {
           .where('organizerId', isEqualTo: uid)
           .orderBy('createdAt', descending: true)
           .snapshots();
+
+  /// Every finished tournament, for the champion showcases (profile shelf,
+  /// team titles, Home spotlight), which each pick out the titles they need
+  /// with lib/utils/championships.dart. One equality filter, so no composite
+  /// index is needed.
+  static Stream<List<Tournament>> completedStream() => _tournaments
+      .where('status', isEqualTo: Tournament.statusCompleted)
+      .limit(kMaxListQuery)
+      .snapshots()
+      .map((s) =>
+          s.docs.map((d) => Tournament.fromMap(d.id, d.data())).toList());
 
   static List<BracketSlot> sortSlots(Iterable<BracketSlot> slots) =>
       slots.toList()

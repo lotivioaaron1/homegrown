@@ -18,6 +18,13 @@ class ResultNotices {
   const ResultNotices({required this.winner, required this.loser});
 }
 
+/// How the champion's notification title starts. The bell uses it to open the
+/// championship page rather than the bracket.
+const kChampionTitlePrefix = 'Congratulations, champions of ';
+
+/// Whether a notification [title] is the one sent to a tournament's champion.
+bool isChampionNotice(String title) => title.startsWith(kChampionTitlePrefix);
+
 /// The wording sent to both teams when a bracket game in [round] (1-based, of
 /// [roundCount]) is recorded. Each side reads the scoreline from its own point
 /// of view, and every win is congratulated. Titles never put "is" or "are"
@@ -36,7 +43,7 @@ ResultNotices resultNotices({
 
   if (round >= roundCount) {
     return ResultNotices(
-      winner: Notice('Congratulations, champions of $tournamentName!',
+      winner: Notice('$kChampionTitlePrefix$tournamentName!',
           '$winnerTeam won the final $won against $loserTeam.'),
       loser: Notice('Runner-up in $tournamentName',
           '$loserTeam lost the final $lost to $winnerTeam.'),

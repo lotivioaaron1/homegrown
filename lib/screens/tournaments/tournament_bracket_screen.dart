@@ -162,7 +162,11 @@ class _TopBar extends StatelessWidget {
         ]),
         if (tournament.championTeamName != null) ...[
           const SizedBox(height: 12),
-          _championBanner(tournament.championTeamName!),
+          GestureDetector(
+            onTap: () => Get.toNamed('/tournaments/champion',
+                arguments: {'tournamentId': tournament.id}),
+            child: _championBanner(tournament.championTeamName!),
+          ),
         ],
       ]),
     );
@@ -199,6 +203,9 @@ class _TopBar extends StatelessWidget {
               ],
             ),
           ),
+          // Opens the championship page.
+          Icon(Icons.chevron_right_rounded,
+              color: AppTheme.accentText, size: 22),
         ]),
       );
 
