@@ -243,12 +243,19 @@ async function seed() {
       console.log(`      ${athlete.fullName} <${email}>` +
         `${athlete.created ? "" : " (exists)"}`);
 
-      // Accepted membership, in the doc id and shape TeamService writes.
-      if (apply && coach.uid && athlete.uid) {
-        const ref = db.collection("teamMemberships")
-            .doc(`${coach.uid}_${athlete.uid}`);
-        const snap = await ref.get();
-        if (!snap.exists || snap.data().status !== "accepted") {
+      // Accepted membership, in the doc id and shape TeamService writes. A
+      // dry run for an account that doesn't exist yet has no uid to look up,
+      // so it just counts the place as one to fill.
+      if (!coach.uid || !athlete.uid) {
+        joined++;
+        continue;
+      }
+      const ref = db.collection("teamMemberships")
+          .doc(`${coach.uid}_${athlete.uid}`);
+      const snap = await ref.get();
+      if (!snap.exists || snap.data().status !== "accepted") {
+        joined++;
+        if (apply) {
           await ref.set({
             coachId: coach.uid,
             athleteId: athlete.uid,
@@ -260,10 +267,7 @@ async function seed() {
             createdAt: FieldValue.serverTimestamp(),
             respondedAt: FieldValue.serverTimestamp(),
           });
-          joined++;
         }
-      } else if (!apply) {
-        joined++;
       }
     }
   }
