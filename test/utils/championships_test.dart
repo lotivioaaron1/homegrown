@@ -3,6 +3,7 @@
 // Who a tournament title belongs to, and which titles each showcase lists.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:homegrown/models/bracket_slot.dart';
 import 'package:homegrown/models/tournament.dart';
 import 'package:homegrown/utils/championships.dart';
 import 'package:homegrown/utils/tournament_notices.dart';
@@ -121,6 +122,103 @@ void main() {
     test('says Champion once, then counts', () {
       expect(titleCountLabel(1), 'Champion');
       expect(titleCountLabel(3), '3× Champion');
+    });
+  });
+
+  group('finalStandings', () {
+    SlotEntrant team(String name) =>
+        SlotEntrant(seed: 1, coachId: name, teamName: name);
+
+    // A game between [a] and [b]; [winner] null means not played yet.
+    BracketSlot game(String id, int round, int slot, String a, String b,
+            {String? winner, String? nextSide, bool third = false}) =>
+        BracketSlot(
+          id: id,
+          organizerId: 'org',
+          round: round,
+          slot: slot,
+          isThirdPlace: third,
+          entrantA: team(a),
+          entrantB: team(b),
+          nextSlotSide: nextSide,
+          status: winner == null
+              ? BracketSlot.statusReady
+              : BracketSlot.statusCompleted,
+          winnerCoachId: winner,
+        );
+
+    const eight = Tournament(
+        id: 't', organizerId: 'org', name: 'Cup', sport: 'Basketball',
+        roundCount: 3);
+
+    final semis = [
+      game('r2m1', 2, 1, 'Rockets', 'Tigers', winner: 'Rockets', nextSide: 'A'),
+      game('r2m2', 2, 2, 'Bulls', 'Titans', winner: 'Bulls', nextSide: 'B'),
+    ];
+    final finalPlayed =
+        game('r3m1', 3, 1, 'Rockets', 'Bulls', winner: 'Rockets');
+
+    List<(String, String)> rows(List<Standing> s) =>
+        s.map((x) => (x.label, x.teamName)).toList();
+
+    test('ranks all four once the final and battle for third are played', () {
+      final standings = finalStandings(eight, [
+        ...semis,
+        finalPlayed,
+        game('r3m2', 3, 2, 'Tigers', 'Titans', winner: 'Titans', third: true),
+      ]);
+
+      expect(rows(standings), [
+        ('Champion', 'Rockets'),
+        ('1st runner-up', 'Bulls'),
+        ('2nd runner-up', 'Titans'),
+        ('3rd runner-up', 'Tigers'),
+      ]);
+      expect(standings.map((s) => s.place), [1, 2, 3, 4]);
+    });
+
+    test('shares 2nd runner-up between the semifinal losers without a battle',
+        () {
+      final standings = finalStandings(eight, [...semis, finalPlayed]);
+
+      expect(rows(standings), [
+        ('Champion', 'Rockets'),
+        ('1st runner-up', 'Bulls'),
+        ('Joint 2nd runner-up', 'Tigers'),
+        ('Joint 2nd runner-up', 'Titans'),
+      ]);
+      expect(standings.where((s) => s.joint).length, 2);
+    });
+
+    test('shares it too while the battle for third is still to be played', () {
+      final standings = finalStandings(eight, [
+        ...semis,
+        finalPlayed,
+        game('r3m2', 3, 2, 'Tigers', 'Titans', third: true),
+      ]);
+
+      expect(standings.skip(2).map((s) => s.label),
+          ['Joint 2nd runner-up', 'Joint 2nd runner-up']);
+    });
+
+    // Four teams: the semifinals are the opening round.
+    test('reads the semifinals from round 1 in a four-team bracket', () {
+      const four = Tournament(
+          id: 't', organizerId: 'org', name: 'Cup', sport: 'Basketball',
+          roundCount: 2);
+      final standings = finalStandings(four, [
+        game('r1m1', 1, 1, 'Rockets', 'Tigers', winner: 'Rockets', nextSide: 'A'),
+        game('r1m2', 1, 2, 'Bulls', 'Titans', winner: 'Bulls', nextSide: 'B'),
+        game('r2m1', 2, 1, 'Rockets', 'Bulls', winner: 'Bulls'),
+        game('r2m2', 2, 2, 'Tigers', 'Titans', winner: 'Tigers', third: true),
+      ]);
+
+      expect(rows(standings), [
+        ('Champion', 'Bulls'),
+        ('1st runner-up', 'Rockets'),
+        ('2nd runner-up', 'Tigers'),
+        ('3rd runner-up', 'Titans'),
+      ]);
     });
   });
 

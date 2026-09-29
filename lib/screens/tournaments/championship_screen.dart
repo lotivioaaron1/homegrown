@@ -12,7 +12,6 @@ import '../../models/tournament.dart';
 import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
 import '../../theme/app_theme.dart';
-import '../../utils/bracket.dart';
 import '../../utils/championships.dart';
 import '../../widgets/member_profiles.dart';
 import '../../widgets/player_avatar.dart';
@@ -43,9 +42,9 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
   late final _tournamentStream =
       TournamentService.tournamentStream(_tournamentId);
 
-  /// The final's slot, for its score and runner-up. Read once, as soon as the
-  /// tournament says how many rounds it has.
-  Future<BracketSlot?>? _finalSlot;
+  /// Every slot of the bracket, for the final's score and the standings.
+  /// Read once, as soon as the tournament has loaded.
+  Future<List<BracketSlot>>? _slots;
 
   late final AnimationController _celebration = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1800));
@@ -69,13 +68,8 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
     super.dispose();
   }
 
-  Future<BracketSlot?> _loadFinal(Tournament t) async {
-    final snap = await TournamentService.slotsOf(t.id)
-        .doc(slotId(t.roundCount, 1))
-        .get();
-    final data = snap.data();
-    return data == null ? null : BracketSlot.fromMap(snap.id, data);
-  }
+  Future<List<BracketSlot>> _loadSlots(Tournament t) async =>
+      TournamentService.slotsFrom(await TournamentService.slotsOf(t.id).get());
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +92,7 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
             if (!t.isCompleted || t.championCoachId == null) {
               return _message("This tournament hasn't crowned a champion yet.");
             }
-            _finalSlot ??= _loadFinal(t);
+            _slots ??= _loadSlots(t);
 
             return Stack(children: [
               _content(t),
@@ -194,15 +188,24 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
           Center(child: _youWonPill()),
         ],
         const SizedBox(height: 24),
-        FutureBuilder<BracketSlot?>(
-          future: _finalSlot,
+        FutureBuilder<List<BracketSlot>>(
+          future: _slots,
           builder: (context, snap) {
-            final slot = snap.data;
-            if (slot == null || !slot.isDecided) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 20),
-              child: _finalScore(slot),
-            );
+            final slots = snap.data ?? const <BracketSlot>[];
+            final finals = slots.where((s) => s.isFinal && s.isDecided);
+            final standings = finalStandings(t, slots);
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (finals.isNotEmpty) ...[
+                    _finalScore(finals.first),
+                    const SizedBox(height: 20),
+                  ],
+                  if (standings.isNotEmpty) ...[
+                    _standings(standings),
+                    const SizedBox(height: 20),
+                  ],
+                ]);
           },
         ),
         if (champion != null) _roster(champion),
@@ -271,6 +274,93 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
         const SizedBox(height: 8),
         row(loser?.teamName ?? '—', loserScore, won: false),
       ]),
+    );
+  }
+
+  /// Champion down to 3rd runner-up, each with its medal. Semifinal losers
+  /// share 2nd runner-up until a battle for third separates them.
+  Widget _standings(List<Standing> standings) {
+    final anyJoint = standings.any((s) => s.joint);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _label('FINAL STANDINGS'),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(_kRadius),
+            border: Border.all(color: AppTheme.border)),
+        child: Column(children: [
+          for (final s in standings)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(children: [
+                _medal(s.place),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(s.label.toUpperCase(),
+                            style: TextStyle(
+                                color: s.place == 1
+                                    ? AppTheme.accentText
+                                    : AppTheme.muted,
+                                fontSize: 10,
+                                letterSpacing: 0.8,
+                                fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 2),
+                        Text(s.teamName,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 15,
+                                fontWeight: s.place == 1
+                                    ? FontWeight.w900
+                                    : FontWeight.w700)),
+                      ]),
+                ),
+              ]),
+            ),
+        ]),
+      ),
+      if (anyJoint) ...[
+        const SizedBox(height: 8),
+        Text('The battle for third hasn’t been played yet.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+      ],
+    ]);
+  }
+
+  /// Gold for the champion, silver and bronze for the runners-up after, and
+  /// a plain numbered disc for 4th. The metal colours are the same in both
+  /// themes, like real medals, and always carry dark text.
+  Widget _medal(int place) {
+    const silver = Color(0xFFC3C8D1);
+    const bronze = Color(0xFFCD8B4C);
+    final fill = switch (place) {
+      1 => AppTheme.accent,
+      2 => silver,
+      3 => bronze,
+      _ => AppTheme.cardNested,
+    };
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+          color: fill,
+          shape: BoxShape.circle,
+          border: place > 3 ? Border.all(color: AppTheme.border) : null),
+      child: Center(
+        child: place == 1
+            ? const Icon(Icons.emoji_events_rounded,
+                color: AppTheme.buttonFg, size: 18)
+            : Text('$place',
+                style: TextStyle(
+                    color: place > 3 ? AppTheme.muted : AppTheme.buttonFg,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900)),
+      ),
     );
   }
 

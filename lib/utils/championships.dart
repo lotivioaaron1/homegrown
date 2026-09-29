@@ -4,6 +4,7 @@
 // shelf, team page, Home spotlight) lists. Pure, so it's tested without
 // Firebase.
 
+import '../models/bracket_slot.dart';
 import '../models/tournament.dart';
 
 /// Whether [uid] won [t]: the champion's coach, or a player on the roster the
@@ -43,6 +44,72 @@ List<Tournament> recentChampions(
       t.championCoachId != null &&
       t.completedAt != null &&
       t.completedAt!.isAfter(since)));
+}
+
+/// One team's finishing place.
+class Standing {
+  /// 1 for the champion down to 4 for the 3rd runner-up. Joint places share
+  /// a number.
+  final int place;
+  final String label;
+  final String teamName;
+
+  /// True for the two semifinal losers while nothing separates them: there's
+  /// no battle for third, or it hasn't been played.
+  final bool joint;
+
+  const Standing(this.place, this.label, this.teamName, {this.joint = false});
+}
+
+/// The top four as far as they're decided: champion and 1st runner-up from
+/// the final, then 2nd and 3rd runner-up from the battle for third. Until
+/// that's played (or in a bracket without one) the semifinal losers share
+/// 2nd runner-up.
+List<Standing> finalStandings(Tournament t, List<BracketSlot> slots) {
+  SlotEntrant? winnerOf(BracketSlot s) => s.winner;
+  SlotEntrant? loserOf(BracketSlot s) =>
+      s.winnerCoachId == s.entrantA?.coachId ? s.entrantB : s.entrantA;
+
+  final standings = <Standing>[];
+  for (final s in slots) {
+    if (s.round != t.roundCount || s.isThirdPlace || !s.isDecided) continue;
+    final champion = winnerOf(s);
+    final runnerUp = loserOf(s);
+    if (champion != null) standings.add(Standing(1, 'Champion', champion.teamName));
+    if (runnerUp != null) {
+      standings.add(Standing(2, '1st runner-up', runnerUp.teamName));
+    }
+  }
+
+  BracketSlot? third;
+  for (final s in slots) {
+    if (s.isThirdPlace) third = s;
+  }
+  if (third != null && third.isDecided) {
+    final second = winnerOf(third);
+    final fourth = loserOf(third);
+    if (second != null) {
+      standings.add(Standing(3, '2nd runner-up', second.teamName));
+    }
+    if (fourth != null) {
+      standings.add(Standing(4, '3rd runner-up', fourth.teamName));
+    }
+    return standings;
+  }
+
+  final semis = slots
+      .where((s) =>
+          s.round == t.roundCount - 1 && !s.isThirdPlace && s.isDecided)
+      .toList()
+    ..sort((a, b) => a.slot.compareTo(b.slot));
+  for (final s in semis) {
+    final loser = loserOf(s);
+    if (loser != null) {
+      standings.add(
+          Standing(3, 'Joint 2nd runner-up', loser.teamName, joint: true));
+    }
+  }
+  return standings;
 }
 
 /// "Champion" for one title, "3× Champion" for more.
