@@ -25,6 +25,10 @@
  * own and which never receives mail. --delete only ever touches Auth accounts
  * on that domain, so it cannot reach a real user.
  *
+ * Each sport gets its own team names ("Rawis Spikers" rather than a second
+ * "Rawis Rockets") and its own mix of people's names, so seeding several
+ * sports doesn't produce look-alike accounts in Scout and the leaderboards.
+ *
  * Re-running is safe: accounts are addressed deterministically (bb-coach-01@…,
  * bb-01-player-03@…), and one that already exists is reused and left as it is,
  * so ratings and points earned while testing survive. Raising --teams adds the
@@ -52,16 +56,22 @@ const SPORTS = {
     positions: ["Point Guard", "Shooting Guard", "Small Forward",
       "Power Forward", "Center"],
   },
+  // mascot and nameShift keep these from reusing Basketball's team and
+  // person names; Basketball has neither, so its accounts are unchanged.
   Volleyball: {
     prefix: "vb",
     minPlayers: 6,
     positions: ["Setter", "Outside Hitter", "Opposite Hitter",
       "Middle Blocker", "Libero", "Defensive Specialist"],
+    mascot: "Spikers",
+    nameShift: 16,
   },
   Badminton: {
     prefix: "bm",
     minPlayers: 1,
     positions: ["Singles", "Doubles", "Mixed Doubles"],
+    mascot: "Shuttlers",
+    nameShift: 8,
   },
 };
 
@@ -140,10 +150,17 @@ const pad = (n) => String(n).padStart(2, "0");
 
 /** Deterministic, so a re-run gives every account the same name. */
 function nameFor(team, slot) {
+  const shift = sport.nameShift || 0;
   return {
-    firstName: FIRST[(team * 7 + slot * 3) % FIRST.length],
-    lastName: LAST[(team * 5 + slot * 11 + 3) % LAST.length],
+    firstName: FIRST[(team * 7 + slot * 3 + shift) % FIRST.length],
+    lastName: LAST[(team * 5 + slot * 11 + 3 + shift) % LAST.length],
   };
+}
+
+/** "Rawis Rockets" for Basketball, "Rawis Spikers" for Volleyball, and so on. */
+function teamNameFor(team) {
+  const name = TEAMS[team][0];
+  return sport.mascot ? `${name.split(" ")[0]} ${sport.mascot}` : name;
 }
 
 /** The Auth user for [email], or null if there isn't one. */
@@ -203,7 +220,8 @@ async function seed() {
   let joined = 0;
 
   for (let t = 0; t < teamCount; t++) {
-    const [teamName, barangay] = TEAMS[t];
+    const teamName = teamNameFor(t);
+    const barangay = TEAMS[t][1];
     const coachEmail = `${sport.prefix}-coach-${pad(t + 1)}@${DOMAIN}`;
     const coach = await ensureAccount(coachEmail, {
       ...nameFor(t, 0),
