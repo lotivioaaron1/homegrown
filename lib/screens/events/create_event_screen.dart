@@ -18,11 +18,11 @@ import '../profile/edit_profile_screen.dart';
 import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_roster_check.dart';
+import '../../utils/event_types.dart';
 import '../../utils/team_name.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
-const List<String> _kEventTypes = ['Tournament', 'Friendly', 'League'];
 
 class CreateEventScreen extends StatefulWidget {
   const CreateEventScreen({super.key});
@@ -1141,9 +1141,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           const _SectionLabel(label: 'Event Type'),
           const SizedBox(height: 8),
           Wrap(spacing: 8,
-            children: _kEventTypes.map((t) => _Chip(
+            children: kPickableEventTypes.map((t) => _Chip(
               label: t, sel: _eventType == t,
               onTap: () => setState(() => _eventType = t))).toList()),
+          // What the choice changes, so "what's the difference?" is answered
+          // where it's made. Tournaments aren't picked here: a bracket makes
+          // its own games.
+          const SizedBox(height: 6),
+          if (_eventType.isNotEmpty)
+            Text(eventTypeHint(_eventType),
+                style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+          Text('Cup games are created from Tournaments.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
           const SizedBox(height: 16),
           const _SectionHeader(icon: Icons.schedule_rounded,
               title: 'Schedule & Venue', subtitle: 'When and where'),
@@ -1315,7 +1324,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           child: Column(children: [
             _Row(label: 'Event',    value: _nameCtrl.text.trim()),
             _Row(label: 'Sport',    value: _sport),
-            _Row(label: 'Type',     value: _eventType),
+            _Row(label: 'Type',     value: eventTypeLabel(_eventType)),
             _Row(label: 'Date',
               value: _eventDate != null
                   ? '${_formatDate()} · ${_formatTime()}' : 'Not set'),

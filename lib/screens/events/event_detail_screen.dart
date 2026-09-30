@@ -13,6 +13,7 @@ import '../../services/team_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/event_history.dart';
 import '../../utils/event_recipients.dart';
+import '../../utils/event_types.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/match_players.dart';
 import '../../widgets/athlete_profile_sheet.dart';
@@ -248,6 +249,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             ],
             const SizedBox(height: 20),
             _buildScoreboard(ev, (result) => _TeamVsTeamHeader(
+              tuneUp: !countsTowardRankings(ev['eventType'] as String?),
               teamACoachId: ev['teamACoachId'] as String?,
               teamBCoachId: ev['teamBCoachId'] as String?,
               teamAName: teamAName ?? 'Team A',
@@ -591,7 +593,12 @@ class _TeamVsTeamHeader extends StatelessWidget {
   final int countB;
   final MatchResult? result;
 
+  /// A practice or exhibition game, which says so instead of promising a
+  /// rating update.
+  final bool tuneUp;
+
   const _TeamVsTeamHeader({
+    this.tuneUp = false,
     required this.teamACoachId,
     required this.teamBCoachId,
     required this.teamAName,
@@ -625,8 +632,14 @@ class _TeamVsTeamHeader extends StatelessWidget {
           Expanded(
               child: _TeamBlock(coachId: teamBCoachId, name: teamBName, count: countB)),
         ]),
+        if (tuneUp) ...[
+          const SizedBox(height: 12),
+          Text("Tune-up: doesn't change Elo or points.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+        ]
         // The score is final once recorded; ratings wait for Add Stats.
-        if (result != null && !result.isFinalized) ...[
+        else if (result != null && !result.isFinalized) ...[
           const SizedBox(height: 12),
           Text("Ratings update once every player's stats are in.",
               textAlign: TextAlign.center,

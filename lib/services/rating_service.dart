@@ -89,7 +89,11 @@ class RatingService {
   /// Applies the Elo update to every participant of [matchId] and marks
   /// it finalized. No-ops if the match is missing or already finalized,
   /// so it's safe to call more than once.
-  static Future<void> finalizeMatch(String matchId) async {
+  ///
+  /// [ranked] is false for a tune-up: the match is closed off (finalized)
+  /// without touching anyone's rating, since practice and exhibition games
+  /// don't count toward Elo.
+  static Future<void> finalizeMatch(String matchId, {bool ranked = true}) async {
     final matchRef = _matches.doc(matchId);
 
     final pendingSnap = await matchRef.get();
@@ -97,6 +101,15 @@ class RatingService {
     final pendingMatch =
         MatchResult.fromMap(pendingSnap.id, pendingSnap.data()!);
     if (pendingMatch.isFinalized) return;
+
+    if (!ranked) {
+      // Only these two fields, which is all the matches rule allows.
+      await matchRef.update({
+        'status': 'finalized',
+        'finalizedAt': FieldValue.serverTimestamp(),
+      });
+      return;
+    }
 
     final statsSnap =
         await _stats.where('matchId', isEqualTo: matchId).get();

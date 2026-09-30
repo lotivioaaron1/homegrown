@@ -10,6 +10,7 @@ import '../../services/notification_service.dart';
 import '../../services/rating_service.dart';
 import '../../services/team_service.dart';
 import '../../utils/event_history.dart';
+import '../../utils/event_types.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/match_players.dart';
 import '../../utils/stat_limits.dart';
@@ -103,7 +104,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     }
     return {};
   }
+  /// False for a tune-up: its stats are kept, but it awards no points and
+  /// moves no one's Elo.
+  bool get _ranked =>
+      countsTowardRankings(_selectedEvent?['eventType'] as String?);
   int _calcPoints() {
+    if (!_ranked) return 0;
     final sport = _selectedEvent?['sport'] as String? ?? '';
     return calcPointsAwarded(sport, _buildStatsData(sport));
   }
@@ -340,7 +346,8 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       final statId     = const Uuid().v4();
       final sport      = _selectedEvent!['sport'] as String;
       final statsData  = _buildStatsData(sport);
-      final points     = calcPointsAwarded(sport, statsData);
+      final ranked     = _ranked;
+      final points     = ranked ? calcPointsAwarded(sport, statsData) : 0;
       final athleteId  = _selectedPlayer!['uid'] as String;
       final matchId    = _selectedMatchId!;
       final batch = FirebaseFirestore.instance.batch();
@@ -363,10 +370,13 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           'createdAt':     FieldValue.serverTimestamp(),
         },
       );
-      batch.update(
-        FirebaseFirestore.instance.collection('users').doc(athleteId),
-        {'points': FieldValue.increment(points)},
-      );
+      // A tune-up leaves the athlete's points where they were.
+      if (ranked) {
+        batch.update(
+          FirebaseFirestore.instance.collection('users').doc(athleteId),
+          {'points': FieldValue.increment(points)},
+        );
+      }
       // NEW: notify the athlete that their stats were recorded.
       // Included in the same batch so it can never be created
       // without the stats/points write actually succeeding.
@@ -374,8 +384,10 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         userId: athleteId,
         type: 'stats_added',
         title: 'Stats recorded',
-        body:
-            'You earned $points points in ${_selectedEvent!['name']}',
+        body: ranked
+            ? 'You earned $points points in ${_selectedEvent!['name']}'
+            : 'Your stats from ${_selectedEvent!['name']} were recorded. '
+                "Tune-ups don't earn points.",
         relatedId: statId,
         writeBatch: batch,
       );
@@ -418,7 +430,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       ...List<String>.from(matchData['sideB'] as List? ?? []),
     ];
     final complete = await RatingService.allStatsSubmitted(matchId, participants);
-    if (complete) await RatingService.finalizeMatch(matchId);
+    if (complete) await RatingService.finalizeMatch(matchId, ranked: _ranked);
   }
   void _snack(String t, String m, {bool isError = false}) {
     Get.snackbar(t, m,
@@ -872,6 +884,11 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   Text('$pts',
                     style: TextStyle(color: AppTheme.accentText,
                         fontSize: 28, fontWeight: FontWeight.w900, height: 1)),
+                  if (!_ranked) ...[
+                    const SizedBox(height: 4),
+                    Text('Tune-up — no points or Elo', style: TextStyle(
+                      color: AppTheme.sub, fontSize: 11)),
+                  ],
                 ]),
                 const Spacer(),
                 Text(sport, style: TextStyle(
@@ -901,7 +918,8 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                     width: double.infinity, height: 54,
                     child: ElevatedButton(
                       onPressed: _capError == null ? _saveStats : null,
-                      child: Text('Save Stats (+$pts pts)'),
+                      child: Text(
+                          _ranked ? 'Save Stats (+$pts pts)' : 'Save Stats'),
                     ),
                   ),
           ]),
