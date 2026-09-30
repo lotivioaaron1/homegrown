@@ -110,4 +110,61 @@ void main() {
       expect(t.championTeamName, 'Bogtong Ballers');
     });
   });
+
+  group('Singles', () {
+    test('a tournament made before formats existed reads as a team one', () {
+      final t = Tournament.fromMap('t1', _sample().toMap()..remove('format'));
+      expect(t.format, Tournament.formatTeam);
+      expect(t.isSingles, isFalse);
+    });
+
+    test('the format survives a round trip', () {
+      const t = Tournament(
+        id: 't2',
+        organizerId: 'org-1',
+        name: 'City Open',
+        sport: 'Badminton',
+        format: Tournament.formatSingles,
+      );
+      final restored = Tournament.fromMap(t.id, t.toMap());
+      expect(restored.format, Tournament.formatSingles);
+      expect(restored.isSingles, isTrue);
+    });
+
+    test('a singles entrant is one athlete, keyed by their own uid', () {
+      final e = TournamentEntrant.singles(
+        seed: 3,
+        uid: 'ath-1',
+        fullName: 'Dana Sy',
+        position: 'Singles',
+        photoUrl: 'https://example.test/dana.png',
+      );
+
+      expect(e.seed, 3);
+      // The bracket looks entrants up by coachId, so a player stands in it
+      // under their own uid.
+      expect(e.coachId, 'ath-1');
+      expect(e.teamName, 'Dana Sy');
+      expect(e.coachName, '');
+      expect(e.teamLogoUrl, 'https://example.test/dana.png');
+      expect(e.players.map((p) => p.uid), ['ath-1']);
+      expect(e.players.single.fullName, 'Dana Sy');
+      expect(e.players.single.position, 'Singles');
+    });
+
+    test('a bracket slot finds a singles entrant by the athlete', () {
+      final t = Tournament(
+        id: 't2',
+        organizerId: 'org-1',
+        name: 'City Open',
+        sport: 'Badminton',
+        format: Tournament.formatSingles,
+        entrants: [
+          TournamentEntrant.singles(seed: 1, uid: 'ath-1', fullName: 'Dana Sy'),
+          TournamentEntrant.singles(seed: 2, uid: 'ath-2', fullName: 'Eli Tan'),
+        ],
+      );
+      expect(t.entrantFor('ath-2')?.teamName, 'Eli Tan');
+    });
+  });
 }

@@ -1805,7 +1805,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: AppTheme.muted, size: 20),
               ]),
               const SizedBox(height: 6),
-              Text('${t.sport} · ${t.entrantCount} teams · ${t.venue}',
+              Text('${t.sport} · ${t.entrantCount} ${t.isSingles ? 'players' : 'teams'} · ${t.venue}',
                   style: TextStyle(color: AppTheme.sub, fontSize: 12),
                   overflow: TextOverflow.ellipsis),
               if (t.championTeamName != null) ...[

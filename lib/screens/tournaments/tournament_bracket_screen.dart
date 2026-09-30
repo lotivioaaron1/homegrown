@@ -146,7 +146,8 @@ class _TopBar extends StatelessWidget {
                         fontSize: 17,
                         fontWeight: FontWeight.w800)),
                 Text(
-                    '${tournament.sport} · ${tournament.entrantCount} teams · '
+                    '${tournament.sport} · ${tournament.entrantCount} '
+                    '${tournament.isSingles ? 'players' : 'teams'} · '
                     '${tournament.venue}',
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: AppTheme.sub, fontSize: 12)),

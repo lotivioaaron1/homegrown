@@ -227,7 +227,7 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
                       if (averages == null) return const SizedBox.shrink();
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 20),
-                        child: _averagesCard(averages),
+                        child: _averagesCard(averages, singles: t.isSingles),
                       );
                     },
                   ),
@@ -238,7 +238,7 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
                 ]);
           },
         ),
-        if (champion != null) _roster(champion),
+        if (champion != null) _roster(champion, singles: t.isSingles),
         const SizedBox(height: 24),
         _viewBracketButton(t.id),
       ],
@@ -309,7 +309,7 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
 
   /// The champion's box score per game across the tournament, three to a
   /// row, in the same categories and number format as a player's profile.
-  Widget _averagesCard(TeamAverages a) {
+  Widget _averagesCard(TeamAverages a, {required bool singles}) {
     final note = a.games == a.gamesPlayed
         ? 'Across ${a.games} game${a.games == 1 ? '' : 's'}'
         : 'From the ${a.games} of ${a.gamesPlayed} games with stats recorded';
@@ -338,7 +338,7 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
         );
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _label('TEAM AVERAGES · PER GAME'),
+      _label(singles ? 'AVERAGES · PER GAME' : 'TEAM AVERAGES · PER GAME'),
       const SizedBox(height: 10),
       Container(
         padding: const EdgeInsets.all(12),
@@ -446,11 +446,18 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
     );
   }
 
-  /// The coach and every player the champion entered with.
-  Widget _roster(TournamentEntrant champion) {
-    final uids = [champion.coachId, ...champion.players.map((p) => p.uid)];
+  /// The coach and every player the champion entered with. A singles
+  /// champion is just the athlete: their coachId is their own uid, so the
+  /// coach row would list them twice.
+  Widget _roster(TournamentEntrant champion, {required bool singles}) {
+    final uids = [
+      if (!singles) champion.coachId,
+      ...champion.players.map((p) => p.uid),
+    ];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _label('WINNING ROSTER · ${champion.players.length}'),
+      _label(singles
+          ? 'CHAMPION'
+          : 'WINNING ROSTER · ${champion.players.length}'),
       const SizedBox(height: 10),
       MemberProfilesBuilder(
         uids: uids,
@@ -485,7 +492,8 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
                 borderRadius: BorderRadius.circular(_kRadius),
                 border: Border.all(color: AppTheme.border)),
             child: Column(children: [
-              person(champion.coachId, champion.coachName, 'Coach'),
+              if (!singles)
+                person(champion.coachId, champion.coachName, 'Coach'),
               for (final p in champion.players)
                 person(p.uid, p.fullName, p.position),
             ]),

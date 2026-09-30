@@ -161,6 +161,7 @@ class TournamentService {
     required String name,
     required String description,
     required String sport,
+    String format = Tournament.formatTeam,
     required bool isPublic,
     required String venue,
     required String venueAddress,
@@ -189,6 +190,7 @@ class TournamentService {
       name: name,
       description: description,
       sport: sport,
+      format: format,
       status: Tournament.statusActive,
       isPublic: isPublic,
       venue: venue,
@@ -284,8 +286,10 @@ class TournamentService {
       'playerCount': players.length,
       'maxPlayers': null,
       'isPublic': tournament.isPublic,
-      'teamACoachId': a.coachId,
-      'teamBCoachId': b.coachId,
+      // A singles entrant's coachId is the athlete's own uid, so it must not
+      // land here: Home and the reminders would treat the player as a coach.
+      'teamACoachId': tournament.isSingles ? null : a.coachId,
+      'teamBCoachId': tournament.isSingles ? null : b.coachId,
       'status': 'upcoming',
       'createdAt': FieldValue.serverTimestamp(),
       // Back-pointers. Their presence is also what tells the event detail
