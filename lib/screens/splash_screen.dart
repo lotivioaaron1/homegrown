@@ -281,18 +281,45 @@ class _SplashScreenState extends State<SplashScreen>
   /// a signed-in user dropped on the login screen — is much worse than a short
   /// wait.
   ///
-  /// Costs nothing in practice. The common case returns without awaiting at
-  /// all, and even the slow path runs underneath the minimum hold rather than
-  /// after it. The timeout is what distinguishes "not restored yet" from
-  /// "genuinely signed out", since authStateChanges never closes on its own.
+  /// The slow path waits for the first `authStateChanges()` emission, which the
+  /// platform delivers only once it has finished restoring (or ruled out)
+  /// restoring a persisted session — so a null first emission means genuinely
+  /// signed out and answers quickly, and a signed-in user arrives the moment
+  /// restore completes. Waiting for a *non-null* emission on a fixed 1200ms
+  /// timeout, as this did, could not tell "restore is merely slow on this
+  /// device" from "really signed out": the timeout returned null, and that
+  /// frozen decision to go to /login overrode the splash's own 2200ms minimum
+  /// hold, which would have covered a late restore anyway. The timeout below
+  /// is only a last-resort guard for a stream that never emits, and sits under
+  /// that hold so a signed-out launch loses no time to it.
   Future<User?> _restoredUser() async {
     final current = FirebaseAuth.instance.currentUser;
-    if (current != null) return current;
+    if (current != null) {
+      debugPrint('_restoredUser: currentUser ready before listening');
+      return current;
+    }
 
-    return FirebaseAuth.instance
+    var timedOut = false;
+    final restored = await FirebaseAuth.instance
         .authStateChanges()
-        .firstWhere((u) => u != null)
-        .timeout(const Duration(milliseconds: 1200), onTimeout: () => null);
+        .first
+        .timeout(
+          const Duration(milliseconds: 2000),
+          onTimeout: () {
+            timedOut = true;
+            return null;
+          },
+        );
+
+    if (timedOut) {
+      debugPrint('_restoredUser: no auth state within 2000ms '
+          '(treated as signed out)');
+    } else if (restored == null) {
+      debugPrint('_restoredUser: first auth state is null (signed out)');
+    } else {
+      debugPrint('_restoredUser: restored user ${restored.uid}');
+    }
+    return restored;
   }
 
   void _onGetStarted() => Get.offNamed('/onboarding');
