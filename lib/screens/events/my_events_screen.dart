@@ -306,7 +306,8 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
       return _empty(
         icon: Icons.calendar_today_outlined,
         title: 'No upcoming ${sportWord}events',
-        subtitle: 'Create an event and athletes can register for it.',
+        subtitle: 'Create an event and pick a team for each side. '
+            'Their players are told once you publish.',
         actionLabel: 'New Event',
       );
     }
@@ -345,8 +346,8 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
         if (awaiting) ...[
           const SizedBox(height: 4),
           Text(
-              'Record each result so Elo ratings update and stats can be '
-              'added.',
+              "Record each score, then add every player's stats so their "
+              'ratings update.',
               style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         ],
       ]),

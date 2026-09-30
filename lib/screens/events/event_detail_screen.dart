@@ -46,6 +46,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       .collection('matches')
       .where('eventId', isEqualTo: _eventId)
       .snapshots();
+  // The same query for the Add Player Stats button, kept separate so the two
+  // StreamBuilders never share one subscription.
+  late final _statsMatchesStream = FirebaseFirestore.instance
+      .collection('matches')
+      .where('eventId', isEqualTo: _eventId)
+      .snapshots();
 
   /// Blocks a second tap on Publish while the first is still writing, which
   /// would otherwise notify the whole roster twice.
@@ -300,7 +306,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   child: const Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.edit_outlined, color: AppTheme.accent, size: 13),
                     SizedBox(width: 4),
-                    Text('Edit Teams', style: TextStyle(
+                    Text('Rename Teams', style: TextStyle(
                         color: AppTheme.accent, fontSize: 12,
                         fontWeight: FontWeight.w700)),
                   ]),
@@ -357,7 +363,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               ),
             ],
             if (isOrganizer) ...[
-              if (recordLabel != null) ...[
+              if (badge == EventBadge.completed) ...[
+                const SizedBox(height: 20),
+                _buildStatsButton(),
+              ] else if (recordLabel != null) ...[
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity, height: 50,
@@ -570,51 +579,71 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     );
   }
 
-  /// Offers exactly one action based on how much history the event has:
-  /// nothing recorded yet → hard delete is safe; a match exists but isn't
-  /// finalized → soft cancel instead, so nothing gets orphaned; a finalized
-  /// match already awarded points/ratings → neither is offered, since that
-  /// history shouldn't be erasable.
+  /// Offers exactly one action based on who has heard about the event:
+  /// a draft was never announced, so deleting it is safe; a published game
+  /// was, so it is cancelled instead and everyone told; once a result is
+  /// recorded the game was played, and neither is offered, since that
+  /// history (and the stats still to come) shouldn't be erasable.
   Widget _buildDangerZone(BuildContext context, Map<String, dynamic> ev) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('matches')
-          .where('eventId', isEqualTo: _eventId)
-          .snapshots(),
+    if (hasResult(ev)) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Text(
+            "This game has a recorded result, so it can't be cancelled or "
+            'deleted.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+      );
+    }
+    final isDraft = ev['status'] == 'draft';
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: OutlinedButton(
+          onPressed: () => isDraft
+              ? _confirmDelete(context)
+              : _confirmCancel(context, ev),
+          style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppTheme.error),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12))),
+          child: Text(isDraft ? 'Delete Draft' : 'Cancel Event',
+              style: const TextStyle(
+                  color: AppTheme.error,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700)),
+        ),
+      ),
+    );
+  }
+
+  /// Under a recorded result: the way on to Add Stats while any player's
+  /// stats are still owed, then a plain "done" once the match is finalized.
+  Widget _buildStatsButton() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _statsMatchesStream,
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const SizedBox.shrink();
-        final matches = snapshot.data!.docs;
-        final hasFinalized = matches.any((d) =>
-            (d.data() as Map<String, dynamic>)['status'] == 'finalized');
-        if (hasFinalized) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Text(
-                "This game has recorded results and can't be cancelled or "
-                'deleted.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 12)),
-          );
-        }
-        final hasMatches = matches.isNotEmpty;
-        return Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: OutlinedButton(
-              onPressed: () => hasMatches
-                  ? _confirmCancel(context, ev)
-                  : _confirmDelete(context),
-              style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppTheme.error),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12))),
-              child: Text(hasMatches ? 'Cancel Event' : 'Delete Event',
-                  style: const TextStyle(
-                      color: AppTheme.error,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700)),
-            ),
+        final doc =
+            latestMatch(snapshot.data?.docs ?? [], data: (d) => d.data());
+        final owed = doc != null && doc.data()['status'] == 'pending';
+        return SizedBox(
+          width: double.infinity, height: 50,
+          child: ElevatedButton(
+            onPressed: owed
+                ? () => Get.toNamed('/stats/add',
+                    arguments: {'eventId': _eventId})
+                : null,
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                disabledBackgroundColor: AppTheme.cardNested,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
+            child: Text(owed ? 'Add Player Stats' : 'Result Recorded',
+                style: TextStyle(
+                    color: owed ? AppTheme.buttonFg : AppTheme.muted,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700)),
           ),
         );
       },
@@ -627,11 +656,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Delete this event?', style: TextStyle(
+        title: Text('Delete this draft?', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
         content: Text(
-            "This can't be undone. Nobody has recorded a match for it yet, "
-            'so nothing else is affected.',
+            "This can't be undone. It was never published, so nobody was "
+            'told about it.',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
           TextButton(

@@ -20,6 +20,7 @@ import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_roster_check.dart';
 import '../../utils/event_types.dart';
+import '../../utils/organizer_status.dart';
 import '../../utils/team_name.dart';
 
 const _kRadius   = 14.0;
@@ -63,6 +64,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   // admin approval (see firestore.rules / admin_review_screen.dart) ──
   List<String> _allowedSports = [];
   bool _isApprovedOrganizer = false;
+  String? _organizerStatus;
   bool _loadingAllowedSports = true;
 
   @override
@@ -129,7 +131,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         // organizers (an SK Liga running both a basketball and a volleyball
         // tournament) still pick deliberately.
         if (sports.length == 1) _sport = sports.first;
-        _isApprovedOrganizer = data['organizerStatus'] == 'approved';
+        _organizerStatus = data['organizerStatus'] as String?;
+        _isApprovedOrganizer = _organizerStatus == 'approved';
         _loadingAllowedSports = false;
       });
     }
@@ -1032,11 +1035,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       );
     }
     if (!_isApprovedOrganizer) {
+      final copy = organizerStatusCopy(_organizerStatus)!;
       return _blockingScreen(
-        icon: Icons.hourglass_top_rounded,
-        title: "Your organizer account isn't currently approved",
-        subtitle: 'Contact the app admin for details. You may just need to '
-            'wait for review, or your account may need another look.',
+        icon: isRefusedOrganizer(_organizerStatus)
+            ? Icons.block_rounded
+            : Icons.hourglass_top_rounded,
+        title: copy.title,
+        subtitle: copy.body,
       );
     }
     if (_allowedSports.isEmpty) {

@@ -13,6 +13,7 @@ import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_history.dart';
+import '../../utils/event_types.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/match_lineup.dart';
 import '../../widgets/member_profiles.dart';
@@ -179,8 +180,8 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
             '${_sideName(_kSideA)} ${_scoreACtrl.text.trim()} — '
             '${_scoreBCtrl.text.trim()} ${_sideName(_kSideB)}\n'
             '$_lineupCounts\n\n'
-            "Check the score: it can't be changed after this, and it decides "
-            "every player's rating.",
+            "Check the score: it can't be changed after this"
+            '${_ranked ? ", and it decides every player's rating." : '.'}',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
           TextButton(
@@ -241,19 +242,13 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
         );
       }
       if (!mounted) return;
-      Get.back();
-      Get.snackbar(
-        'Match Recorded',
-        'Add each player\'s stats next to finalize ratings',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: AppTheme.accentSurface,
-        colorText: AppTheme.accentText,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      _afterRecorded(_selectedEvent!['eventId'] as String,
+          bracket: tournamentId != null);
     } catch (e) {
       Get.snackbar(
-        'Error', friendlyError(e),
+        // The bracket path throws StateErrors whose text is already written
+        // for the organizer ("This matchup is no longer in the bracket.").
+        'Error', e is StateError ? e.message : friendlyError(e),
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: AppTheme.errorSurface,
         colorText: AppTheme.errorText,
@@ -263,6 +258,47 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  /// False for a tune-up, which keeps stats but moves nobody's rating.
+  bool get _ranked =>
+      countsTowardRankings(_selectedEvent?['eventType'] as String?);
+
+  /// Stats are the second half of every result, so an ordinary game goes
+  /// straight on to Add Stats with this game open. A bracket game returns to
+  /// the bracket, where the organizer wants to see the winner move on, with
+  /// a shortcut instead. Coming from Add Stats, it simply goes back: that
+  /// screen reopens the game itself.
+  void _afterRecorded(String eventId, {required bool bracket}) {
+    final next = _ranked
+        ? "Add each player's stats next to update ratings."
+        : "Add each player's stats next to close the game.";
+    if (Get.previousRoute == '/stats/add') {
+      Get.back();
+      return;
+    }
+    if (!bracket) {
+      Get.offNamed('/stats/add', arguments: {'eventId': eventId});
+      _notice('Match Recorded', next);
+      return;
+    }
+    Get.back();
+    Get.snackbar(
+      'Match Recorded', next,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: AppTheme.accentSurface,
+      colorText: AppTheme.accentText,
+      margin: const EdgeInsets.all(16),
+      borderRadius: 12,
+      duration: const Duration(seconds: 5),
+      mainButton: TextButton(
+        onPressed: () =>
+            Get.toNamed('/stats/add', arguments: {'eventId': eventId}),
+        child: Text('Add stats',
+            style: TextStyle(
+                color: AppTheme.accentText, fontWeight: FontWeight.w800)),
+      ),
+    );
   }
 
   void _notice(String title, String message) => Get.snackbar(
@@ -303,6 +339,13 @@ class _RecordMatchScreenState extends State<RecordMatchScreen> {
       (s) => s.id == slotId,
       orElse: () => throw StateError('This matchup is no longer in the bracket.'),
     );
+    // Only the game the slot now points at may settle it. Reset cancels the
+    // game it replaces, but ones reset before it did were left live, and a
+    // stale result would otherwise advance the bracket.
+    if (slot.eventId != _selectedEvent!['eventId']) {
+      throw StateError('This game was reset in the bracket, so its result '
+          "can't be recorded. Record the matchup's new game instead.");
+    }
     final followOn = slots.where((s) => s.id == slot.nextSlotId).toList();
     final nextSlot = followOn.isEmpty ? null : followOn.first;
     // Where a semifinal's loser goes, when the bracket has a battle for third.

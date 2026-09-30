@@ -21,12 +21,14 @@ import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
 import '../../widgets/championships.dart';
 import '../../widgets/member_profiles.dart';
+import '../../widgets/organizer_todo_card.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/points_explainer_sheet.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_history.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/home_tournaments.dart';
 import '../../utils/leaderboard_ranks.dart';
 import '../../utils/team_name.dart';
 import '../../utils/tournament_notices.dart';
@@ -771,6 +773,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _buildSectionTitle('My Team'),
         _buildCoachTeamSection(data),
       ] else if (role == 'organizer') ...[
+        // First, because it is the part of Home that says what to do next:
+        // the approval wait, or the games waiting on a score or on stats.
+        OrganizerTodoCard(
+            uid: _uid,
+            organizerStatus: data['organizerStatus'] as String?),
         _buildSectionTitle('Next Event'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1634,7 +1641,9 @@ class _HomeScreenState extends State<HomeScreen> {
           .collection('events')
           .where('organizerId', isEqualTo: _uid)
           .where('status', isEqualTo: 'upcoming')
-          .limit(10)
+          // Not 10: played and bracket games keep status 'upcoming' for
+          // good, so an unordered 10 could hold none of the future ones.
+          .limit(kMaxListQuery)
           .snapshots(),
       builder: (context, snapshot) {
         final docs = (snapshot.data?.docs ?? [])
@@ -1724,13 +1733,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accent, size: 16),
                 ]),
               ),
-              const SizedBox(width: 20),
-              GestureDetector(
-                onTap: () => Get.toNamed('/matches/record'),
-                child: Text('Record Results', style: TextStyle(
-                    color: AppTheme.sub, fontSize: 13,
-                    fontWeight: FontWeight.w700)),
-              ),
+              // No "Record Results" here: this card only ever shows a game
+              // that hasn't started. Games due a score are on the to-do card.
             ]),
           ]),
         );
@@ -1740,8 +1744,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Tournaments section (organizer only) ──
   // A running bracket is the organizer's other live workflow alongside the
-  // next event, so it gets the same treatment: the one that matters right
-  // now, with a way into the full list.
+  // next event, so it gets the same treatment: the ones that matter right
+  // now, with a way into the full list. Every bracket still being played is
+  // listed, not just the newest — an organizer covering several sports runs
+  // one per sport at the same time.
 
   Widget _buildOrganizerTournamentSection() {
     return StreamBuilder<QuerySnapshot>(
@@ -1758,55 +1764,92 @@ class _HomeScreenState extends State<HomeScreen> {
               onAction: () => Get.toNamed('/tournaments/create'));
         }
 
-        final t = Tournament.fromMap(
-            docs.first.id, docs.first.data() as Map<String, dynamic>);
-        return GestureDetector(
-          onTap: () => Get.toNamed('/tournaments/detail',
-              arguments: {'tournamentId': t.id}),
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                    color: t.isCompleted ? AppTheme.accent : AppTheme.border)),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Expanded(child: Text(t.name, style: TextStyle(
-                        color: AppTheme.textPrimary, fontSize: 15,
-                        fontWeight: FontWeight.w800),
-                        overflow: TextOverflow.ellipsis)),
-                    const SizedBox(width: 8),
-                    Icon(Icons.chevron_right_rounded,
-                        color: AppTheme.muted, size: 20),
-                  ]),
-                  const SizedBox(height: 6),
-                  Text('${t.sport} · ${t.entrantCount} teams · ${t.venue}',
-                      style: TextStyle(color: AppTheme.sub, fontSize: 12),
-                      overflow: TextOverflow.ellipsis),
-                  if (t.championTeamName != null) ...[
-                    const SizedBox(height: 10),
-                    Row(children: [
-                      const Icon(Icons.emoji_events_rounded,
-                          color: AppTheme.accent, size: 15),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        // accentText, not accent: gold text is hard to read
-                        // on the light theme's white card.
-                        child: Text('${t.championTeamName} — champion',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                color: AppTheme.accentText, fontSize: 13,
-                                fontWeight: FontWeight.w800)),
-                      ),
-                    ]),
-                  ],
-                ]),
-          ),
-        );
+        final shown = homeTournaments([
+          for (final d in docs)
+            Tournament.fromMap(d.id, d.data() as Map<String, dynamic>),
+        ]);
+        return Column(children: [
+          for (final t in shown) ...[
+            _tournamentCard(t),
+            const SizedBox(height: 10),
+          ],
+          // Always offered, not only when the list is empty: the button used
+          // to vanish after the first bracket, which read as "one at a time".
+          _newTournamentTile(),
+        ]);
       },
+    );
+  }
+
+  Widget _tournamentCard(Tournament t) {
+    return GestureDetector(
+      onTap: () => Get.toNamed('/tournaments/detail',
+          arguments: {'tournamentId': t.id}),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: t.isCompleted ? AppTheme.accent : AppTheme.border)),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Expanded(child: Text(t.name, style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 15,
+                    fontWeight: FontWeight.w800),
+                    overflow: TextOverflow.ellipsis)),
+                const SizedBox(width: 8),
+                Icon(Icons.chevron_right_rounded,
+                    color: AppTheme.muted, size: 20),
+              ]),
+              const SizedBox(height: 6),
+              Text('${t.sport} · ${t.entrantCount} teams · ${t.venue}',
+                  style: TextStyle(color: AppTheme.sub, fontSize: 12),
+                  overflow: TextOverflow.ellipsis),
+              if (t.championTeamName != null) ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  const Icon(Icons.emoji_events_rounded,
+                      color: AppTheme.accent, size: 15),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    // accentText, not accent: gold text is hard to read
+                    // on the light theme's white card.
+                    child: Text('${t.championTeamName} — champion',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AppTheme.accentText, fontSize: 13,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                ]),
+              ],
+            ]),
+      ),
+    );
+  }
+
+  // Styled as the create screen's "Add a team" tile.
+  Widget _newTournamentTile() {
+    return GestureDetector(
+      onTap: () => Get.toNamed('/tournaments/create'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.border)),
+        child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.add_rounded, color: AppTheme.accent, size: 18),
+              SizedBox(width: 6),
+              Text('New tournament', style: TextStyle(
+                  color: AppTheme.accent, fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+            ]),
+      ),
     );
   }
 
@@ -1858,7 +1901,9 @@ class _HomeScreenState extends State<HomeScreen> {
           stream: FirebaseFirestore.instance
               .collection('events')
               .where('organizerId', isEqualTo: _uid)
-              .limit(10)
+              // Not 10: this is filtered to upcoming games below, and an
+              // unordered 10 could be all past ones.
+              .limit(kMaxListQuery)
               .snapshots(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {

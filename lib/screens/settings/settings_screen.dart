@@ -109,7 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ]),
                 const SizedBox(height: 24),
 
-                _editProfileCard(),
+                _editProfileCard(role),
                 const SizedBox(height: 16),
 
                 if (role == 'athlete') ...[
@@ -141,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // ── Edit Profile entry ─────────────────────────────────────────────────
-  Widget _editProfileCard() {
+  Widget _editProfileCard(String role) {
     return GestureDetector(
       onTap: () => Get.to(() => const EditProfileScreen()),
       child: Container(
@@ -170,7 +170,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w700)),
-                Text('Name, photo, bio and athletic details',
+                Text(switch (role) {
+                  'organizer' => 'Name, photo, bio and sports you organize',
+                  'coach' => 'Name, photo, bio and coaching details',
+                  _ => 'Name, photo, bio and athletic details',
+                },
                     style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ],
             ),

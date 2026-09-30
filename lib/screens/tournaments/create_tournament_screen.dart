@@ -10,6 +10,7 @@ import '../../services/tournament_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/bracket.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/organizer_status.dart';
 import '../events/venue_map_picker_screen.dart';
 import '../profile/edit_profile_screen.dart';
 
@@ -40,6 +41,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   // having declared at least one sport to organize.
   List<String> _allowedSports = [];
   bool _isApprovedOrganizer = false;
+  String? _organizerStatus;
   bool _loadingAllowedSports = true;
 
   String _sport = '';
@@ -74,7 +76,8 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
     setState(() {
       _allowedSports = sports;
       if (sports.length == 1) _sport = sports.first;
-      _isApprovedOrganizer = data['organizerStatus'] == 'approved';
+      _organizerStatus = data['organizerStatus'] as String?;
+      _isApprovedOrganizer = _organizerStatus == 'approved';
       _loadingAllowedSports = false;
     });
   }
@@ -350,11 +353,13 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
       );
     }
     if (!_isApprovedOrganizer) {
+      final copy = organizerStatusCopy(_organizerStatus)!;
       return _blockingScreen(
-        icon: Icons.hourglass_top_rounded,
-        title: "Your organizer account isn't currently approved",
-        subtitle: 'Contact the app admin for details. You may just need to '
-            'wait for review, or your account may need another look.',
+        icon: isRefusedOrganizer(_organizerStatus)
+            ? Icons.block_rounded
+            : Icons.hourglass_top_rounded,
+        title: copy.title,
+        subtitle: copy.body,
       );
     }
     if (_allowedSports.isEmpty) {

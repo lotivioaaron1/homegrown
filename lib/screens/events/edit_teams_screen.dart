@@ -113,7 +113,7 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
               color: AppTheme.textPrimary, size: 16)),
       ),
       const SizedBox(width: 12),
-      Text('Edit Teams', style: TextStyle(
+      Text('Rename Teams', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 18,
           fontWeight: FontWeight.w800)),
     ]),

@@ -17,6 +17,7 @@ import '../../utils/stat_limits.dart';
 import '../../utils/stat_scoring.dart';
 import '../../utils/error_messages.dart';
 import '../../widgets/member_profiles.dart';
+import '../../widgets/organizer_guide_sheet.dart';
 import '../../widgets/player_avatar.dart';
 const _kRadius   = 14.0;
 class AddStatsScreen extends StatefulWidget {
@@ -134,6 +135,27 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
   String get _teamBName =>
       _selectedEvent?['teamBName'] as String? ?? 'Team B';
 
+  @override
+  void initState() {
+    super.initState();
+    final eventId = (Get.arguments as Map?)?['eventId'] as String?;
+    if (eventId != null && eventId.isNotEmpty) _openPresetEvent(eventId);
+  }
+
+  /// Opens straight onto one game. Record Match, the event page and Home's
+  /// to-do all hand the organizer over this way, so they don't have to find
+  /// the game again in a list a tournament may have filled.
+  Future<void> _openPresetEvent(String eventId) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('events').doc(eventId).get();
+      final ev = doc.data();
+      if (ev != null && mounted) await _openEvent({...ev, 'eventId': doc.id});
+    } catch (e) {
+      _snack('Error', friendlyError(e), isError: true);
+    }
+  }
+
   /// Stats always belong to a recorded match, so the match is settled as
   /// soon as the event is picked: none sends the organizer to record one,
   /// one is taken as is, and several are chosen between.
@@ -174,6 +196,64 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       _step = 1;
     });
     await _loadSubmitted(matchId);
+    // Every stat line is in but the match never closed: the ratings update
+    // failed after the last save. Opening the game again is the retry.
+    final players = _matchPlayers;
+    if (mounted && players.isNotEmpty &&
+        _doneCount(players) == players.length) {
+      try {
+        if (await _maybeFinalizeMatch(matchId)) _showAllStatsIn();
+      } catch (e) {
+        _snack('Error', friendlyError(e), isError: true);
+      }
+    }
+  }
+
+  int _doneCount(List<Map<String, dynamic>> players) =>
+      players.where((p) => _submittedUids.contains(p['uid'])).length;
+
+  /// The end of a game's paperwork, said plainly: the organizer is otherwise
+  /// never told that the last save is what updated everyone's rating.
+  void _showAllStatsIn() {
+    if (!mounted) return;
+    final ranked = _ranked;
+    final name = _selectedEvent?['name'] as String? ?? 'this game';
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('All stats in', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            ranked
+                ? "Every player's stats for $name are saved, and their ratings "
+                    'have been updated. This game is complete.'
+                : "Every player's stats for $name are saved. Tune-ups don't "
+                    'change ratings, so this game is now closed.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Done', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14,
+                fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    // Back to the list of games: this one no longer needs anything.
+    setState(() {
+      _step = 0;
+      _selectedEvent = null;
+      _selectedTeam = null;
+      _selectedPlayer = null;
+      _selectedPlayerPhotoUrl = null;
+      _submittedUids = {};
+      _pendingMatches = [];
+      _selectedMatchId = null;
+    });
   }
 
   Future<bool> _offerRecordMatch() async {
@@ -392,20 +472,47 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         writeBatch: batch,
       );
       await batch.commit();
-      await _maybeFinalizeMatch(matchId);
+      // Read before the selection is cleared below.
+      final playerName = _selectedPlayer!['fullName'] as String? ?? 'Player';
       if (!mounted) return;
+      // Marked done as soon as the stat line is saved, before the ratings
+      // step: re-entering a player whose line already exists would save it
+      // twice and double their points.
       setState(() {
         _submittedUids.add(athleteId);
         _enteredByAthlete[athleteId] =
             (statsData['points'] as num?)?.toInt() ?? 0;
-        _step = _titles.indexOf('Select Player');
+        // A finished team goes back to the team list, where the other
+        // team's progress shows; otherwise on to this team's next player.
+        final teamDone = _selectedTeam != null &&
+            _matchPlayers
+                .where((p) => p['team'] == _selectedTeam)
+                .every((p) => _submittedUids.contains(p['uid']));
+        _step = _titles.indexOf(teamDone ? 'Select Team' : 'Select Player');
         _selectedPlayer = null;
         _selectedPlayerPhotoUrl = null;
         _clearStats();
       });
+      final bool finalized;
+      try {
+        finalized = await _maybeFinalizeMatch(matchId);
+      } catch (e) {
+        _snack('Ratings not updated yet',
+            "$playerName's stats are saved, but the ratings update didn't go "
+                'through. Open this game again in Add Stats to retry.',
+            isError: true);
+        return;
+      }
+      if (!mounted) return;
+      if (finalized) {
+        _showAllStatsIn();
+        return;
+      }
       Get.snackbar(
         'Stats Saved! ⭐',
-        '${_selectedPlayer?['fullName'] ?? 'Player'} earned $points points',
+        ranked
+            ? '$playerName earned $points points'
+            : "$playerName's stats are saved",
         snackPosition:   SnackPosition.BOTTOM,
         backgroundColor: AppTheme.accentSurface,
         colorText:       AppTheme.accentText,
@@ -420,10 +527,10 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     }
   }
   /// Once every participant of [matchId] has a stats entry, applies the
-  /// Elo/MMR update to their ratings.
-  Future<void> _maybeFinalizeMatch(String matchId) async {
+  /// Elo/MMR update to their ratings. True when that closed the match.
+  Future<bool> _maybeFinalizeMatch(String matchId) async {
     final matchDoc = _pendingMatches.where((d) => d.id == matchId).firstOrNull;
-    if (matchDoc == null) return;
+    if (matchDoc == null) return false;
     final matchData = matchDoc.data() as Map<String, dynamic>;
     final participants = [
       ...List<String>.from(matchData['sideA'] as List? ?? []),
@@ -431,6 +538,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     ];
     final complete = await RatingService.allStatsSubmitted(matchId, participants);
     if (complete) await RatingService.finalizeMatch(matchId, ranked: _ranked);
+    return complete;
   }
   void _snack(String t, String m, {bool isError = false}) {
     Get.snackbar(t, m,
@@ -508,6 +616,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           Text(titles[_step], style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         ]),
         const Spacer(),
+        IconButton(
+          tooltip: 'How running a game works',
+          onPressed: () => showOrganizerGuideSheet(context),
+          icon: Icon(Icons.help_outline_rounded,
+              color: AppTheme.sub, size: 20),
+        ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
@@ -658,21 +772,22 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     final players = _matchPlayers;
     final teamAName = _teamAName;
     final teamBName = _teamBName;
-    final countA = players.where((p) => p['team'] == 'A').length;
-    final countB = players.where((p) => p['team'] == 'B').length;
+    final teamA = players.where((p) => p['team'] == 'A').toList();
+    final teamB = players.where((p) => p['team'] == 'B').toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       children: [
         Text('Which team is this stat for?', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
         const SizedBox(height: 12),
-        _teamCard(teamAName, countA, 'A'),
+        _teamCard(teamAName, teamA.length, _doneCount(teamA), 'A'),
         const SizedBox(height: 10),
-        _teamCard(teamBName, countB, 'B'),
+        _teamCard(teamBName, teamB.length, _doneCount(teamB), 'B'),
       ],
     );
   }
-  Widget _teamCard(String name, int count, String team) => GestureDetector(
+  Widget _teamCard(String name, int count, int done, String team) =>
+      GestureDetector(
     onTap: () => setState(() { _selectedTeam = team; _step++; }),
     child: Container(
       padding: const EdgeInsets.all(16),
@@ -691,8 +806,15 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         const SizedBox(width: 12),
         Expanded(child: Text(name, style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w700))),
-        Text('$count', style: TextStyle(
-            color: AppTheme.muted, fontSize: 13, fontWeight: FontWeight.w600)),
+        if (done == count && count > 0) ...[
+          Icon(Icons.check_circle, color: AppTheme.successText, size: 16),
+          const SizedBox(width: 4),
+        ],
+        Text('$done of $count done', style: TextStyle(
+            color: done == count && count > 0
+                ? AppTheme.successText
+                : AppTheme.muted,
+            fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(width: 8),
         Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
       ]),
@@ -737,7 +859,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
         child: Row(children: [
-          Text('${players.length} Players',
+          Text('${_doneCount(players)} of ${players.length} done',
             style: TextStyle(color: AppTheme.textPrimary,
                 fontSize: 13, fontWeight: FontWeight.w700)),
           const Spacer(),

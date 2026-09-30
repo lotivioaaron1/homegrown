@@ -225,8 +225,9 @@ class _TopBar extends StatelessWidget {
             blocked
                 ? 'A result has already been recorded, so the bracket has to '
                     'stay. The matches and stats behind it depend on it.'
-                : "This can't be undone. No results have been recorded yet, so "
-                    'nothing else is affected.',
+                : "This can't be undone. No results have been recorded yet. "
+                    'Any games already scheduled are cancelled, and their '
+                    'players and coaches are told.',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
           TextButton(
@@ -896,8 +897,8 @@ class _MatchCard extends StatelessWidget {
                 fontSize: 16,
                 fontWeight: FontWeight.w800)),
         content: Text(
-            'The bracket forgets the event that was set up for it, so you can '
-            'schedule it again. The event itself is left alone.',
+            'The game set up for it is cancelled and both teams are told, '
+            'so you can schedule it again at a new time.',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
           TextButton(
@@ -909,7 +910,7 @@ class _MatchCard extends StatelessWidget {
             onPressed: () async {
               Navigator.pop(dialogContext);
               try {
-                await TournamentService.unscheduleSlot(tournament.id, slot.id);
+                await TournamentService.unscheduleSlot(tournament.id, slot);
               } catch (e) {
                 Get.snackbar('Error', friendlyError(e),
                     snackPosition: SnackPosition.BOTTOM,

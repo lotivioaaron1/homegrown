@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../constants/sport_icons.dart';
 import '../../constants/sport_positions.dart';
 import '../../services/contact_service.dart';
+import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/position_picker_sheet.dart';
@@ -191,6 +192,10 @@ class _GoogleProfileSetupScreenState
         });
       } else {
         data.addAll({
+          // Same approval queue as organizer_register_screen.dart: without
+          // this the account never appears in the admin's Approvals tab and
+          // stays blocked from creating anything.
+          'organizerStatus':   'pending',
           'organization':      _orgNameCtrl.text.trim(),
           'organizationType':  _orgType,
           'sportsOrganized':   _orgSports,
@@ -203,6 +208,7 @@ class _GoogleProfileSetupScreenState
       // Email is kept off the publicly-readable profile doc — see
       // ContactService.
       await ContactService.write(uid: _uid, email: _email);
+      if (_role == 'organizer') await _notifyAdmins();
 
       Get.offAllNamed('/home');
     } catch (e) {
@@ -210,6 +216,25 @@ class _GoogleProfileSetupScreenState
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Tells every admin a new organizer is waiting, as email registration
+  /// does. Best effort: the profile is already saved, and the request still
+  /// shows in the Approvals tab if a notice fails.
+  Future<void> _notifyAdmins() async {
+    try {
+      final admins = await FirebaseFirestore.instance
+          .collection('users').where('role', isEqualTo: 'admin').get();
+      for (final admin in admins.docs) {
+        await NotificationService.create(
+          userId: admin.id,
+          type: 'organizer_pending',
+          title: 'New organizer awaiting approval',
+          body: '$_displayName registered as an organizer and needs review.',
+          relatedId: _uid,
+        );
+      }
+    } catch (_) {}
   }
 
   void _snack(String t, String m, {bool isError = false}) {

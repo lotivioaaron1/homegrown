@@ -6,6 +6,7 @@ import '../constants/query_limits.dart';
 import '../models/bracket_slot.dart';
 import '../models/tournament.dart';
 import '../utils/bracket.dart';
+import '../utils/event_recipients.dart';
 import '../utils/tournament_notices.dart';
 import 'notification_service.dart';
 import 'team_service.dart';
@@ -329,19 +330,54 @@ class TournamentService {
     return eventId;
   }
 
-  /// Puts a slot back to ready and forgets its event.
+  /// Puts a slot back to ready and calls off the game set up for it.
   ///
   /// Firestore cannot enforce that a child event still exists, so a slot
   /// can end up pointing at an event the organizer deleted or cancelled
   /// outside the bracket. Rather than leaving the tournament permanently
   /// stuck, the bracket screen offers this and the matchup can be
   /// scheduled again.
-  static Future<void> unscheduleSlot(String tournamentId, String slotId) =>
-      slotsOf(tournamentId).doc(slotId).update({
-        'eventId': null,
-        'kickoff': null,
-        'status': BracketSlot.statusReady,
-      });
+  ///
+  /// The old event is cancelled in the same commit rather than left alone:
+  /// otherwise its players are never told the game is off, and once its
+  /// kickoff passes it sits in Record Match, where recording it would still
+  /// advance the bracket.
+  static Future<void> unscheduleSlot(String tournamentId, BracketSlot slot) async {
+    final batch = _db.batch();
+    batch.update(slotsOf(tournamentId).doc(slot.id), {
+      'eventId': null,
+      'kickoff': null,
+      'status': BracketSlot.statusReady,
+    });
+    if (slot.eventId != null) await _stageCallOff(batch, slot.eventId!);
+    await batch.commit();
+  }
+
+  /// Cancels a bracket game that will no longer be played and tells its
+  /// roster and both coaches, with the same notice Cancel Event sends.
+  ///
+  /// Skipped when the event is already gone or cancelled (the case Reset
+  /// exists for), or has a result, which the rules would refuse to touch.
+  static Future<void> _stageCallOff(WriteBatch batch, String eventId) async {
+    final ev = (await _events.doc(eventId).get()).data();
+    if (ev == null ||
+        ev['status'] == 'cancelled' ||
+        ev['hasMatchData'] == true) {
+      return;
+    }
+    batch.update(_events.doc(eventId), {'status': 'cancelled'});
+    final name = ev['name'] as String? ?? 'The game';
+    for (final uid in eventAudienceUids(ev)) {
+      await NotificationService.create(
+        userId: uid,
+        type: 'event_cancelled',
+        title: 'Game cancelled',
+        body: '$name has been cancelled by the organizer.',
+        relatedId: eventId,
+        writeBatch: batch,
+      );
+    }
+  }
 
   // ── Advancing ────────────────────────────────────────
 
@@ -508,15 +544,20 @@ class TournamentService {
 
   // ── Deleting ─────────────────────────────────────────
 
-  /// Removes a tournament and its bracket.
+  /// Removes a tournament and its bracket, calling off any games already
+  /// scheduled from it.
   ///
   /// Firestore does not cascade, so the slots have to go explicitly or they
-  /// would linger as orphans readable by any signed-in user. At most
-  /// sixteen writes.
+  /// would linger as orphans readable by any signed-in user. A scheduled
+  /// game's event can't be deleted (the rules keep bracket events), so it is
+  /// cancelled instead and its players told, rather than left pointing at a
+  /// bracket that no longer exists.
   static Future<void> delete(String tournamentId) async {
     final slots = await slotsOf(tournamentId).get();
     final batch = _db.batch();
     for (final doc in slots.docs) {
+      final eventId = doc.data()['eventId'] as String?;
+      if (eventId != null) await _stageCallOff(batch, eventId);
       batch.delete(doc.reference);
     }
     batch.delete(_tournaments.doc(tournamentId));
