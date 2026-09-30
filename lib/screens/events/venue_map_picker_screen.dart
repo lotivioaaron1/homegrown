@@ -117,6 +117,13 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.bg,
+      // Android hosts the map in a virtual display, and letting the keyboard
+      // shrink it queues a resize on every frame of the keyboard animation. A
+      // resize still pending when the map is torn down (Confirm or Back while
+      // the keyboard moves) crashes the Flutter engine with an NPE in
+      // VirtualDisplayController, seen as "Lost connection to device". So the
+      // map keeps its size and only the card below lifts above the keyboard.
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         backgroundColor: AppTheme.bg,
         title: Text('Drop a Pin', style: TextStyle(color: AppTheme.textPrimary)),
@@ -133,7 +140,7 @@ class _VenueMapPickerScreenState extends State<VenueMapPickerScreen> {
         Positioned(
           left: 16,
           right: 16,
-          bottom: 16,
+          bottom: 16 + MediaQuery.viewInsetsOf(context).bottom,
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
