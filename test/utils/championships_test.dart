@@ -13,10 +13,11 @@ Tournament _cup(
   String status = Tournament.statusCompleted,
   String? champion = 'coachA',
   DateTime? completedAt,
+  String organizer = 'org',
 }) =>
     Tournament(
       id: id,
-      organizerId: 'org',
+      organizerId: organizer,
       name: 'Cup $id',
       sport: 'Basketball',
       status: status,
@@ -115,6 +116,15 @@ void main() {
           now: now);
 
       expect(recent, isEmpty);
+    });
+
+    test("leaves out the given organizer's own tournaments", () {
+      final recent = recentChampions([
+        _cup('mine'),
+        _cup('theirs', organizer: 'otherOrg'),
+      ], now: now, exceptOrganizer: 'org');
+
+      expect(_ids(recent), ['theirs']);
     });
   });
 

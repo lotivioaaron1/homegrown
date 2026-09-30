@@ -213,15 +213,23 @@ class ChampionsSpotlight extends StatelessWidget {
   /// Space around the spotlight, applied only when there is one to show.
   final EdgeInsets padding;
 
+  /// An organizer whose own tournaments are left out, as their Home already
+  /// shows those champions.
+  final String? exceptOrganizer;
+
   const ChampionsSpotlight({
     super.key,
     this.padding = const EdgeInsets.fromLTRB(20, 14, 20, 0),
+    this.exceptOrganizer,
   });
 
   @override
   Widget build(BuildContext context) {
     return _CompletedTournaments(builder: (tournaments) {
-      final recent = recentChampions(tournaments).take(2).toList();
+      final recent = recentChampions(tournaments,
+              exceptOrganizer: exceptOrganizer)
+          .take(2)
+          .toList();
       if (recent.isEmpty) return const SizedBox.shrink();
       return Padding(
         padding: padding,

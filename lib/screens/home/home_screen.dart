@@ -739,8 +739,11 @@ class _HomeScreenState extends State<HomeScreen> {
       const SizedBox(height: 12),
       _buildHeroCard(data, role),
       // Every role sees who has just won a tournament, for a week after the
-      // final. Renders nothing the rest of the time.
-      const ChampionsSpotlight(),
+      // final. Renders nothing the rest of the time. An organizer's own
+      // tournaments are left out: their Tournaments card below already
+      // names the champion, so the spotlight only repeated it.
+      ChampionsSpotlight(
+          exceptOrganizer: role == 'organizer' ? _uid : null),
       if (role == 'athlete') ...[
         _buildSectionTitle('My Team'),
         // No horizontal padding here: the team deck runs to the screen edges
@@ -1024,10 +1027,14 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Role badge ────────────────────────────
 
   Widget _buildRoleBadge(Map<String, dynamic> data, String role) {
-    final sport = (data['primarySports'] as List?)?.isNotEmpty == true
-        ? (data['primarySports'] as List).first as String
-        : (data['sportsOrganized'] as List?)?.isNotEmpty == true
-            ? (data['sportsOrganized'] as List).first as String : '';
+    // An organizer can run several sports; naming only the first read as if
+    // it were their one sport. The hero card below lists them all.
+    final organized = (data['sportsOrganized'] as List?) ?? const [];
+    final sport = role == 'organizer' && organized.length > 1
+        ? '${organized.length} sports'
+        : (data['primarySports'] as List?)?.isNotEmpty == true
+            ? (data['primarySports'] as List).first as String
+            : organized.isNotEmpty ? organized.first as String : '';
     // The role-picker's icons (register_screen.dart) rather than emoji, so a
     // role looks the same here as where it was chosen.
     final icon = role == 'athlete' ? LucideIcons.zap
@@ -1197,14 +1204,20 @@ class _HomeScreenState extends State<HomeScreen> {
         ?.map((e) => e.toString()).toList() ?? [];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('ORGANIZATION', style: TextStyle(color: AppTheme.sub,
-              fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
-          const SizedBox(height: 4),
-          Text(org, style: const TextStyle(color: AppTheme.accent,
-              fontSize: 20, fontWeight: FontWeight.w900, height: 1.1)),
-        ]),
-        const Spacer(),
+        // Expanded, not a bare Column + Spacer: a barangay council's full
+        // name overflowed the card instead of wrapping.
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Text('ORGANIZATION', style: TextStyle(color: AppTheme.sub,
+                fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
+            const SizedBox(height: 4),
+            Text(org, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppTheme.accent,
+                    fontSize: 20, fontWeight: FontWeight.w900, height: 1.1)),
+          ]),
+        ),
+        const SizedBox(width: 12),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(color: AppTheme.accentSurface,
@@ -1220,7 +1233,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ]),
       if (sports.isNotEmpty) ...[
         const SizedBox(height: 10),
-        Wrap(spacing: 6, children: sports.map((s) =>
+        Wrap(spacing: 6, runSpacing: 6, children: sports.map((s) =>
             _StatPill(label: s, icon: LucideIcons.activity)).toList()),
       ],
     ]);
@@ -1526,6 +1539,9 @@ class _HomeScreenState extends State<HomeScreen> {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Container(
+              // Full width: under the home Column's start alignment a card
+              // without one shrinks to its text.
+              width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                   color: AppTheme.card,
@@ -1634,26 +1650,16 @@ class _HomeScreenState extends State<HomeScreen> {
           });
 
         if (docs.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.border)),
-            child: Column(children: [
-              Icon(LucideIcons.calendar, color: AppTheme.muted, size: 28),
-              const SizedBox(height: 8),
-              Text('No upcoming events', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 13,
-                  fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              // The organizer twin of the coach's empty-roster card, and the
-              // same fix: a button, not small link text.
-              _ActionPill(
-                  label: 'Create your first event',
-                  onTap: () => Get.toNamed('/events/create')),
-            ]),
-          );
+          // _EmptyCard rather than a bare Container: it fills the width, so
+          // this sits flush with the Tournaments card below instead of
+          // shrinking to its text. "an event", not "your first": this is
+          // upcoming events only, so the organizer may well have run some.
+          return _EmptyCard(
+              icon: LucideIcons.calendar,
+              title: 'No upcoming events',
+              subtitle: 'Your next event and its roster will show here',
+              actionLabel: 'Create an event',
+              onAction: () => Get.toNamed('/events/create'));
         }
 
         final doc         = docs.first;
@@ -1743,27 +1749,13 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, snapshot) {
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.border)),
-            child: Column(children: [
-              Icon(LucideIcons.trophy, color: AppTheme.muted, size: 28),
-              const SizedBox(height: 8),
-              Text('No tournaments yet', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 13,
-                  fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              GestureDetector(
-                onTap: () => Get.toNamed('/tournaments/create'),
-                child: const Text('Draw your first bracket', style: TextStyle(
-                    color: AppTheme.accent, fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-              ),
-            ]),
-          );
+          // Same card and button as the empty Next Event above it.
+          return _EmptyCard(
+              icon: LucideIcons.trophy,
+              title: 'No tournaments yet',
+              subtitle: 'Brackets you run will show here',
+              actionLabel: 'Draw your first bracket',
+              onAction: () => Get.toNamed('/tournaments/create'));
         }
 
         final t = Tournament.fromMap(
@@ -1801,10 +1793,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: AppTheme.accent, size: 15),
                       const SizedBox(width: 6),
                       Expanded(
+                        // accentText, not accent: gold text is hard to read
+                        // on the light theme's white card.
                         child: Text('${t.championTeamName} — champion',
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: AppTheme.accent, fontSize: 13,
+                            style: TextStyle(
+                                color: AppTheme.accentText, fontSize: 13,
                                 fontWeight: FontWeight.w800)),
                       ),
                     ]),
@@ -1873,10 +1867,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: AppTheme.accent, strokeWidth: 2)));
             }
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              // No button: Next Event, directly above, already offers one.
+              // (The old "Tap +" pointed at Add Stats, the nav's only +.)
               return const _EmptyCard(
                   icon: LucideIcons.calendar,
                   title: 'No events yet',
-                  subtitle: 'Tap + to create your first event');
+                  subtitle: 'Events you create will be listed here');
             }
             final events = snapshot.data!.docs
                 .where((doc) =>

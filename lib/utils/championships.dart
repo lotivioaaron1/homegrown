@@ -36,18 +36,21 @@ List<Tournament> teamTitles(Iterable<Tournament> ts, String coachId) =>
         (t) => t.isCompleted && coachId.isNotEmpty && t.championCoachId == coachId));
 
 /// Tournaments won in the last [days] days, newest first, for the Home
-/// spotlight.
+/// spotlight. [exceptOrganizer] leaves out the ones that organizer ran: their
+/// own Home already names each champion on its Tournaments card.
 List<Tournament> recentChampions(
   Iterable<Tournament> ts, {
   DateTime? now,
   int days = 7,
+  String? exceptOrganizer,
 }) {
   final since = (now ?? DateTime.now()).subtract(Duration(days: days));
   return _newestFirst(ts.where((t) =>
       t.isCompleted &&
       t.championCoachId != null &&
       t.completedAt != null &&
-      t.completedAt!.isAfter(since)));
+      t.completedAt!.isAfter(since) &&
+      (exceptOrganizer == null || t.organizerId != exceptOrganizer)));
 }
 
 /// One team's finishing place.
