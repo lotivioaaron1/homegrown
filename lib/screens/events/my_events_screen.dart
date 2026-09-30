@@ -368,6 +368,10 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
     // The same check Record Match makes, so the button only appears on a game
     // it will accept.
     final canRecord = canRecordResult(ev);
+    // A draft gets a way back in, since its page is where it gets published.
+    // Covers a stale draft on the Past tab too, which needs a new date first.
+    final isDraft = badge == EventBadge.draft;
+    final hasButton = canRecord || isDraft;
 
     final date = asTimestamp(ev['eventDate'])?.toDate();
     final fmtDate =
@@ -390,8 +394,8 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
       onTap: () =>
           Get.toNamed('/events/detail', arguments: {'eventId': doc.id}),
       child: Container(
-        // The Record button's padded tap area fills the top gap instead.
-        padding: canRecord
+        // The card button's padded tap area fills the top gap instead.
+        padding: hasButton
             ? const EdgeInsets.fromLTRB(14, 8, 14, 14)
             : const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -412,13 +416,20 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
                       fontSize: 15,
                       fontWeight: FontWeight.w800)),
             ),
-            if (showPill) ...[
+            if (showPill && !isDraft) ...[
               const SizedBox(width: 8),
               _statusPill(label, highlight: highlight),
             ],
-            if (canRecord) _recordButton(doc.id),
+            if (canRecord)
+              _cardButton('Record',
+                  () => Get.toNamed('/matches/record',
+                      arguments: {'eventId': doc.id})),
+            if (isDraft)
+              _cardButton('Continue',
+                  () => Get.toNamed('/events/detail',
+                      arguments: {'eventId': doc.id})),
           ]),
-          SizedBox(height: canRecord ? 0 : 6),
+          SizedBox(height: hasButton ? 0 : 6),
           Row(children: [
             Expanded(
               child: Text(meta,
@@ -439,13 +450,13 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
     );
   }
 
-  /// Opens Record Match on this game. The 32dp button is padded out to a 44dp
-  /// tap area, so a near miss still lands on it rather than the card.
-  Widget _recordButton(String eventId) {
+  /// A card's one action: Record on a game awaiting its result, Continue on a
+  /// draft. The 32dp button is padded out to a 44dp tap area, so a near miss
+  /// still lands on it rather than the card.
+  Widget _cardButton(String label, VoidCallback onTap) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () =>
-          Get.toNamed('/matches/record', arguments: {'eventId': eventId}),
+      onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
         child: Container(
@@ -456,7 +467,7 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppTheme.accent)),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text('Record',
+            Text(label,
                 style: TextStyle(
                     color: AppTheme.accentText,
                     fontSize: 12,

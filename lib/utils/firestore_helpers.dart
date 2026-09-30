@@ -43,9 +43,9 @@ bool isListableProfile(Map<String, dynamic> user) {
 /// A game with no eventDate is still being scheduled, so it's treated as
 /// upcoming rather than disappearing from every list by default. This is
 /// the single source of truth for "is this game done" — the `status` field
-/// on an event doc is only ever written once at creation ('draft' or
-/// 'upcoming') and never updated afterward for a completed game, so it can't
-/// be used for that. A cancelled event is the one exception: it's excluded
+/// on an event doc is written at creation ('draft' or 'upcoming'), and a
+/// draft is later flipped to 'upcoming' when published, but it is never
+/// updated for a completed game, so it can't be used for that. A cancelled event is the one exception: it's excluded
 /// here regardless of date so a cancelled-but-not-yet-happened game doesn't
 /// keep showing as upcoming.
 bool isEventUpcoming(Map<String, dynamic> event, {DateTime? now}) {

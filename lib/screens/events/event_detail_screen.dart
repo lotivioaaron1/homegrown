@@ -11,6 +11,8 @@ import '../../models/report.dart';
 import '../../services/notification_service.dart';
 import '../../services/team_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/draft_publish.dart';
+import '../../utils/error_messages.dart';
 import '../../utils/event_history.dart';
 import '../../utils/event_recipients.dart';
 import '../../utils/event_types.dart';
@@ -44,6 +46,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       .collection('matches')
       .where('eventId', isEqualTo: _eventId)
       .snapshots();
+
+  /// Blocks a second tap on Publish while the first is still writing, which
+  /// would otherwise notify the whole roster twice.
+  bool _publishing = false;
 
   @override
   Widget build(BuildContext context) {
@@ -138,6 +144,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final name = ev['name'] as String? ?? 'Untitled Event';
     // Same badge as My Events and Home, so the three can't disagree.
     final isCancelled = ev['status'] == 'cancelled';
+    final isDraft = ev['status'] == 'draft';
     final badge = badgeFor(ev);
     final statusLabel = badgeLabel(badge);
     final isNeutralStatus = badge != EventBadge.upcoming;
@@ -190,6 +197,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (isOrganizer && isDraft) ...[
+              _buildDraftBanner(ev),
+              const SizedBox(height: 12),
+            ],
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -264,7 +275,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   color: AppTheme.muted, fontSize: 12,
                   fontWeight: FontWeight.w800, letterSpacing: 1)),
               const Spacer(),
-              if (isOrganizer && isEventUpcoming(ev) && !isBracketMatch) ...[
+              // A draft keeps Edit Event after its date passes: picking a new
+              // date is the only way it can still be published.
+              if (isOrganizer &&
+                  (isEventUpcoming(ev) || isDraft) &&
+                  !isBracketMatch) ...[
                 GestureDetector(
                   onTap: () => Get.toNamed('/events/edit',
                       arguments: {'eventId': _eventId}),
@@ -372,6 +387,128 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         ),
       ),
     ]);
+  }
+
+  /// Shown to the organizer on their own draft. Saving a draft notified
+  /// nobody, so this is the one place it can go live from; without it a draft
+  /// could be edited or deleted but never announced.
+  Widget _buildDraftBanner(Map<String, dynamic> ev) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: AppTheme.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.accent, width: 1.5)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.edit_note_rounded, color: AppTheme.accent, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('Draft · Only you can see this', style: TextStyle(
+                color: AppTheme.textPrimary, fontSize: 14,
+                fontWeight: FontWeight.w800)),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+            "Players and coaches haven't been told yet. Publish when you're "
+            'ready to announce it.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 12, height: 1.4)),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity, height: 50,
+          child: ElevatedButton(
+            onPressed: _publishing ? null : () => _publishDraft(ev),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                disabledBackgroundColor: AppTheme.cardNested,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
+            child: _publishing
+                ? const SizedBox(
+                    width: 22, height: 22,
+                    child: CircularProgressIndicator(
+                        color: AppTheme.accent, strokeWidth: 2))
+                : const Text('Publish Event', style: TextStyle(
+                    color: AppTheme.buttonFg, fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  /// Takes a draft live: flips it to 'upcoming' and sends the roster and both
+  /// coaches the same "upcoming game" notice a straight publish sends, in one
+  /// batch so nobody is told about an event that failed to go live.
+  Future<void> _publishDraft(Map<String, dynamic> ev) async {
+    final problem = draftPublishProblem(ev);
+    if (problem != null) {
+      _snack("Can't Publish Yet", problem, isError: true);
+      return;
+    }
+
+    final name = ev['name'] as String? ?? 'this event';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Publish $name?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            'Everyone on the roster and both coaches will be notified.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text('Back', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Publish', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14,
+                fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _publishing = true);
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(
+          FirebaseFirestore.instance.collection('events').doc(_eventId),
+          {'status': 'upcoming'});
+      for (final notice in publishNotices(ev)) {
+        await NotificationService.create(
+          userId: notice.uid,
+          type: 'event_added',
+          title: notice.title,
+          body: notice.body,
+          relatedId: _eventId,
+          writeBatch: batch,
+        );
+      }
+      await batch.commit();
+      // The event stream redraws the page as upcoming; no navigation needed.
+      _snack('Event Published! 🏆', '$name is now live!');
+    } catch (e) {
+      _snack('Error', friendlyError(e), isError: true);
+    } finally {
+      if (mounted) setState(() => _publishing = false);
+    }
+  }
+
+  void _snack(String title, String msg, {bool isError = false}) {
+    Get.snackbar(title, msg,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: isError ? const Color(0xFF2A1A1A) : AppTheme.accentSurface,
+      colorText: isError ? const Color(0xFFFF5C5C) : AppTheme.accentText,
+      margin: const EdgeInsets.all(16), borderRadius: 12,
+      duration: const Duration(seconds: 3));
   }
 
   Widget _buildPlayerGroup(

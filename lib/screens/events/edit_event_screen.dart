@@ -51,6 +51,8 @@ class _EditEventScreenState extends State<EditEventScreen> {
   // Who gets an "event updated" notification: the roster plus both coaches.
   // Separate from _playerUids, which also decides whether the sport is locked.
   List<String> _notifyUids = [];
+  // Nobody has been told about a draft yet, so editing one notifies nobody.
+  bool _isDraft = false;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -116,6 +118,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
     // Players plus both head coaches — the coaches need to know the date or
     // venue moved just as much as the roster does.
     _notifyUids = eventAudienceUids(data);
+    _isDraft = data['status'] == 'draft';
 
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
@@ -170,7 +173,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
       });
 
       final eventLabel = '${_nameCtrl.text.trim()} on ${_formatDate()}';
-      for (final uid in _notifyUids) {
+      for (final uid in _isDraft ? const <String>[] : _notifyUids) {
         await NotificationService.create(
           userId: uid,
           type: 'event_updated',
