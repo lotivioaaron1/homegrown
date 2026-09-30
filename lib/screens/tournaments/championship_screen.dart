@@ -13,13 +13,15 @@ import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/championships.dart';
+import '../../utils/stat_scoring.dart';
 import '../../widgets/member_profiles.dart';
 import '../../widgets/player_avatar.dart';
 
 const _kRadius = 16.0;
 
-/// A tournament's champion, celebrated: the trophy, the team, the final score
-/// and the roster that won it.
+/// A tournament's champion, celebrated: the trophy, the team, the final score,
+/// its averages across the tournament, the final standings and the roster
+/// that won it.
 ///
 /// Opened from the champion notification, the bracket's champion banner, and
 /// every showcase (profile shelf, team titles, Home spotlight). Winning a
@@ -46,6 +48,10 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
   /// Read once, as soon as the tournament has loaded.
   Future<List<BracketSlot>>? _slots;
 
+  /// The champion's per-game averages, read once the slots are in. Null
+  /// when no stats were recorded for its games.
+  Future<TeamAverages?>? _averages;
+
   late final AnimationController _celebration = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1800));
   bool _started = false;
@@ -71,6 +77,18 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
   Future<List<BracketSlot>> _loadSlots(Tournament t) async =>
       TournamentService.slotsFrom(await TournamentService.slotsOf(t.id).get());
 
+  /// Offline or refused, the averages card just doesn't appear.
+  Future<TeamAverages?> _loadAverages(
+      Tournament t, List<BracketSlot> slots) async {
+    try {
+      final lines = await TournamentService.statLinesFor(
+          matchIdsFor(t.championCoachId!, slots));
+      return championAverages(t, slots, lines);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -93,6 +111,7 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
               return _message("This tournament hasn't crowned a champion yet.");
             }
             _slots ??= _loadSlots(t);
+            _averages ??= _slots!.then((slots) => _loadAverages(t, slots));
 
             return Stack(children: [
               _content(t),
@@ -201,6 +220,17 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
                     _finalScore(finals.first),
                     const SizedBox(height: 20),
                   ],
+                  FutureBuilder<TeamAverages?>(
+                    future: _averages,
+                    builder: (context, snap) {
+                      final averages = snap.data;
+                      if (averages == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: _averagesCard(averages),
+                      );
+                    },
+                  ),
                   if (standings.isNotEmpty) ...[
                     _standings(standings),
                     const SizedBox(height: 20),
@@ -275,6 +305,58 @@ class _ChampionshipScreenState extends State<ChampionshipScreen>
         row(loser?.teamName ?? '—', loserScore, won: false),
       ]),
     );
+  }
+
+  /// The champion's box score per game across the tournament, three to a
+  /// row, in the same categories and number format as a player's profile.
+  Widget _averagesCard(TeamAverages a) {
+    final note = a.games == a.gamesPlayed
+        ? 'Across ${a.games} game${a.games == 1 ? '' : 's'}'
+        : 'From the ${a.games} of ${a.gamesPlayed} games with stats recorded';
+
+    Widget tile(String label, double value, double width) => Container(
+          width: width,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+              color: AppTheme.cardNested,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.border)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(
+                label == 'Win Rate %'
+                    ? '${formatStatAverage(value)}%'
+                    : formatStatAverage(value),
+                style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900)),
+            const SizedBox(height: 2),
+            Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+          ]),
+        );
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _label('TEAM AVERAGES · PER GAME'),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(_kRadius),
+            border: Border.all(color: AppTheme.border)),
+        child: LayoutBuilder(builder: (context, constraints) {
+          const gap = 8.0;
+          final width = (constraints.maxWidth - gap * 2) / 3;
+          return Wrap(spacing: gap, runSpacing: gap, children: [
+            for (final e in a.averages.entries) tile(e.key, e.value, width),
+          ]);
+        }),
+      ),
+      const SizedBox(height: 8),
+      Text(note, style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+    ]);
   }
 
   /// Champion down to 3rd runner-up, each with its medal. Semifinal losers

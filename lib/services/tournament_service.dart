@@ -75,6 +75,21 @@ class TournamentService {
       .map((s) =>
           s.docs.map((d) => Tournament.fromMap(d.id, d.data())).toList());
 
+  /// Every player's stat line from the games in [matchIds], for the
+  /// championship page's team averages. A champion plays one game a round,
+  /// at most four, well inside the thirty values `whereIn` accepts; one
+  /// equality-style filter, so no composite index is needed.
+  static Future<List<Map<String, dynamic>>> statLinesFor(
+      List<String> matchIds) async {
+    // whereIn throws on an empty list.
+    if (matchIds.isEmpty) return const [];
+    final snap = await _db
+        .collection('stats')
+        .where('matchId', whereIn: matchIds)
+        .get();
+    return snap.docs.map((d) => d.data()).toList();
+  }
+
   static List<BracketSlot> sortSlots(Iterable<BracketSlot> slots) =>
       slots.toList()
         ..sort((a, b) => a.round == b.round

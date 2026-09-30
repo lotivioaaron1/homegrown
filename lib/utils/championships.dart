@@ -1,11 +1,15 @@
 // lib/utils/championships.dart
 //
-// Who a tournament title belongs to, and which titles each showcase (profile
-// shelf, team page, Home spotlight) lists. Pure, so it's tested without
-// Firebase.
+// Who a tournament title belongs to, which titles each showcase (profile
+// shelf, team page, Home spotlight) lists, and what the championship page
+// reports: the final standings and the champion's per-game averages. Pure,
+// so it's tested without Firebase.
+
+import 'dart:math' as math;
 
 import '../models/bracket_slot.dart';
 import '../models/tournament.dart';
+import 'stat_scoring.dart';
 
 /// Whether [uid] won [t]: the champion's coach, or a player on the roster the
 /// champion entered with. The roster is the snapshot taken at entry, so a
@@ -110,6 +114,93 @@ List<Standing> finalStandings(Tournament t, List<BracketSlot> slots) {
     }
   }
   return standings;
+}
+
+/// The recorded results of the games [coachId]'s team played, as match ids.
+/// Byes and unplayed matchups have no `matchId`, so they drop out.
+List<String> matchIdsFor(String coachId, List<BracketSlot> slots) => [
+      for (final s in slots)
+        if (s.isDecided &&
+            s.matchId != null &&
+            (s.entrantA?.coachId == coachId || s.entrantB?.coachId == coachId))
+          s.matchId!,
+    ];
+
+/// A team's box score per game across a tournament.
+class TeamAverages {
+  /// Category to per-game value, exactly as [averageStats] names them.
+  final Map<String, double> averages;
+
+  /// The games the averages are drawn from: those with stats recorded.
+  final int games;
+
+  /// Every game the team played, so a missing box score can be called out
+  /// rather than quietly dragging the average down.
+  final int gamesPlayed;
+
+  const TeamAverages({
+    required this.averages,
+    required this.games,
+    required this.gamesPlayed,
+  });
+}
+
+/// The champion's per-game team averages, from the players' [statDocs] (the
+/// `stats` documents as stored). Each game's lines from the champion's
+/// entered roster are added up into one team line, and those are averaged.
+/// Null when there is no champion or no stats were recorded for its games.
+TeamAverages? championAverages(
+  Tournament t,
+  List<BracketSlot> slots,
+  Iterable<Map<String, dynamic>> statDocs,
+) {
+  final coachId = t.championCoachId;
+  final champion = coachId == null ? null : t.entrantFor(coachId);
+  if (champion == null) return null;
+
+  final matchIds = matchIdsFor(champion.coachId, slots);
+  final roster = {for (final p in champion.players) p.uid};
+
+  // Keyed by athlete within each game, so a line saved twice counts once.
+  final linesByMatch = <String, Map<String, Map<String, dynamic>>>{};
+  for (final doc in statDocs) {
+    final matchId = doc['matchId'] as String?;
+    final athleteId = doc['athleteId'] as String?;
+    if (!matchIds.contains(matchId) || !roster.contains(athleteId)) continue;
+    linesByMatch.putIfAbsent(matchId!, () => {})[athleteId!] =
+        (doc['stats'] as Map?)?.cast<String, dynamic>() ?? {};
+  }
+  if (linesByMatch.isEmpty) return null;
+
+  final games = [
+    for (final lines in linesByMatch.values) _teamLine(t.sport, lines.values),
+  ];
+  return TeamAverages(
+    averages: averageStats(t.sport, games),
+    games: games.length,
+    gamesPlayed: matchIds.length,
+  );
+}
+
+/// One game's player lines added up into the team's. Badminton partners are
+/// each credited with every set their side won, so the side won the most
+/// either of them has, not the sum.
+Map<String, dynamic> _teamLine(
+    String sport, Iterable<Map<String, dynamic>> lines) {
+  final team = <String, dynamic>{};
+  for (final line in lines) {
+    line.forEach((key, value) {
+      if (value is bool) {
+        team[key] = team[key] == true || value;
+      } else if (value is num) {
+        final so = team[key] as num? ?? 0;
+        team[key] = sport == 'Badminton' && key == 'setsWon'
+            ? math.max(so, value)
+            : so + value;
+      }
+    });
+  }
+  return team;
 }
 
 /// "Champion" for one title, "3× Champion" for more.

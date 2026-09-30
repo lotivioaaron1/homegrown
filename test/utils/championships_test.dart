@@ -222,6 +222,132 @@ void main() {
     });
   });
 
+  group('champion averages', () {
+    const rockets = SlotEntrant(seed: 1, coachId: 'coachA', teamName: 'Rockets');
+    const bulls = SlotEntrant(seed: 2, coachId: 'coachB', teamName: 'Bulls');
+    const tigers = SlotEntrant(seed: 3, coachId: 'coachC', teamName: 'Tigers');
+
+    BracketSlot game(String id, SlotEntrant a, SlotEntrant? b,
+            {String? winner, String? matchId}) =>
+        BracketSlot(
+          id: id,
+          organizerId: 'org',
+          round: 1,
+          slot: 1,
+          entrantA: a,
+          entrantB: b,
+          status: winner == null
+              ? BracketSlot.statusReady
+              : BracketSlot.statusCompleted,
+          winnerCoachId: winner,
+          matchId: matchId,
+        );
+
+    final slots = [
+      game('r1m1', rockets, tigers, winner: 'coachA', matchId: 'm1'),
+      game('r2m1', rockets, bulls, winner: 'coachA', matchId: 'm2'),
+      game('r1m2', bulls, tigers, winner: 'coachB', matchId: 'm3'),
+    ];
+
+    Map<String, dynamic> line(String matchId, String athleteId,
+            Map<String, dynamic> stats) =>
+        {'matchId': matchId, 'athleteId': athleteId, 'stats': stats};
+
+    group('matchIdsFor', () {
+      test("lists only the team's played games", () {
+        expect(
+            matchIdsFor('coachA', [
+              ...slots,
+              game('bye', rockets, null, winner: 'coachA'),
+              game('next', rockets, bulls),
+            ]),
+            ['m1', 'm2']);
+      });
+    });
+
+    test('adds up each game, then averages the games', () {
+      final a = championAverages(_cup('1'), slots, [
+        line('m1', 'a1', {'points': 20, 'rebounds': 4}),
+        line('m1', 'a2', {'points': 10, 'rebounds': 6}),
+        line('m2', 'a1', {'points': 16, 'rebounds': 3}),
+        line('m2', 'a2', {'points': 8, 'rebounds': 5}),
+      ])!;
+
+      expect(a.averages['Points'], 27);
+      expect(a.averages['Rebounds'], 9);
+      expect(a.games, 2);
+      expect(a.gamesPlayed, 2);
+    });
+
+    test("leaves out the opponents and games the champion didn't play", () {
+      final a = championAverages(_cup('1'), slots, [
+        line('m1', 'a1', {'points': 30}),
+        line('m1', 'b1', {'points': 99}),
+        line('m3', 'a1', {'points': 99}),
+      ])!;
+
+      expect(a.averages['Points'], 30);
+    });
+
+    test('averages only the games with stats, and says how many there were',
+        () {
+      final a = championAverages(_cup('1'), slots, [
+        line('m1', 'a1', {'points': 30}),
+      ])!;
+
+      expect(a.averages['Points'], 30);
+      expect(a.games, 1);
+      expect(a.gamesPlayed, 2);
+    });
+
+    test('counts a line saved twice for one player once', () {
+      final a = championAverages(_cup('1'), slots, [
+        line('m1', 'a1', {'points': 30}),
+        line('m1', 'a1', {'points': 30}),
+      ])!;
+
+      expect(a.averages['Points'], 30);
+    });
+
+    test("takes a badminton side's sets once, not once per partner", () {
+      const doubles = Tournament(
+        id: 't',
+        organizerId: 'org',
+        name: 'Open',
+        sport: 'Badminton',
+        status: Tournament.statusCompleted,
+        championCoachId: 'coachA',
+        entrants: [
+          TournamentEntrant(seed: 1, coachId: 'coachA', teamName: 'Rockets',
+              players: [
+                EntrantPlayer(uid: 'a1', fullName: 'A One'),
+                EntrantPlayer(uid: 'a2', fullName: 'A Two'),
+              ]),
+        ],
+      );
+      final a = championAverages(doubles, slots, [
+        line('m1', 'a1', {'pointsScored': 20, 'setsWon': 2, 'matchWon': true}),
+        line('m1', 'a2', {'pointsScored': 22, 'setsWon': 2, 'matchWon': true}),
+      ])!;
+
+      expect(a.averages['Sets Won'], 2);
+      expect(a.averages['Points Scored'], 42);
+      expect(a.averages['Win Rate %'], 100);
+    });
+
+    test('is null without any stats', () {
+      expect(championAverages(_cup('1'), slots, const []), isNull);
+    });
+
+    test('is null before a champion is crowned', () {
+      expect(
+          championAverages(_cup('1', status: Tournament.statusActive), slots, [
+            line('m1', 'a1', {'points': 30}),
+          ]),
+          isNull);
+    });
+  });
+
   group('isChampionNotice', () {
     test('recognises the champion notification the app sends', () {
       final notices = resultNotices(
