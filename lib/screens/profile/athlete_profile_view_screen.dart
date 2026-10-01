@@ -15,6 +15,7 @@ import '../../utils/sports.dart';
 import '../../widgets/athlete_profile_parts.dart';
 import '../../widgets/championships.dart';
 import '../../widgets/photo_viewer_dialog.dart';
+import '../../widgets/recruitment_badge.dart';
 import '../../widgets/report_dialog.dart';
 import '../../widgets/video_player_sheet.dart';
 import 'widgets/media_section.dart';
@@ -160,7 +161,8 @@ class AthleteProfileViewScreen extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w500)),
                 const SizedBox(height: 8),
-                _recruitmentBadge(isOpen),
+                RecruitmentBadge(
+                    athleteId: athleteId, isOpen: isOpen, compact: true),
               ],
             ),
           ),
@@ -265,25 +267,6 @@ class AthleteProfileViewScreen extends StatelessWidget {
   }
 
   // ── Pieces ────────────────────────────────
-
-  Widget _recruitmentBadge(bool isOpen) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        decoration: BoxDecoration(
-            color: isOpen ? AppTheme.successSurface : AppTheme.cardNested,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-                color: isOpen ? AppTheme.successText : AppTheme.border)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(isOpen ? Icons.check_circle_rounded : Icons.cancel_rounded,
-              color: isOpen ? AppTheme.successText : AppTheme.muted, size: 13),
-          const SizedBox(width: 5),
-          Text(isOpen ? 'Open to Recruitment' : 'Not Available',
-              style: TextStyle(
-                  color: isOpen ? AppTheme.successText : AppTheme.muted,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700)),
-        ]),
-      );
 
   Widget _sportChip(String sport) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

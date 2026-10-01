@@ -11,6 +11,7 @@ import '../services/media_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/profile_format.dart';
 import 'athlete_profile_parts.dart';
+import 'recruitment_badge.dart';
 
 /// How many portfolio thumbnails the sheet previews. Four fits the strip
 /// across a phone without scrolling; the rest live on the full profile.
@@ -156,23 +157,7 @@ class _AthleteProfileContent extends StatelessWidget {
             Text('$position · $barangay',
                 style: TextStyle(color: AppTheme.sub, fontSize: 13)),
             const SizedBox(height: 8),
-            Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                decoration: BoxDecoration(
-                    color: isOpen ? AppTheme.successSurface : AppTheme.cardNested,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                        color: isOpen ? AppTheme.successText : AppTheme.border)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(isOpen ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                      color: isOpen ? AppTheme.successText : AppTheme.muted, size: 14),
-                  const SizedBox(width: 6),
-                  Text(isOpen ? 'Open to Recruitment' : 'Not Available',
-                      style: TextStyle(
-                          color: isOpen ? AppTheme.successText : AppTheme.muted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700)),
-                ])),
+            RecruitmentBadge(athleteId: athleteId, isOpen: isOpen),
           ])),
           const SizedBox(height: 20),
           Row(children: [
