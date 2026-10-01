@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import '../services/team_service.dart';
 import '../theme/app_theme.dart';
 import 'athlete_profile_parts.dart';
+import 'organizer_breakdown_sheet.dart';
 
 /// The pieces an organizer's public identity is built from, following the
 /// [athlete_profile_parts.dart] precedent.
@@ -245,8 +246,10 @@ class _OrganizerBylineState extends State<OrganizerByline> {
 /// self-report — as shown on the organizer's **own** profile.
 ///
 /// A twin of `_TrackRecord` in organizer_profile_view_screen.dart, copied
-/// rather than moved so the public screen did not have to change. Keep the two
-/// in step: an organizer who taps "Public view" sees both side by side.
+/// rather than moved so the public screen did not have to change. Keep the
+/// totals in step, since the organizer's own profile mirrors the public one.
+/// The one difference is deliberate: only the owner can tap a box for its
+/// breakdown, because that counts drafts, which are theirs alone.
 ///
 /// A StatefulWidget so the counts are fetched once. ProfileScreen sits on a
 /// user-doc stream that rebuilds on every tick, and the `FutureBuilder` this
@@ -287,17 +290,62 @@ class _OrganizerTrackRecordState extends State<OrganizerTrackRecord> {
         // A dash rather than a zero until the read resolves.
         final ok = snap.hasData && !snap.hasError;
         return Row(children: [
-          ProfileStatBox(
+          _TappableStatBox(
               value: ok ? '${snap.data![0]}' : '—',
               label: 'Events Created',
-              isAccent: true),
+              onTap: () =>
+                  showEventBreakdownSheet(context, widget.organizerId)),
           const SizedBox(width: 8),
-          ProfileStatBox(
+          _TappableStatBox(
               value: ok ? '${snap.data![1]}' : '—',
               label: 'Tournaments Run',
-              isAccent: true),
+              onTap: () =>
+                  showTournamentBreakdownSheet(context, widget.organizerId)),
         ]);
       },
     );
   }
+}
+
+/// [ProfileStatBox]'s gold variant, made tappable. That widget is itself an
+/// `Expanded`, so it can't be wrapped in a tap handler; this copies its look
+/// and adds a chevron after the label as the hint that it opens something.
+class _TappableStatBox extends StatelessWidget {
+  final String value, label;
+  final VoidCallback onTap;
+  const _TappableStatBox(
+      {required this.value, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+                color: AppTheme.accentSurface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.accent)),
+            child: Column(children: [
+              Text(value,
+                  style: TextStyle(
+                      color: AppTheme.accentText,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900),
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Flexible(
+                  child: Text(label,
+                      style: TextStyle(color: AppTheme.muted, fontSize: 9),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                Icon(Icons.chevron_right_rounded,
+                    color: AppTheme.muted, size: 12),
+              ]),
+            ]),
+          ),
+        ),
+      );
 }
