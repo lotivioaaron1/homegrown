@@ -176,6 +176,13 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     if (matches == null || !mounted) return;
 
     if (matches.isEmpty) {
+      // No pending match on a game with a result means its match already
+      // closed: every player's stats are in. Offering Record Match here only
+      // led to "Already recorded", which read as stats being impossible.
+      if (hasResult(ev)) {
+        _showStatsAlreadyIn(ev);
+        return;
+      }
       // After a trip to Record Match that didn't record anything, stay
       // quiet rather than asking the same question again.
       if (!afterRecording && await _offerRecordMatch()) {
@@ -254,6 +261,40 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       _pendingMatches = [];
       _selectedMatchId = null;
     });
+  }
+
+  /// For a game opened after its stats were finished. Not [_showAllStatsIn],
+  /// which reads the selected event and resets the screen, neither of which
+  /// applies before a game is opened.
+  void _showStatsAlreadyIn(Map<String, dynamic> ev) {
+    final name = ev['name'] as String? ?? 'this game';
+    final ranked = countsTowardRankings(ev['eventType'] as String?);
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('All stats are in', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            ranked
+                ? "Every player's stats for $name are already saved, and their "
+                    "ratings have been updated. There's nothing left to add "
+                    'for this game.'
+                : "Every player's stats for $name are already saved. There's "
+                    'nothing left to add for this game.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Done', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14,
+                fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<bool> _offerRecordMatch() async {
