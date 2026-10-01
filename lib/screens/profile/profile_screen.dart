@@ -94,9 +94,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 : role == 'coach'
                     ? 'Coach'
                     : 'Organizer';
-            final subtitle = teamName.isNotEmpty
-                ? teamName
-                : (sport.isNotEmpty ? '$roleLabel · $sport' : roleLabel);
+            // Organizer-only details, read the way the public organizer
+            // profile reads them — the organizer's own profile mirrors it.
+            final orgDetails = [
+              (data['organizationType'] as String? ?? '').trim(),
+              (data['barangay'] as String? ?? '').trim(),
+            ].where((s) => s.isNotEmpty).join(' · ');
+            final orgType = (data['organizationType'] as String? ?? '').trim();
+            final orgSports = (data['sportsOrganized'] as List?)
+                    ?.map((e) => e.toString())
+                    .toList() ??
+                const <String>[];
+            final certifications =
+                (data['certifications'] as String? ?? '').trim();
+            // An organizer's subtitle is type · barangay, as on the public
+            // profile; their organization has its own card below.
+            final subtitle = role == 'organizer' && orgDetails.isNotEmpty
+                ? orgDetails
+                : teamName.isNotEmpty
+                    ? teamName
+                    : (sport.isNotEmpty ? '$roleLabel · $sport' : roleLabel);
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -153,6 +170,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ]),
                 const SizedBox(height: 14),
+
+                // Sports organized, above the bio as on the public organizer
+                // profile, in the same gold chips.
+                if (role == 'organizer' && orgSports.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: orgSports
+                        .map((s) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                  color: AppTheme.accentSurface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppTheme.accent)),
+                              child: Text(s,
+                                  style: TextStyle(
+                                      color: AppTheme.accentText,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600)),
+                            ))
+                        .toList(),
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Bio
                 if (bio.isNotEmpty) ...[
@@ -357,11 +399,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ]),
                 ],
 
-                // Organization identity hub (organizer only) — a condensed
-                // summary card; Settings remains the full-detail view (also
-                // showing certifications/barangay, deliberately left out
-                // here to match the coach section's restraint above).
+                // Organizer section — a copy of the public organizer profile
+                // (organizer_profile_view_screen.dart), which the user
+                // preferred, without its Approved Organizer pill. No action
+                // buttons: Edit Profile is in Settings, and Create Event is
+                // on the Events tab. Approval state reaches a pending or
+                // refused organizer through the Home to-do card.
                 if (role == 'organizer') ...[
+                  OrganizerTrackRecord(organizerId: _uid),
+                  const SizedBox(height: 20),
+                  _sectionLabel('Organization'),
+                  const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -389,65 +437,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   teamName.isNotEmpty
                                       ? teamName
                                       : 'Your Organization',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                       color: AppTheme.textPrimary,
                                       fontSize: 14,
                                       fontWeight: FontWeight.w800)),
-                              if ((data['organizationType'] as String?)
-                                      ?.isNotEmpty ==
-                                  true) ...[
-                                const SizedBox(height: 2),
-                                Text(data['organizationType'] as String,
-                                    style: TextStyle(
-                                        color: AppTheme.sub, fontSize: 12)),
-                              ],
+                              const SizedBox(height: 2),
+                              Text(orgType.isNotEmpty ? orgType : '—',
+                                  style: TextStyle(
+                                      color: AppTheme.sub, fontSize: 12)),
                             ]),
                       ),
-                      const SizedBox(width: 8),
-                      _organizerStatusBadge(
-                          data['organizerStatus'] as String?),
                     ]),
                   ),
-                  const SizedBox(height: 14),
-                  if ((data['sportsOrganized'] as List?)?.isNotEmpty ==
-                      true) ...[
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: (data['sportsOrganized'] as List)
-                          .map((s) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                    color: AppTheme.cardNested,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border:
-                                        Border.all(color: AppTheme.border)),
-                                child: Text(s.toString(),
-                                    style: TextStyle(
-                                        color: AppTheme.sub, fontSize: 11)),
-                              ))
-                          .toList(),
+                  // Set at registration and not editable in Edit Profile, so
+                  // an empty one gets no prompt — it would be a dead end.
+                  if (certifications.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    _sectionLabel('Certifications'),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                          color: AppTheme.cardNested,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppTheme.border)),
+                      child: Text(certifications,
+                          style: TextStyle(
+                              color: AppTheme.sub,
+                              fontSize: 13,
+                              height: 1.5)),
                     ),
-                    const SizedBox(height: 14),
                   ],
-                  FutureBuilder<AggregateQuerySnapshot>(
-                    // Only the number is shown, so a count aggregation costs
-                    // one read instead of one per event created.
-                    future: FirebaseFirestore.instance
-                        .collection('events')
-                        .where('organizerId', isEqualTo: _uid)
-                        .count()
-                        .get(),
-                    builder: (context, eventsSnap) {
-                      final count = eventsSnap.data?.count;
-                      return _credentialBox(
-                          'Events Created', count == null ? '—' : '$count');
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  _addButton(LucideIcons.plus, 'Create Event',
-                      () => Get.toNamed('/events/create')),
                 ],
               ],
             );
@@ -977,24 +1000,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _organizerStatusBadge(String? status) {
-    final (label, color) = switch (status) {
-      'approved' => ('Approved', AppTheme.success),
-      'rejected' => ('Rejected', AppTheme.error),
-      'revoked' => ('Revoked', AppTheme.error),
-      _ => ('Pending Review', AppTheme.warning),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.4))),
-      child: Text(label,
-          style: TextStyle(
-              color: color, fontSize: 11, fontWeight: FontWeight.w700)),
-    );
-  }
+  /// Same style as the coach section's "Players" label.
+  Widget _sectionLabel(String text) => Text(text,
+      style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700));
 
   String _categoryLabel(MediaCategory c) {
     switch (c) {

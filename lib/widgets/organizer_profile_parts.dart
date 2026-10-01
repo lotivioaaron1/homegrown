@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../services/team_service.dart';
 import '../theme/app_theme.dart';
+import 'athlete_profile_parts.dart';
 
 /// The pieces an organizer's public identity is built from, following the
 /// [athlete_profile_parts.dart] precedent.
@@ -18,13 +19,13 @@ import '../theme/app_theme.dart';
 /// The "this organizer is vetted" pill — rendered **only** for an approved
 /// organizer, and rendered as nothing for every other value.
 ///
-/// Deliberately not the same widget as `_organizerStatusBadge` in
-/// [ProfileScreen], which labels anything unrecognised "Pending Review". That
-/// is right on your own profile and wrong on a public one, for two reasons:
+/// Deliberately never labels the other states — "Pending Review" and the like.
 /// 'pending' / 'rejected' / 'revoked' are internal moderation states that a
 /// stranger has no business reading, and `organizerStatus` is simply **absent**
 /// on every Google-signup organizer (google_profile_setup_screen.dart never
 /// writes it), who would otherwise be branded "Pending Review" permanently.
+/// The organizer's own profile used to carry such a labelled badge; it now
+/// mirrors the public profile, and the Home to-do card reports approval state.
 ///
 /// A stranger's question is only ever "is this organizer vetted?" — absence is
 /// the answer "no", and the honest signal survives either way, since the track
@@ -235,6 +236,67 @@ class _OrganizerBylineState extends State<OrganizerByline> {
           onTap: () => Get.toNamed('/profile/organizer',
               arguments: {'organizerId': widget.organizerId}),
         );
+      },
+    );
+  }
+}
+
+/// Events Created and Tournaments Run — the two figures an organizer cannot
+/// self-report — as shown on the organizer's **own** profile.
+///
+/// A twin of `_TrackRecord` in organizer_profile_view_screen.dart, copied
+/// rather than moved so the public screen did not have to change. Keep the two
+/// in step: an organizer who taps "Public view" sees both side by side.
+///
+/// A StatefulWidget so the counts are fetched once. ProfileScreen sits on a
+/// user-doc stream that rebuilds on every tick, and the `FutureBuilder` this
+/// replaced re-ran its aggregation each time.
+class OrganizerTrackRecord extends StatefulWidget {
+  final String organizerId;
+  const OrganizerTrackRecord({super.key, required this.organizerId});
+
+  @override
+  State<OrganizerTrackRecord> createState() => _OrganizerTrackRecordState();
+}
+
+class _OrganizerTrackRecordState extends State<OrganizerTrackRecord> {
+  late Future<List<int>> _counts;
+
+  @override
+  void initState() {
+    super.initState();
+    _counts = _load();
+  }
+
+  Future<List<int>> _load() {
+    // Single-field equality aggregations, served by the automatic index.
+    Future<int> countOf(String collection) => FirebaseFirestore.instance
+        .collection(collection)
+        .where('organizerId', isEqualTo: widget.organizerId)
+        .count()
+        .get()
+        .then((s) => s.count ?? 0);
+    return Future.wait([countOf('events'), countOf('tournaments')]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<int>>(
+      future: _counts,
+      builder: (context, snap) {
+        // A dash rather than a zero until the read resolves.
+        final ok = snap.hasData && !snap.hasError;
+        return Row(children: [
+          ProfileStatBox(
+              value: ok ? '${snap.data![0]}' : '—',
+              label: 'Events Created',
+              isAccent: true),
+          const SizedBox(width: 8),
+          ProfileStatBox(
+              value: ok ? '${snap.data![1]}' : '—',
+              label: 'Tournaments Run',
+              isAccent: true),
+        ]);
       },
     );
   }
