@@ -429,8 +429,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                             rank: rank,
                             athlete: athlete,
                             isLast: isLast,
-                            isMe: isMe,
-                            isCoach: role == 'coach');
+                            isMe: isMe);
                         }).toList(),
                       ),
                     ),
@@ -609,12 +608,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     required Map<String, dynamic> athlete,
     required bool isLast,
     required bool isMe,
-    required bool isCoach,
   }) {
     final pts = _rankValue(athlete);
     final position = athlete['position'] as String? ?? '';
     final barangay = athlete['barangay'] as String? ?? '';
-    final isOpen = athlete['openToRecruitment'] as bool? ?? false;
     final name = _displayName(athlete);
     final photoUrl = athlete['photoUrl'] as String?;
 
@@ -708,12 +705,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               Text('$pts', style: TextStyle(
                 color: isMe ? AppTheme.accent : AppTheme.textPrimary,
                 fontSize: 14, fontWeight: FontWeight.w800)),
-              if (isCoach)
-                Text(isOpen ? '✓ Open' : '✕ Closed',
-                  style: TextStyle(
-                    color: isOpen ? AppTheme.success : AppTheme.muted,
-                    fontSize: 11, fontWeight: FontWeight.w700)),
-              if (!isCoach && isMe)
+              if (isMe)
                 Text('Elo', style: TextStyle(
                   color: AppTheme.muted, fontSize: 11)),
             ]),
