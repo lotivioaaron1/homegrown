@@ -130,6 +130,27 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         Text('Leaderboard', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 18,
           fontWeight: FontWeight.w800)),
+        const Spacer(),
+        // Team standings for the sport on show. Labelled rather than
+        // icon-only: it's the only way into that table.
+        GestureDetector(
+          onTap: () => Get.toNamed('/standings', arguments: _filter),
+          child: Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.border)),
+            child: Row(children: [
+              Icon(LucideIcons.shield, color: AppTheme.accentText, size: 15),
+              const SizedBox(width: 6),
+              Text('Teams', style: TextStyle(
+                color: AppTheme.textPrimary, fontSize: 13,
+                fontWeight: FontWeight.w700)),
+            ]),
+          ),
+        ),
       ]),
     );
   }
