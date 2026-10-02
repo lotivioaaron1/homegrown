@@ -107,6 +107,88 @@ void main() {
     expect(find.text('Photo Highlights'), findsOneWidget);
   });
 
+  // ── The owner adding to their portfolio ───
+  // Add lives in the section itself: inside the empty card, then beside the
+  // counter once there is something to add to.
+
+  group("on the owner's own profile", () {
+    Widget owned(List<MediaItem> items,
+            {required VoidCallback onAdd, bool busy = false, int max = 20}) =>
+        MediaSection(
+          items: items,
+          max: max,
+          type: MediaType.photo,
+          title: 'Photo Highlights',
+          icon: LucideIcons.image,
+          onAdd: onAdd,
+          emptyAddLabel: 'Add a photo',
+          busy: busy,
+        );
+
+    testWidgets('puts the upload button inside the empty card',
+        (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(_host(owned(const [], onAdd: () => taps++)));
+
+      expect(find.text('Add'), findsNothing);
+      await tester.tap(find.text('Add a photo'));
+      expect(taps, 1);
+    });
+
+    testWidgets('moves it beside the counter once there are photos',
+        (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(_host(owned(_photos(3), onAdd: () => taps++)));
+
+      expect(find.text('Add a photo'), findsNothing);
+      await tester.tap(find.text('Add'));
+      expect(taps, 1);
+    });
+
+    testWidgets('offers no Add once the quota is used up', (tester) async {
+      await tester.pumpWidget(_host(owned(_photos(20), onAdd: () {})));
+
+      expect(find.text('Add'), findsNothing);
+      expect(find.text('20 / 20'), findsOneWidget);
+    });
+
+    testWidgets('ignores taps while an upload is under way', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(
+          _host(owned(const [], onAdd: () => taps++, busy: true)));
+
+      await tester.tap(find.text('Uploading...'));
+      expect(taps, 0);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('shows a spinner in place of Add while busy', (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(
+          _host(owned(_photos(3), onAdd: () => taps++, busy: true)));
+
+      expect(find.text('Add'), findsNothing);
+      // The header's spinner comes first; the rest are photo placeholders.
+      await tester.tap(find.byType(CircularProgressIndicator).first);
+      expect(taps, 0);
+    });
+
+    testWidgets('shows the status slot between header and grid',
+        (tester) async {
+      await tester.pumpWidget(_host(MediaSection(
+        items: const [],
+        max: 3,
+        type: MediaType.video,
+        title: 'Video Highlights',
+        icon: LucideIcons.video,
+        onAdd: () {},
+        status: const Text('Uploading your highlight...'),
+      )));
+
+      expect(find.text('Uploading your highlight...'), findsOneWidget);
+    });
+  });
+
   // ── Viewing someone else's portfolio ──────
   // A coach scouting or a teammate looking is shown the same sections, but
   // the owner-facing quota and copy are wrong in that context.
@@ -157,6 +239,21 @@ void main() {
       expect(find.text('No highlights yet.\nNothing uploaded.'), findsOneWidget);
       // The owner-voiced default must not survive into a viewer's screen.
       expect(find.textContaining('Upload your best plays'), findsNothing);
+    });
+
+    testWidgets('offers no way to add to the portfolio', (tester) async {
+      await tester.pumpWidget(_host(MediaSection(
+        items: _photos(3),
+        max: 20,
+        type: MediaType.photo,
+        title: 'Photo Highlights',
+        icon: LucideIcons.image,
+        showQuota: false,
+      )));
+
+      expect(find.text('Add'), findsNothing);
+      expect(find.byType(GestureDetector).evaluate().every((e) =>
+          (e.widget as GestureDetector).onTap == null), isTrue);
     });
   });
 }

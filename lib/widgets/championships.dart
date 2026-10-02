@@ -1,11 +1,11 @@
 // lib/widgets/championships.dart
 //
-// The three places a tournament title is shown off beyond its own page:
-// a shelf on profiles, a row on team pages, and a spotlight on Home. Each
-// reads the finished tournaments once and picks out its titles with
-// lib/utils/championships.dart, and each renders nothing at all when there
-// are none, so a screen without titles looks exactly as it did before.
+// Where a tournament title is shown off beyond its own page: a shelf on
+// profiles, tournament records on coach and athlete profiles, a row on team
+// pages, and a spotlight on Home. Each reads the finished tournaments once
+// and picks out what it needs with lib/utils/championships.dart.
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -171,6 +171,170 @@ class _TournamentRecordState extends State<TournamentRecord> {
               ]);
         },
       );
+}
+
+/// "Tournaments" on an athlete's profile, their own and the one a coach
+/// scouts: the record in one line, the latest tournament they played with
+/// how their team finished, then any older titles. A runner-up finish used
+/// to show nowhere, as only titles did. Nothing at all until they have
+/// finished a tournament, since there is nothing for them to act on.
+class AthleteTournaments extends StatefulWidget {
+  final String uid;
+
+  /// Space around the block, applied only when there is a block to show.
+  final EdgeInsets padding;
+
+  const AthleteTournaments({
+    super.key,
+    required this.uid,
+    this.padding = const EdgeInsets.only(top: 18),
+  });
+
+  @override
+  State<AthleteTournaments> createState() => _AthleteTournamentsState();
+}
+
+class _AthleteTournamentsState extends State<AthleteTournaments> {
+  late final _stream = TournamentService.completedStream();
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<Tournament>>(
+        stream: _stream,
+        builder: (context, snap) {
+          final tournaments = snap.data ?? const <Tournament>[];
+          final played = tournamentsPlayedBy(tournaments, widget.uid);
+          if (played.isEmpty) return const SizedBox.shrink();
+          final latest = played.first;
+          final titles = titlesFor(tournaments, widget.uid);
+          return Padding(
+            padding: widget.padding,
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(Icons.emoji_events_rounded,
+                    color: AppTheme.accentText, size: 15),
+                const SizedBox(width: 6),
+                Text('TOURNAMENTS',
+                    style: TextStyle(
+                        color: AppTheme.accentText,
+                        fontSize: 11,
+                        letterSpacing: 1.1,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                      tournamentRecordLabel(played.length, titles.length),
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              if (isChampion(latest, widget.uid))
+                _TitleCard(latest)
+              else
+                // Keyed so a newer tournament finishing while this is open
+                // gets its own slots, not the previous one's.
+                _RunCard(latest, entrantWith(latest, widget.uid)!,
+                    key: ValueKey(latest.id)),
+              for (final t in titles)
+                if (t.id != latest.id) _TitleCard(t),
+            ]),
+          );
+        },
+      );
+}
+
+/// A tournament an athlete played without winning: neutral, where a title
+/// is gold, with how the team finished on the right. Opens the bracket, so
+/// they can see the path their team took.
+class _RunCard extends StatefulWidget {
+  final Tournament t;
+  final TournamentEntrant team;
+  const _RunCard(this.t, this.team, {super.key});
+
+  @override
+  State<_RunCard> createState() => _RunCardState();
+}
+
+class _RunCardState extends State<_RunCard> {
+  late final _slots = TournamentService.slotsStream(widget.t.id);
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.t;
+    final details = [widget.team.teamName, _monthYear(t)]
+        .where((s) => s.isNotEmpty)
+        .join(' · ');
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () =>
+          Get.toNamed('/tournaments/detail', arguments: {'tournamentId': t.id}),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.border)),
+        child: Row(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+                color: AppTheme.cardNested, shape: BoxShape.circle),
+            child: Icon(Icons.emoji_events_outlined,
+                color: AppTheme.muted, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(t.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(details,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                ]),
+          ),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _slots,
+            builder: (context, snap) {
+              // No chip until the bracket lands, rather than a guess that
+              // changes under the reader.
+              if (!snap.hasData) return const SizedBox.shrink();
+              final finish = finishLabel(t,
+                  TournamentService.slotsFrom(snap.data!), widget.team.coachId);
+              if (finish == null) return const SizedBox.shrink();
+              return Container(
+                margin: const EdgeInsets.only(left: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                    color: AppTheme.cardNested,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppTheme.border)),
+                child: Text(finish,
+                    style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700)),
+              );
+            },
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
+        ]),
+      ),
+    );
+  }
 }
 
 /// A team's titles on its team page: "2× Champion" and a chip per title

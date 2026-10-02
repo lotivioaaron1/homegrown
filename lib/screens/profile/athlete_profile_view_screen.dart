@@ -195,8 +195,9 @@ class AthleteProfileViewScreen extends StatelessWidget {
           ProfileStatBox(value: weight, label: 'Weight'),
         ]),
 
-        // Titles won; nothing at all for an athlete without one.
-        ChampionshipShelf(uid: athleteId),
+        // Tournament record, latest run and titles; nothing at all for an
+        // athlete who hasn't finished a tournament.
+        AthleteTournaments(uid: athleteId),
 
         const SizedBox(height: 18),
         AthleteStatAverages(

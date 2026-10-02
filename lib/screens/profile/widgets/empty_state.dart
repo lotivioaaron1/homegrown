@@ -11,12 +11,17 @@ class EmptyState extends StatelessWidget {
   final String? ctaLabel;
   final VoidCallback? onCta;
 
+  /// The CTA's action is under way: a spinner replaces its icon and it stops
+  /// responding, so a second tap can't start it twice.
+  final bool ctaBusy;
+
   const EmptyState({
     super.key,
     required this.icon,
     required this.message,
     this.ctaLabel,
     this.onCta,
+    this.ctaBusy = false,
   });
 
   @override
@@ -49,19 +54,28 @@ class EmptyState extends StatelessWidget {
               height: 1.4,
               fontWeight: FontWeight.w500),
         ),
-        if (ctaLabel != null && onCta != null) ...[
+        if (ctaLabel != null && (onCta != null || ctaBusy)) ...[
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: onCta,
+            onTap: ctaBusy ? null : onCta,
             child: Container(
+              constraints: const BoxConstraints(minHeight: 44),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
               decoration: BoxDecoration(
                 color: AppTheme.accentSurface,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(22),
                 border: Border.all(color: AppTheme.accent),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(LucideIcons.plus, color: AppTheme.accentText, size: 14),
+                if (ctaBusy)
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                        color: AppTheme.accentText, strokeWidth: 2),
+                  )
+                else
+                  Icon(LucideIcons.plus, color: AppTheme.accentText, size: 14),
                 const SizedBox(width: 6),
                 Text(
                   ctaLabel!,

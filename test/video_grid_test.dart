@@ -93,6 +93,45 @@ void main() {
       expect(tapped?.id, 'second');
     });
 
+    testWidgets('spans the newest of three clips across the full width',
+        (tester) async {
+      await tester.pumpWidget(_host(VideoGrid(items: [
+        _video(id: 'v1', durationSeconds: 1),
+        _video(id: 'v2', durationSeconds: 2),
+        _video(id: 'v3', durationSeconds: 3),
+      ])));
+
+      final featured = tester.getSize(find.byType(ClipRRect).at(0));
+      final second = tester.getSize(find.byType(ClipRRect).at(1));
+      final third = tester.getSize(find.byType(ClipRRect).at(2));
+      expect(featured.width, greaterThan(second.width * 1.9));
+      expect(featured.width / featured.height, closeTo(16 / 9, 0.01));
+      expect(second, third);
+    });
+
+    testWidgets('sits two clips side by side at the same size',
+        (tester) async {
+      await tester.pumpWidget(
+          _host(VideoGrid(items: [_video(id: 'v1'), _video(id: 'v2')])));
+
+      final first = find.byType(ClipRRect).at(0);
+      final second = find.byType(ClipRRect).at(1);
+      expect(tester.getSize(first), tester.getSize(second));
+      expect(tester.getTopLeft(first).dy, tester.getTopLeft(second).dy);
+    });
+
+    testWidgets('captions only the featured clip', (tester) async {
+      await tester.pumpWidget(_host(VideoGrid(items: [
+        _video(id: 'v1', caption: 'Buzzer beater'),
+        _video(id: 'v2', caption: 'Crossover'),
+        _video(id: 'v3', caption: 'Block'),
+      ])));
+
+      expect(find.text('Buzzer beater'), findsOneWidget);
+      expect(find.text('Crossover'), findsNothing);
+      expect(find.text('Block'), findsNothing);
+    });
+
     testWidgets('tiles are inert when no tap handler is given',
         (tester) async {
       // The same grid is reused for viewing another athlete's portfolio,

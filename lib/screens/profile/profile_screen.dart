@@ -11,14 +11,12 @@ import '../../models/team_invite.dart';
 import '../../services/media_service.dart';
 import '../../services/team_service.dart';
 import '../../utils/team_name.dart';
-import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/championships.dart';
 import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/photo_viewer_dialog.dart';
 import '../../widgets/team_roster_grid.dart';
 import '../../widgets/video_player_sheet.dart';
 import '../settings/settings_screen.dart';
-import 'edit_profile_screen.dart';
 import 'widgets/media_section.dart';
 
 /// Portfolio-style profile. Header + avatar + bio, then Video/Photo
@@ -239,34 +237,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ] else
                   const SizedBox(height: 4),
 
-                // Titles won. Renders nothing until there is one. A coach's
-                // titles are in their Tournaments section further down.
+                // Tournament record, latest run and titles. Renders nothing
+                // until there is a finished tournament. A coach's are in
+                // their Tournaments section further down.
                 if (role == 'athlete')
-                  ChampionshipShelf(
+                  AthleteTournaments(
                       uid: _uid, padding: const EdgeInsets.only(bottom: 18)),
 
-                // Own-profile shortcuts (athlete only). Edit Profile used to be
-                // reachable only through the gear and Settings, and the card a
-                // scouting coach sees only by finding yourself on the
-                // leaderboard. Neutral styling on purpose: gold stays with the
-                // upload buttons below, the actions that build the portfolio.
-                if (role == 'athlete') ...[
-                  Row(children: [
-                    Expanded(
-                        child: _secondaryButton(LucideIcons.pencil,
-                            'Edit Profile',
-                            () => Get.to(() => const EditProfileScreen()))),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _secondaryButton(LucideIcons.eye,
-                            "Coach's view",
-                            () => showAthleteProfileSheet(context,
-                                athleteId: _uid))),
-                  ]),
-                  const SizedBox(height: 12),
-                ],
-
-                // Portfolio (athlete only)
+                // Portfolio (athlete only). Edit Profile is in Settings.
                 if (role == 'athlete') _portfolio(context),
 
                 // Team identity hub (coach only), read top to bottom as the
@@ -502,10 +480,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// The athlete portfolio: both Add buttons and both media sections, driven
-  /// by one listener on users/{uid}/media. The buttons need the same counts
-  /// the section headers show, so they share a stream rather than each
-  /// opening their own and risking a moment where they disagree.
+  /// The athlete portfolio: both media sections, driven by one listener on
+  /// users/{uid}/media. Each section carries its own Add, inside its card
+  /// while empty and beside its counter after that, so an upload starts next
+  /// to where it will land. MediaSection hides Add at the cap.
   Widget _portfolio(BuildContext context) {
     return StreamBuilder<List<MediaItem>>(
       stream: MediaService.streamMedia(_uid),
@@ -517,52 +495,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final videos =
             all.where((m) => m.type == MediaType.video).toList(growable: false);
 
-        // While loading, treat nothing as at-cap: greying the buttons out on
-        // an unknown count would look like the feature is broken.
-        final photosFull = !loading && photos.length >= MediaService.maxPhotos;
-        final videosFull = !loading && videos.length >= MediaService.maxVideos;
-
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Expanded(
-                child: _addButton(
-                  LucideIcons.video,
-                  _uploadingVideo
-                      ? _videoBusyLabel()
-                      : videosFull
-                          ? 'Highlights full'
-                          : 'Add Video',
-                  (_uploadingVideo || videosFull)
-                      ? null
-                      : () => _addVideo(context),
-                  busy: _uploadingVideo,
-                  disabled: videosFull,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _addButton(
-                  LucideIcons.image,
-                  _uploadingPhoto
-                      ? 'Uploading...'
-                      : photosFull
-                          ? 'Photos full'
-                          : 'Add Photo',
-                  (_uploadingPhoto || photosFull)
-                      ? null
-                      : () => _addPhoto(context),
-                  busy: _uploadingPhoto,
-                  disabled: photosFull,
-                ),
-              ),
-            ]),
-            if (_uploadingVideo) ...[
-              const SizedBox(height: 12),
-              _videoProgressBar(),
-            ],
-            const SizedBox(height: 26),
             MediaSection(
               items: videos,
               loading: loading,
@@ -570,6 +505,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               title: 'Video Highlights',
               icon: LucideIcons.video,
               max: MediaService.maxVideos,
+              onAdd: () => _addVideo(context),
+              emptyAddLabel: 'Upload a clip',
+              busy: _uploadingVideo,
+              status: _uploadingVideo ? _videoProgressBar() : null,
               onTapItem: (item) => showVideoHighlight(
                 context,
                 item,
@@ -584,6 +523,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               title: 'Photo Highlights',
               icon: LucideIcons.image,
               max: MediaService.maxPhotos,
+              onAdd: () => _addPhoto(context),
+              emptyAddLabel: 'Add a photo',
+              busy: _uploadingPhoto,
               onTapItem: (item) => showPhotoViewer(
                 context,
                 item,
@@ -595,9 +537,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
   }
-
-  String _videoBusyLabel() =>
-      _videoPhase == MediaUploadPhase.compressing ? 'Compressing...' : 'Uploading...';
 
   Widget _videoProgressBar() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -943,62 +882,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 fontSize: 24,
                 fontWeight: FontWeight.w900)),
       );
-
-  Widget _addButton(IconData icon, String label, VoidCallback? onTap,
-      {bool busy = false, bool disabled = false}) {
-    // A quota-blocked button drops the gold entirely rather than dimming it:
-    // at a glance it should read as "not available", not "tap harder".
-    final fg = disabled ? AppTheme.muted : AppTheme.accentText;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-            color: disabled ? AppTheme.cardNested : AppTheme.accentSurface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-                color: disabled ? AppTheme.border : AppTheme.accent)),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          if (busy)
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(color: fg, strokeWidth: 2),
-            )
-          else
-            Icon(disabled ? LucideIcons.circleSlash : icon, color: fg, size: 16),
-          const SizedBox(width: 8),
-          Text(label,
-              style: TextStyle(
-                  color: fg, fontSize: 13, fontWeight: FontWeight.w700)),
-        ]),
-      ),
-    );
-  }
-
-  /// Same footprint as [_addButton] so the two rows line up, but on the
-  /// neutral card surface.
-  Widget _secondaryButton(IconData icon, String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-            color: AppTheme.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.border)),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, color: AppTheme.textPrimary, size: 16),
-          const SizedBox(width: 8),
-          Text(label,
-              style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700)),
-        ]),
-      ),
-    );
-  }
 
   Widget _credentialBox(String label, String value) {
     return Container(

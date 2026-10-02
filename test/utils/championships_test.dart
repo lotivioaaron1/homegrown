@@ -143,6 +143,135 @@ void main() {
     });
   });
 
+  group('entrantWith', () {
+    test("finds the team whose entered roster lists the athlete", () {
+      expect(entrantWith(_cup('1'), 'a2')?.coachId, 'coachA');
+      expect(entrantWith(_cup('1'), 'b1')?.coachId, 'coachB');
+    });
+
+    test('finds nobody for an athlete on neither roster, or a blank id', () {
+      expect(entrantWith(_cup('1'), 'z9'), isNull);
+      expect(entrantWith(_cup('1'), ''), isNull);
+    });
+
+    test("doesn't match a coach id against the players", () {
+      expect(entrantWith(_cup('1'), 'coachA'), isNull);
+    });
+  });
+
+  group('tournamentsPlayedBy', () {
+    test('lists every finished tournament the athlete played, newest first',
+        () {
+      final played = tournamentsPlayedBy([
+        _cup('won', completedAt: DateTime(2026, 5, 1)),
+        _cup('lost', champion: 'coachB', completedAt: DateTime(2026, 9, 1)),
+      ], 'a1');
+
+      expect(_ids(played), ['lost', 'won']);
+    });
+
+    test('leaves out tournaments still running or cancelled', () {
+      final played = tournamentsPlayedBy([
+        _cup('running', status: Tournament.statusActive),
+        _cup('cancelled', status: Tournament.statusCancelled),
+      ], 'a1');
+
+      expect(played, isEmpty);
+    });
+
+    test("leaves out tournaments the athlete wasn't entered in", () {
+      expect(tournamentsPlayedBy([_cup('1')], 'z9'), isEmpty);
+    });
+  });
+
+  group('finishLabel', () {
+    SlotEntrant team(String name) =>
+        SlotEntrant(seed: 1, coachId: name, teamName: name);
+
+    // A game between [a] and [b]; [winner] null means not played yet.
+    BracketSlot game(int round, int slot, String a, String? b,
+            {String? winner, bool third = false, bool bye = false}) =>
+        BracketSlot(
+          id: 'r${round}m$slot',
+          organizerId: 'org',
+          round: round,
+          slot: slot,
+          isThirdPlace: third,
+          entrantA: team(a),
+          entrantB: b == null ? null : team(b),
+          status: bye
+              ? BracketSlot.statusBye
+              : winner == null
+                  ? BracketSlot.statusReady
+                  : BracketSlot.statusCompleted,
+          winnerCoachId: winner,
+        );
+
+    // Sixteen teams: Round of 16, Quarterfinal, Semifinal, Final.
+    const sixteen = Tournament(
+        id: 't', organizerId: 'org', name: 'Cup', sport: 'Basketball',
+        status: Tournament.statusCompleted, roundCount: 4,
+        championCoachId: 'Rockets');
+
+    final bracket = [
+      game(1, 1, 'Rockets', 'Owls', winner: 'Rockets'),
+      game(1, 2, 'Bulls', null, winner: 'Bulls', bye: true),
+      game(2, 1, 'Rockets', 'Hawks', winner: 'Rockets'),
+      game(2, 2, 'Bulls', 'Lions', winner: 'Lions'),
+      game(3, 1, 'Rockets', 'Tigers', winner: 'Rockets'),
+      game(3, 2, 'Lions', 'Titans', winner: 'Titans'),
+      game(4, 1, 'Rockets', 'Titans', winner: 'Rockets'),
+    ];
+
+    test('names the champion, even before the bracket loads', () {
+      expect(finishLabel(sixteen, bracket, 'Rockets'), 'Champion');
+      expect(finishLabel(sixteen, const [], 'Rockets'), 'Champion');
+    });
+
+    test('names the team that lost the final 1st runner-up', () {
+      expect(finishLabel(sixteen, bracket, 'Titans'), '1st runner-up');
+    });
+
+    test('names semifinal losers Semifinalist without a battle for third', () {
+      expect(finishLabel(sixteen, bracket, 'Tigers'), 'Semifinalist');
+      expect(finishLabel(sixteen, bracket, 'Lions'), 'Semifinalist');
+    });
+
+    test('ranks them 2nd and 3rd runner-up once the battle is played', () {
+      final withThird = [
+        ...bracket,
+        game(4, 2, 'Tigers', 'Lions', winner: 'Lions', third: true),
+      ];
+
+      expect(finishLabel(sixteen, withThird, 'Lions'), '2nd runner-up');
+      expect(finishLabel(sixteen, withThird, 'Tigers'), '3rd runner-up');
+    });
+
+    test('keeps Semifinalist while the battle for third is unplayed', () {
+      final pending = [
+        ...bracket,
+        game(4, 2, 'Tigers', 'Lions', third: true),
+      ];
+
+      expect(finishLabel(sixteen, pending, 'Tigers'), 'Semifinalist');
+    });
+
+    test('names a quarterfinal loss Quarterfinalist, after a bye', () {
+      expect(finishLabel(sixteen, bracket, 'Bulls'), 'Quarterfinalist');
+      expect(finishLabel(sixteen, bracket, 'Hawks'), 'Quarterfinalist');
+    });
+
+    test('names an earlier loss by its round', () {
+      expect(finishLabel(sixteen, bracket, 'Owls'), 'Round of 16');
+    });
+
+    test('says nothing when the bracket has no result for the team', () {
+      expect(finishLabel(sixteen, bracket, 'Ghosts'), isNull);
+      expect(finishLabel(sixteen, const [], 'Titans'), isNull);
+      expect(finishLabel(sixteen, bracket, ''), isNull);
+    });
+  });
+
   group('recentChampions', () {
     final now = DateTime(2026, 9, 30, 12);
 

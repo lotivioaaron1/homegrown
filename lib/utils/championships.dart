@@ -9,6 +9,7 @@ import 'dart:math' as math;
 
 import '../models/bracket_slot.dart';
 import '../models/tournament.dart';
+import 'bracket.dart';
 import 'stat_scoring.dart';
 
 /// Whether [uid] won [t]: the champion's coach, or a player on the roster the
@@ -53,6 +54,50 @@ String tournamentRecordLabel(int played, int titles) {
     _ => '$titles titles',
   };
   return '$played played · $won';
+}
+
+/// The team [uid] played for in [t]: the entrant whose roster, as entered,
+/// lists them. Null when they weren't on any.
+TournamentEntrant? entrantWith(Tournament t, String uid) {
+  if (uid.isEmpty) return null;
+  for (final e in t.entrants) {
+    if (e.players.any((p) => p.uid == uid)) return e;
+  }
+  return null;
+}
+
+/// The finished tournaments [uid] played in, won or not, newest first: the
+/// athlete's counterpart to [tournamentsPlayed].
+List<Tournament> tournamentsPlayedBy(Iterable<Tournament> ts, String uid) =>
+    _newestFirst(ts.where((t) => t.isCompleted && entrantWith(t, uid) != null));
+
+/// How [coachId]'s team finished [t]: "Champion", the runner-up places, or
+/// the round it went out in ("Semifinalist", "Quarterfinalist", "Round of
+/// 16"). Null when [slots] don't say, e.g. a bracket missing its results.
+String? finishLabel(Tournament t, List<BracketSlot> slots, String coachId) {
+  if (coachId.isEmpty) return null;
+  if (t.championCoachId == coachId) return 'Champion';
+
+  bool inSlot(BracketSlot s) =>
+      s.entrantA?.coachId == coachId || s.entrantB?.coachId == coachId;
+
+  for (final s in slots) {
+    if (s.isThirdPlace && s.isDecided && inSlot(s)) {
+      return s.winnerCoachId == coachId ? '2nd runner-up' : '3rd runner-up';
+    }
+  }
+
+  // Single elimination: the one game the team lost is where its run ended.
+  for (final s in slots) {
+    if (s.isThirdPlace || s.isBye || !s.isDecided || !inSlot(s)) continue;
+    if (s.winnerCoachId == coachId) continue;
+    final fromEnd = t.roundCount - s.round;
+    if (fromEnd == 0) return '1st runner-up';
+    if (fromEnd == 1) return 'Semifinalist';
+    if (fromEnd == 2) return 'Quarterfinalist';
+    return roundLabel(s.round, t.roundCount);
+  }
+  return null;
 }
 
 /// Tournaments won in the last [days] days, newest first, for the Home
