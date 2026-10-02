@@ -56,6 +56,16 @@
       ]
     },
     {
+      "//": "Team standings: a sport's games with a recorded result, within one season's dates (standings_service.dart).",
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sport", "order": "ASCENDING" },
+        { "fieldPath": "hasMatchData", "order": "ASCENDING" },
+        { "fieldPath": "eventDate", "order": "ASCENDING" }
+      ]
+    },
+    {
       "//": "The organizer's tournament list, newest first. Bracket slots need no index of their own — a bracket is at most 15 documents, read whole and ordered client-side.",
       "collectionGroup": "tournaments",
       "queryScope": "COLLECTION",

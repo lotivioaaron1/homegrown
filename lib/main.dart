@@ -37,6 +37,7 @@ import 'screens/tournaments/create_tournament_screen.dart';
 import 'screens/tournaments/tournament_bracket_screen.dart';
 import 'screens/tournaments/tournament_list_screen.dart';
 import 'screens/leaderboard/leaderboard_screen.dart';
+import 'screens/standings/standings_screen.dart';
 import 'screens/dashboard/performance_dashboard_screen.dart';
 import 'screens/profile/athlete_profile_view_screen.dart';
 import 'screens/profile/coach_profile_view_screen.dart';
@@ -218,6 +219,7 @@ class HomegrownApp extends StatelessWidget {
         GetPage(name: '/tournaments/champion', page: () => const ChampionshipScreen()),
         GetPage(name: '/stats/add',          page: () => const AddStatsScreen()),
         GetPage(name: '/leaderboard',        page: () => const LeaderboardScreen()),
+        GetPage(name: '/standings',          page: () => const StandingsScreen()),
         GetPage(name: '/dashboard',          page: () => const PerformanceDashboardScreen()),
         GetPage(name: '/profile',            page: () => const ProfileScreen()),
         // Another athlete's profile, read-only. Takes {'athleteId': uid} as
