@@ -107,13 +107,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const <String>[];
             final certifications =
                 (data['certifications'] as String? ?? '').trim();
+            // A coach's subtitle is where they're based. It used to be the
+            // team name, which the team card below already shows.
+            final barangay = (data['barangay'] as String? ?? '').trim();
+            final coachAddress = role == 'coach' && barangay.isNotEmpty
+                ? '$barangay, Legazpi City'
+                : '';
             // An organizer's subtitle is type · barangay, as on the public
             // profile; their organization has its own card below.
-            final subtitle = role == 'organizer' && orgDetails.isNotEmpty
-                ? orgDetails
-                : teamName.isNotEmpty
-                    ? teamName
-                    : (sport.isNotEmpty ? '$roleLabel · $sport' : roleLabel);
+            final subtitle = role == 'coach'
+                ? roleLabel
+                : role == 'organizer' && orgDetails.isNotEmpty
+                    ? orgDetails
+                    : teamName.isNotEmpty
+                        ? teamName
+                        : (sport.isNotEmpty ? '$roleLabel · $sport' : roleLabel);
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -160,11 +168,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 status: data['organizerStatus'] as String?),
                         ]),
                         const SizedBox(height: 3),
-                        Text(subtitle,
-                            style: TextStyle(
-                                color: AppTheme.sub,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500)),
+                        if (coachAddress.isNotEmpty)
+                          Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Icon(LucideIcons.mapPin,
+                                      color: AppTheme.muted, size: 13),
+                                ),
+                                const SizedBox(width: 4),
+                                // Barangay names run long ("Bgy. 8 -
+                                // Bagumbayan (Pob.)"), so wrap rather than
+                                // cut the city off.
+                                Flexible(
+                                  child: Text(coachAddress,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          color: AppTheme.sub,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500)),
+                                ),
+                              ])
+                        else
+                          Text(subtitle,
+                              style: TextStyle(
+                                  color: AppTheme.sub,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500)),
                       ],
                     ),
                   ),
@@ -207,9 +239,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ] else
                   const SizedBox(height: 4),
 
-                // Titles won, for athletes and coaches alike. Renders nothing
-                // until there is one.
-                if (role == 'athlete' || role == 'coach')
+                // Titles won. Renders nothing until there is one. A coach's
+                // titles are in their Tournaments section further down.
+                if (role == 'athlete')
                   ChampionshipShelf(
                       uid: _uid, padding: const EdgeInsets.only(bottom: 18)),
 
@@ -237,9 +269,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 // Portfolio (athlete only)
                 if (role == 'athlete') _portfolio(context),
 
-                // Team identity hub (coach only) — My Team and Scout stay
-                // the real roster/scouting tools; this is a summary plus
-                // quick entry points into them, not a second copy.
+                // Team identity hub (coach only), read top to bottom as the
+                // coach, their team, then how it has done in tournaments. My
+                // Team stays the real roster tool; the team card is the way
+                // into it, not a second copy. Scout is reached from Home.
                 //
                 // The roster grid below is the one exception. It was added
                 // after a coach saw their own players on the profile athletes
@@ -270,6 +303,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
+                  Row(children: [
+                    Expanded(
+                        child: _credentialBox(
+                            'Experience',
+                            (data['yearsOfExperience'] as String?)
+                                        ?.isNotEmpty ==
+                                    true
+                                ? data['yearsOfExperience'] as String
+                                : '—')),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: _credentialBox(
+                            'Level',
+                            (data['coachingLevel'] as String?)?.isNotEmpty ==
+                                    true
+                                ? data['coachingLevel'] as String
+                                : '—')),
+                  ]),
+                  if ((data['coachingBio'] as String? ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(data['coachingBio'] as String,
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 13,
+                            height: 1.5)),
+                  ],
+                  const SizedBox(height: 20),
+                  _sectionLabel('Team'),
+                  const SizedBox(height: 8),
                   GestureDetector(
                     onTap: () => Get.toNamed('/team/roster'),
                     child: Container(
@@ -337,40 +399,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ]),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Expanded(
-                        child: _credentialBox(
-                            'Experience',
-                            (data['yearsOfExperience'] as String?)
-                                        ?.isNotEmpty ==
-                                    true
-                                ? data['yearsOfExperience'] as String
-                                : '—')),
-                    const SizedBox(width: 10),
-                    Expanded(
-                        child: _credentialBox(
-                            'Level',
-                            (data['coachingLevel'] as String?)?.isNotEmpty ==
-                                    true
-                                ? data['coachingLevel'] as String
-                                : '—')),
-                  ]),
-                  if ((data['coachingBio'] as String? ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Text(data['coachingBio'] as String,
-                        style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 13,
-                            height: 1.5)),
-                  ],
-                  const SizedBox(height: 20),
-                  Text('Players',
-                      style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   StreamBuilder<QuerySnapshot>(
                     stream: TeamService.streamRoster(_uid),
                     builder: (context, rosterSnap) => TeamRosterGrid(
@@ -383,20 +412,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       loading: rosterSnap.connectionState ==
                           ConnectionState.waiting,
                       emptyMessage:
-                          'No players yet. Use Scout Players to find athletes '
-                          'and invite them to your team.',
+                          'No players yet. Tap your team to invite athletes.',
                     ),
                   ),
                   const SizedBox(height: 20),
-                  Row(children: [
-                    Expanded(
-                        child: _addButton(Icons.groups_outlined,
-                            'Manage Roster', () => Get.toNamed('/team/roster'))),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _addButton(Icons.search_rounded,
-                            'Scout Players', () => Get.toNamed('/scout'))),
-                  ]),
+                  _sectionLabel('Tournaments'),
+                  const SizedBox(height: 8),
+                  TournamentRecord(coachId: _uid),
                 ],
 
                 // Organizer section — a copy of the public organizer profile
@@ -1000,7 +1022,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// Same style as the coach section's "Players" label.
+  /// Section heading, e.g. the coach's "Team" and the organizer's
+  /// "Organization".
   Widget _sectionLabel(String text) => Text(text,
       style: TextStyle(
           color: AppTheme.textPrimary,

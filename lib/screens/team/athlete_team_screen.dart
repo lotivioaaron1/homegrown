@@ -1,13 +1,14 @@
 // lib/screens/team/athlete_team_screen.dart
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
-import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
 import '../../models/team_invite.dart';
 import '../../services/team_service.dart';
+import '../../utils/roster_labels.dart';
 import '../../utils/team_name.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/championships.dart';
@@ -49,16 +50,6 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
         if (mounted) setState(() => _coachProfile = doc.data());
       });
     }
-  }
-
-  String _relativeDate(DateTime? date) {
-    if (date == null) return '';
-    final diff = DateTime.now().difference(date);
-    if (diff.inDays >= 7) return DateFormat('MMM dd').format(date);
-    if (diff.inDays >= 1) return '${diff.inDays}d ago';
-    if (diff.inHours >= 1) return '${diff.inHours}h ago';
-    if (diff.inMinutes >= 1) return '${diff.inMinutes}m ago';
-    return 'Just now';
   }
 
   @override
@@ -243,10 +234,12 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
                   fallbackName: self.athleteName,
                   fallbackPhotoUrl: self.athletePhotoUrl);
               rows.add(_TeammateCard(
-                invite: self,
+                key: ValueKey(self.id),
                 identity: identity,
+                subtitle: memberSubtitle(
+                    profiles[_uid]?['position'] as String?,
+                    joinedLabel(self.respondedAt)),
                 isSelf: true,
-                relativeDate: _relativeDate,
                 onTap: () => Get.toNamed('/profile'),
               ));
             }
@@ -255,9 +248,11 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
                   fallbackName: m.athleteName,
                   fallbackPhotoUrl: m.athletePhotoUrl);
               return _TeammateCard(
-                invite: m,
+                key: ValueKey(m.id),
                 identity: identity,
-                relativeDate: _relativeDate,
+                subtitle: memberSubtitle(
+                    profiles[m.athleteId]?['position'] as String?,
+                    joinedLabel(m.respondedAt)),
                 onTap: () => _showAthleteProfile(m.athleteId),
               );
             }));
@@ -283,10 +278,11 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
 // ─────────────────────────────────────────────
 
 class _TeammateCard extends StatelessWidget {
-  final TeamInvite invite;
-  /// Live name/photo; `invite` still owns the membership facts (join date).
+  /// Live name/photo, so a renamed teammate shows their current name.
   final MemberIdentity identity;
-  final String Function(DateTime?) relativeDate;
+
+  /// "Point Guard · Joined Sep 6", already composed by the caller.
+  final String subtitle;
   final VoidCallback onTap;
 
   /// True for the viewer's own membership. Marked the same way
@@ -295,9 +291,9 @@ class _TeammateCard extends StatelessWidget {
   final bool isSelf;
 
   const _TeammateCard({
-    required this.invite,
+    super.key,
     required this.identity,
-    required this.relativeDate,
+    required this.subtitle,
     required this.onTap,
     this.isSelf = false,
   });
@@ -309,73 +305,80 @@ class _TeammateCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: AppTheme.card,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: AppTheme.border),
-    ),
-    child: GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Row(children: [
-        Container(
-          width: 42, height: 42,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppTheme.accent, AppTheme.accent2]),
-            shape: BoxShape.circle),
-          child: ClipOval(
-            child: identity.photoUrl != null &&
-                    identity.photoUrl!.isNotEmpty
-                ? Image.network(identity.photoUrl!, fit: BoxFit.cover,
-                    width: 42, height: 42,
-                    errorBuilder: (_, __, ___) => Center(
-                        child: Text(_initials, style: const TextStyle(
-                            color: AppTheme.buttonFg, fontSize: 14,
-                            fontWeight: FontWeight.w800))))
-                : Center(child: Text(_initials, style: const TextStyle(
-                    color: AppTheme.buttonFg, fontSize: 14,
-                    fontWeight: FontWeight.w800))),
-          )),
-        const SizedBox(width: 12),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Flexible(child: Text(identity.name, style: TextStyle(
-                  color: isSelf ? AppTheme.accent : AppTheme.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800),
-                  overflow: TextOverflow.ellipsis)),
-              if (isSelf) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(
-                      color: AppTheme.accent,
-                      borderRadius: BorderRadius.circular(4)),
-                  child: const Text('YOU', style: TextStyle(
-                      color: AppTheme.buttonFg, fontSize: 8,
-                      fontWeight: FontWeight.w800)),
-                ),
-              ],
+  Widget build(BuildContext context) {
+    final initials = Center(child: Text(_initials, style: const TextStyle(
+        color: AppTheme.buttonFg, fontSize: 14, fontWeight: FontWeight.w800)));
+    final url = identity.photoUrl;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppTheme.card,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: AppTheme.border)),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [
+              Container(
+                width: 42, height: 42,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppTheme.accent, AppTheme.accent2]),
+                  shape: BoxShape.circle),
+                child: ClipOval(
+                  child: url != null && url.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: url, fit: BoxFit.cover,
+                          width: 42, height: 42,
+                          placeholder: (_, __) => initials,
+                          errorWidget: (_, __, ___) => initials)
+                      : initials,
+                )),
+              const SizedBox(width: 12),
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Flexible(child: Text(identity.name, style: TextStyle(
+                        color: isSelf ? AppTheme.accent : AppTheme.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800),
+                        overflow: TextOverflow.ellipsis)),
+                    if (isSelf) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                            color: AppTheme.accent,
+                            borderRadius: BorderRadius.circular(4)),
+                        child: const Text('YOU', style: TextStyle(
+                            color: AppTheme.buttonFg, fontSize: 8,
+                            fontWeight: FontWeight.w800)),
+                      ),
+                    ],
+                  ]),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: TextStyle(color: AppTheme.sub, fontSize: 12),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              )),
+              Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
             ]),
-            const SizedBox(height: 2),
-            Text('Member since ${relativeDate(invite.respondedAt)}',
-                style: TextStyle(color: AppTheme.sub, fontSize: 12),
-                overflow: TextOverflow.ellipsis),
-          ],
-        )),
-        Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
-      ]),
-    ),
-  );
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _EmptyCard extends StatelessWidget {

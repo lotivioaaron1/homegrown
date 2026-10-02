@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../constants/query_limits.dart';
 import '../theme/app_theme.dart';
+import '../utils/sport_rating.dart';
 import '../utils/stat_scoring.dart';
 
 /// The pieces an athlete's profile is built from, shared by the quick-peek
@@ -18,11 +19,20 @@ import '../utils/stat_scoring.dart';
 // Per-stat-category averages
 // ─────────────────────────────────────────────
 
-/// Answers "what is this player good at" (rebounding, steals, etc.) rather
-/// than one comparative number, which is what Rating answers.
+/// Answers "what is this player good at" (rebounding, steals, etc.), with the
+/// sport's Elo rating beside each sport's line as the one comparative number.
+///
+/// Elo sits here rather than among the headline figures because it is per
+/// sport: an athlete may play two, and the sheet doesn't know which one the
+/// viewer came for.
 class AthleteStatAverages extends StatelessWidget {
   final String athleteId;
-  const AthleteStatAverages({super.key, required this.athleteId});
+
+  /// The athlete's `ratings` map. Leave null to show no Elo at all.
+  final Map? ratings;
+
+  const AthleteStatAverages(
+      {super.key, required this.athleteId, this.ratings});
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +80,8 @@ class AthleteStatAverages extends StatelessWidget {
             const SizedBox(height: 10),
             ...bySport.entries.map((e) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _SportAverages(sport: e.key, games: e.value),
+                  child: _SportAverages(
+                      sport: e.key, games: e.value, ratings: ratings),
                 )),
           ],
         );
@@ -82,11 +93,34 @@ class AthleteStatAverages extends StatelessWidget {
 class _SportAverages extends StatelessWidget {
   final String sport;
   final List<Map<String, dynamic>> games;
-  const _SportAverages({required this.sport, required this.games});
+  final Map? ratings;
+  const _SportAverages(
+      {required this.sport, required this.games, required this.ratings});
 
   String _format(String label, double value) {
     final formatted = formatStatAverage(value);
     return label == 'Win Rate %' ? '$formatted%' : formatted;
+  }
+
+  /// "1040 Elo", or "Unrated" when every game so far was a tune-up — those
+  /// keep stats but never move the rating.
+  Widget _eloLabel() {
+    final rating = sportRating(ratings, sport);
+    if (rating == null) {
+      return Text('Unrated',
+          style: TextStyle(color: AppTheme.muted, fontSize: 10));
+    }
+    return Text.rich(TextSpan(children: [
+      TextSpan(
+          text: '$rating',
+          style: TextStyle(
+              color: AppTheme.accentText,
+              fontSize: 11,
+              fontWeight: FontWeight.w800)),
+      TextSpan(
+          text: ' Elo',
+          style: TextStyle(color: AppTheme.muted, fontSize: 10)),
+    ]));
   }
 
   @override
@@ -96,11 +130,17 @@ class _SportAverages extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('$sport · ${games.length} game${games.length == 1 ? '' : 's'}',
-            style: TextStyle(
-                color: AppTheme.sub,
-                fontSize: 11,
-                fontWeight: FontWeight.w600)),
+        Row(children: [
+          Expanded(
+            child: Text(
+                '$sport · ${games.length} game${games.length == 1 ? '' : 's'}',
+                style: TextStyle(
+                    color: AppTheme.sub,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600)),
+          ),
+          if (ratings != null) _eloLabel(),
+        ]),
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,

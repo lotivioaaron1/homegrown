@@ -97,6 +97,52 @@ void main() {
     });
   });
 
+  group('tournamentsPlayed', () {
+    test('counts every finished tournament the team entered, newest first',
+        () {
+      final played = tournamentsPlayed([
+        _cup('won', completedAt: DateTime(2026, 5, 1)),
+        _cup('lost', champion: 'coachB', completedAt: DateTime(2026, 9, 1)),
+      ], 'coachA');
+
+      expect(_ids(played), ['lost', 'won']);
+    });
+
+    test('leaves out tournaments still running or cancelled', () {
+      final played = tournamentsPlayed([
+        _cup('running', status: Tournament.statusActive),
+        _cup('cancelled', status: Tournament.statusCancelled),
+      ], 'coachA');
+
+      expect(played, isEmpty);
+    });
+
+    test('leaves out tournaments the team never entered', () {
+      expect(tournamentsPlayed([_cup('1')], 'coachZ'), isEmpty);
+    });
+
+    test('still counts a title whose entrant is missing', () {
+      expect(_ids(tournamentsPlayed([_cup('1', champion: 'coachC')], 'coachC')),
+          ['1']);
+    });
+
+    test('counts nothing for a blank id', () {
+      expect(tournamentsPlayed([_cup('1')], ''), isEmpty);
+    });
+  });
+
+  group('tournamentRecordLabel', () {
+    test('says so before the first finished tournament', () {
+      expect(tournamentRecordLabel(0, 0), 'No tournaments finished yet');
+    });
+
+    test('pairs tournaments played with titles won', () {
+      expect(tournamentRecordLabel(3, 0), '3 played · no titles yet');
+      expect(tournamentRecordLabel(3, 1), '3 played · 1 title');
+      expect(tournamentRecordLabel(3, 2), '3 played · 2 titles');
+    });
+  });
+
   group('recentChampions', () {
     final now = DateTime(2026, 9, 30, 12);
 

@@ -35,6 +35,26 @@ List<Tournament> teamTitles(Iterable<Tournament> ts, String coachId) =>
     _newestFirst(ts.where(
         (t) => t.isCompleted && coachId.isNotEmpty && t.championCoachId == coachId));
 
+/// The finished tournaments [coachId]'s team played in, won or not, newest
+/// first. A title counts even if its entrant can't be found, so the record
+/// never shows more titles than tournaments played.
+List<Tournament> tournamentsPlayed(Iterable<Tournament> ts, String coachId) =>
+    _newestFirst(ts.where((t) =>
+        t.isCompleted &&
+        coachId.isNotEmpty &&
+        (t.entrantFor(coachId) != null || t.championCoachId == coachId)));
+
+/// A team's tournament record in one line: "3 played · 1 title".
+String tournamentRecordLabel(int played, int titles) {
+  if (played == 0) return 'No tournaments finished yet';
+  final won = switch (titles) {
+    0 => 'no titles yet',
+    1 => '1 title',
+    _ => '$titles titles',
+  };
+  return '$played played · $won';
+}
+
 /// Tournaments won in the last [days] days, newest first, for the Home
 /// spotlight. [exceptOrganizer] leaves out the ones that organizer ran: their
 /// own Home already names each champion on its Tournaments card.

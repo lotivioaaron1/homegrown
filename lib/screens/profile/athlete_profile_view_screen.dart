@@ -199,7 +199,8 @@ class AthleteProfileViewScreen extends StatelessWidget {
         ChampionshipShelf(uid: athleteId),
 
         const SizedBox(height: 18),
-        AthleteStatAverages(athleteId: athleteId),
+        AthleteStatAverages(
+            athleteId: athleteId, ratings: athlete['ratings'] as Map?),
 
         const SizedBox(height: 10),
         _portfolio(context),

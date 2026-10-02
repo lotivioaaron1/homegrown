@@ -20,11 +20,13 @@ import '../../services/ranking_service.dart';
 import '../../services/team_service.dart';
 import '../../services/tournament_service.dart';
 import '../../widgets/championships.dart';
+import '../../widgets/coach_todo_card.dart';
 import '../../widgets/member_profiles.dart';
 import '../../widgets/organizer_todo_card.dart';
 import '../../widgets/team_carousel.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/points_explainer_sheet.dart';
+import '../profile/edit_profile_screen.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/event_history.dart';
 import '../../utils/firestore_helpers.dart';
@@ -476,6 +478,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         return const Center(child: CircularProgressIndicator(
                             color: AppTheme.accent, strokeWidth: 2));
                       }
+                      // A failed read used to fall through to "Nothing here
+                      // yet", telling someone with games that they had none.
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                                "Couldn't load this list. "
+                                '${friendlyError(snapshot.error)}',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: AppTheme.sub, fontSize: 13)),
+                          ),
+                        );
+                      }
                       var docs = (snapshot.data?.docs ?? []).where((doc) {
                         final ev = doc.data() as Map<String, dynamic>;
                         // Drafts are organizer-only regardless of role; for
@@ -770,6 +787,9 @@ class _HomeScreenState extends State<HomeScreen> {
             onViewAll: () => _showAllActivitySheet(context)),
         _buildRecentActivity(data),
       ] else if (role == 'coach') ...[
+        // First, like the organizer's: what is waiting on the coach. Renders
+        // nothing once their sport, team name and invites are all settled.
+        CoachTodoCard(uid: _uid, user: data),
         _buildSectionTitle('My Team'),
         _buildCoachTeamSection(data),
       ] else if (role == 'organizer') ...[
@@ -947,44 +967,59 @@ class _HomeScreenState extends State<HomeScreen> {
         // greeting — now shows the uploaded profile photo (falls
         // back to initials) instead of always being initials-only,
         // and instead of sitting on the far right.
-        GestureDetector(
-          onTap: () =>
-              _showAvatarMenu(context, firstName, lastName, role, photoUrl),
-          child: Container(
-            width: 44, height: 44,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [AppTheme.accent, AppTheme.accent2]),
-              borderRadius: BorderRadius.circular(14)),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: photoUrl != null && photoUrl.isNotEmpty
-                  ? Image.network(photoUrl, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Center(
-                          child: Text(_initials(firstName, lastName),
-                              style: const TextStyle(
-                                  color: AppTheme.buttonFg,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800))))
-                  : Center(child: Text(_initials(firstName, lastName),
-                      style: const TextStyle(color: AppTheme.buttonFg,
-                          fontSize: 15, fontWeight: FontWeight.w800))),
+        Semantics(
+          button: true,
+          label: 'Account menu',
+          child: GestureDetector(
+            onTap: () =>
+                _showAvatarMenu(context, firstName, lastName, role, photoUrl),
+            child: Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  colors: [AppTheme.accent, AppTheme.accent2]),
+                borderRadius: BorderRadius.circular(14)),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: photoUrl != null && photoUrl.isNotEmpty
+                    ? Image.network(photoUrl, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Center(
+                            child: Text(_initials(firstName, lastName),
+                                style: const TextStyle(
+                                    color: AppTheme.buttonFg,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800))))
+                    : Center(child: Text(_initials(firstName, lastName),
+                        style: const TextStyle(color: AppTheme.buttonFg,
+                            fontSize: 15, fontWeight: FontWeight.w800))),
+              ),
             ),
           ),
         ),
         const SizedBox(width: 12),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('$_greeting,', style: TextStyle(
-              color: AppTheme.sub, fontSize: 13, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 2),
-          Text('$firstName $lastName', style: TextStyle(
-              color: AppTheme.textPrimary, fontSize: 20,
-              fontWeight: FontWeight.w900, letterSpacing: -0.3)),
-        ]),
-        const Spacer(),
+        // Expanded, not a bare Column + Spacer: measured unbounded, a long
+        // name ran off the row on a small phone instead of truncating.
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Text('$_greeting,', style: TextStyle(
+                color: AppTheme.sub, fontSize: 13,
+                fontWeight: FontWeight.w500)),
+            const SizedBox(height: 2),
+            Text('$firstName $lastName',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: AppTheme.textPrimary, fontSize: 20,
+                    fontWeight: FontWeight.w900, letterSpacing: -0.3)),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        // The bell keeps its 38pt look inside a 48pt tap target, and says
+        // how many are unread to a screen reader.
         GestureDetector(
           onTap: () => _showNotificationsSheet(context),
+          behavior: HitTestBehavior.opaque,
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('notifications')
@@ -993,37 +1028,53 @@ class _HomeScreenState extends State<HomeScreen> {
                 .snapshots(),
             builder: (context, snap) {
               final unread = snap.data?.docs.length ?? 0;
-              return Stack(clipBehavior: Clip.none, children: [
-                Container(
-                  width: 38, height: 38,
-                  decoration: BoxDecoration(color: AppTheme.card,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.border)),
-                  child: Icon(LucideIcons.bell,
-                      color: AppTheme.muted, size: 20)),
-                if (unread > 0)
-                  Positioned(
-                    top: -2, right: -2,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 1),
-                      constraints:
-                          const BoxConstraints(minWidth: 16, minHeight: 16),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFFFF5C5C),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: AppTheme.bg, width: 1.5)),
-                      child: Center(
-                        child: Text(unread > 9 ? '9+' : '$unread',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w800)),
-                      ),
-                    ),
+              return Semantics(
+                button: true,
+                label: unread == 0
+                    ? 'Notifications'
+                    : 'Notifications, $unread unread',
+                child: SizedBox(
+                  width: 48, height: 48,
+                  // Right-aligned so the visible bell stays on the 20pt
+                  // gutter; the extra target area sits on its left.
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Stack(clipBehavior: Clip.none, children: [
+                      Container(
+                        width: 38, height: 38,
+                        decoration: BoxDecoration(color: AppTheme.card,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppTheme.border)),
+                        child: Icon(LucideIcons.bell,
+                            color: AppTheme.muted, size: 20)),
+                      if (unread > 0)
+                        Positioned(
+                          top: -2, right: -2,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1),
+                            constraints: const BoxConstraints(
+                                minWidth: 16, minHeight: 16),
+                            // errorText, not the raw #FF5C5C: white on that
+                            // is ~3:1, on the light theme's deeper red ~6.5:1.
+                            decoration: BoxDecoration(
+                                color: AppTheme.errorText,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: AppTheme.bg, width: 1.5)),
+                            child: Center(
+                              child: Text(unread > 9 ? '9+' : '$unread',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800)),
+                            ),
+                          ),
+                        ),
+                    ]),
                   ),
-              ]);
+                ),
+              );
             },
           ),
         ),
@@ -1171,26 +1222,50 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _coachHero(Map<String, dynamic> data) {
-    final level = data['coachingLevel']     as String? ?? '—';
-    final org   = data['teamOrganization']  as String? ?? '—';
-    final years = data['yearsOfExperience'] as String? ?? '—';
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    // Null, blank and a stored '—' all mean "not filled in". The org used to
+    // default to '—', so its "not set" label could never actually show.
+    String? filled(Object? value) {
+      final s = (value as String? ?? '').trim();
+      return s.isEmpty || s == '—' ? null : s;
+    }
+    final level   = filled(data['coachingLevel']);
+    final years   = filled(data['yearsOfExperience']);
+    final orgRaw  = data['teamOrganization'] as String?;
+    // Same test as the To Do card's "Name your team", so the two agree.
+    final hasTeam = hasCustomTeamName(orgRaw);
+    // Level and experience are set in Edit Profile; the team name is renamed
+    // on My Team. A blank used to be a dead "—" with no way to fix it here.
+    final needsProfile = level == null || years == null;
+    final VoidCallback? fix = needsProfile
+        ? () => Get.to(() => const EditProfileScreen())
+        : !hasTeam ? () => Get.toNamed('/team/roster') : null;
+
+    final content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('COACHING LEVEL', style: TextStyle(color: AppTheme.sub,
-              fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
-          const SizedBox(height: 4),
-          Text(level, style: const TextStyle(color: AppTheme.accent,
-              fontSize: 24, fontWeight: FontWeight.w900, height: 1.1)),
-        ]),
-        const Spacer(),
+        // Expanded, not a bare Column + Spacer, as in the organizer hero: a
+        // long level ran off the card instead of wrapping.
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Text('COACHING LEVEL', style: TextStyle(color: AppTheme.sub,
+                fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
+            const SizedBox(height: 4),
+            // accentText, not accent: the same gold in dark mode, a darker
+            // readable gold in light mode, where raw gold on white is ~1.7:1.
+            Text(level ?? '—', maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppTheme.accentText,
+                    fontSize: 24, fontWeight: FontWeight.w900, height: 1.1)),
+          ]),
+        ),
+        const SizedBox(width: 12),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(color: AppTheme.accentSurface,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppTheme.accent)),
           child: Column(children: [
-            Text(years, style: TextStyle(color: AppTheme.accentText,
+            Text(years ?? '—', style: TextStyle(color: AppTheme.accentText,
                 fontSize: 14, fontWeight: FontWeight.w900)),
             Text('Experience',
                 style: TextStyle(color: AppTheme.sub, fontSize: 11)),
@@ -1199,9 +1274,33 @@ class _HomeScreenState extends State<HomeScreen> {
       ]),
       const SizedBox(height: 10),
       _StatPill(
-          label: org.isEmpty ? 'No organization set' : org,
+          label: hasTeam ? orgRaw!.trim() : 'No team name set',
           icon: LucideIcons.users),
+      if (fix != null) ...[
+        const SizedBox(height: 10),
+        Row(children: [
+          Icon(LucideIcons.pencil, color: AppTheme.sub, size: 12),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+                needsProfile
+                    ? 'Tap to finish your coaching profile'
+                    : 'Tap to name your team',
+                style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+          ),
+        ]),
+      ],
     ]);
+
+    if (fix == null) return content;
+    return Semantics(
+      button: true,
+      child: GestureDetector(
+        onTap: fix,
+        behavior: HitTestBehavior.opaque,
+        child: content,
+      ),
+    );
   }
 
   Widget _organizerHero(Map<String, dynamic> data) {
@@ -1250,19 +1349,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSectionTitle(String title, {VoidCallback? onViewAll}) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      padding: const EdgeInsets.only(left: 20),
       child: Row(children: [
-        Text(title.toUpperCase(), style: TextStyle(
-            color: AppTheme.textPrimary, fontSize: 11,
-            fontWeight: FontWeight.w800, letterSpacing: 1)),
+        Padding(
+          padding: const EdgeInsets.only(top: 16, bottom: 8),
+          child: Text(title.toUpperCase(), style: TextStyle(
+              color: AppTheme.textPrimary, fontSize: 11,
+              fontWeight: FontWeight.w800, letterSpacing: 1)),
+        ),
         const Spacer(),
+        // The spacing that used to pad the whole row now sits inside the
+        // link, so "View All" is a ~38×75pt target instead of a bare line of
+        // 11pt text, with nothing on screen moving. accentText, not accent:
+        // raw gold on the light background is ~1.7:1.
         if (onViewAll != null)
-          GestureDetector(
-            onTap: onViewAll,
-            child: const Text('View All', style: TextStyle(
-                color: AppTheme.accent, fontSize: 11,
-                fontWeight: FontWeight.w700)),
-          ),
+          Semantics(
+            button: true,
+            child: GestureDetector(
+              onTap: onViewAll,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 20, 8),
+                child: Text('View All', style: TextStyle(
+                    color: AppTheme.accentText, fontSize: 11,
+                    fontWeight: FontWeight.w700)),
+              ),
+            ),
+          )
+        else
+          const SizedBox(width: 20),
       ]),
     );
   }
@@ -1533,6 +1648,18 @@ class _HomeScreenState extends State<HomeScreen> {
             .toList();
         final isFull = roster.length >= TeamService.maxPlayers;
 
+        // A failed read used to land on the empty-roster card below, telling
+        // a coach with players that they had none and to go invite some.
+        if (rosterSnap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: _EmptyCard(
+                icon: LucideIcons.alertCircle,
+                title: "Couldn't load your roster",
+                subtitle: friendlyError(rosterSnap.error)),
+          );
+        }
+
         // Same trap as the athlete's section: a still-connecting stream looks
         // exactly like an empty roster, so a coach who has players would be
         // told they have none until Firestore answers.
@@ -1565,7 +1692,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text('No athletes on your roster yet', style: TextStyle(
                     color: AppTheme.textPrimary, fontSize: 13,
                     fontWeight: FontWeight.w700)),
-                const SizedBox(height: 12),
+                const SizedBox(height: 7),
                 // A button rather than a line of small link text: this is
                 // the one thing a coach with no roster should do next.
                 _ActionPill(
@@ -1598,28 +1725,32 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context, pendingSnap) {
                   final pending = pendingSnap.data?.docs.length ?? 0;
                   if (pending == 0) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Row(children: [
-                      Icon(LucideIcons.mail, color: AppTheme.muted, size: 14),
-                      const SizedBox(width: 6),
-                      Text('$pending pending invite${pending == 1 ? '' : 's'}',
-                          style: TextStyle(color: AppTheme.sub, fontSize: 12)),
-                    ]),
-                  );
+                  return Row(children: [
+                    Icon(LucideIcons.mail, color: AppTheme.muted, size: 14),
+                    const SizedBox(width: 6),
+                    Text('$pending pending invite${pending == 1 ? '' : 's'}',
+                        style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                  ]);
                 },
               ),
+              // accentText, not accent: raw gold on a white card is ~1.7:1 in
+              // light mode. The vertical padding turns an 18pt-tall line into
+              // a 44pt tap target; it also stands in for the pending row's
+              // old bottom gap.
               GestureDetector(
                 onTap: () => Get.toNamed('/team/roster'),
                 behavior: HitTestBehavior.opaque,
-                child: const Row(children: [
-                  Text('View Full Roster', style: TextStyle(
-                      color: AppTheme.accent, fontSize: 13,
-                      fontWeight: FontWeight.w700)),
-                  SizedBox(width: 4),
-                  Icon(Icons.chevron_right_rounded,
-                      color: AppTheme.accent, size: 16),
-                ]),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  child: Row(children: [
+                    Text('View Full Roster', style: TextStyle(
+                        color: AppTheme.accentText, fontSize: 13,
+                        fontWeight: FontWeight.w700)),
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.accentText, size: 16),
+                  ]),
+                ),
               ),
             ],
           ),
@@ -1911,6 +2042,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2)));
             }
+            // Same as Recent Activity: a failed read must not pass for
+            // "No events yet".
+            if (snapshot.hasError) {
+              return _EmptyCard(
+                  icon: LucideIcons.alertCircle,
+                  title: "Couldn't load your events",
+                  subtitle: friendlyError(snapshot.error));
+            }
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
               // No button: Next Event, directly above, already offers one.
               // (The old "Tap +" pointed at Add Stats, the nav's only +.)
@@ -1944,16 +2083,20 @@ class _HomeScreenState extends State<HomeScreen> {
     // Coach: an OR across teamACoachId/teamBCoachId, mirroring the query in
     // _showAllEventsSheet. Neither query orders in Firestore — sorting happens
     // client-side below — so no composite index is needed for either.
+    //
+    // Not 10, for the organizer's reason above: the list is filtered to
+    // upcoming games below, and an unordered 10 could be all past ones, which
+    // told a coach with a game tomorrow that they had none.
     final stream = role == 'athlete'
         ? FirebaseFirestore.instance.collection('events')
             .where('playerUids', arrayContains: _uid)
-            .limit(10).snapshots()
+            .limit(kMaxListQuery).snapshots()
         : FirebaseFirestore.instance.collection('events')
             .where(Filter.or(
               Filter('teamACoachId', isEqualTo: _uid),
               Filter('teamBCoachId', isEqualTo: _uid),
             ))
-            .limit(10).snapshots();
+            .limit(kMaxListQuery).snapshots();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1982,6 +2125,12 @@ class _HomeScreenState extends State<HomeScreen> {
               actionLabel: 'Browse games near you',
               onAction: () => Get.toNamed('/venues'));
 
+          if (snapshot.hasError) {
+            return _EmptyCard(
+                icon: LucideIcons.alertCircle,
+                title: "Couldn't load your games",
+                subtitle: friendlyError(snapshot.error));
+          }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return noUpcomingGames();
           }
@@ -2202,8 +2351,13 @@ class _EventList extends StatelessWidget {
             title: Text(ev['name'] as String? ?? '',
               style: TextStyle(color: AppTheme.textPrimary,
                   fontSize: 13, fontWeight: FontWeight.w600)),
+            // Only the parts that exist: interpolating a missing sport or
+            // venue printed the word "null" on Home.
             subtitle: Text(
-              '${ev['sport']} · ${ev['venue']} · $fmtDate',
+              [ev['sport'], ev['venue'], fmtDate]
+                  .map((p) => (p?.toString() ?? '').trim())
+                  .where((p) => p.isNotEmpty)
+                  .join(' · '),
               style: TextStyle(color: AppTheme.sub, fontSize: 11)),
             trailing: Container(
               padding: const EdgeInsets.symmetric(
@@ -2507,7 +2661,7 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
             textAlign: TextAlign.center,
           ),
           if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 7),
             _ActionPill(label: actionLabel!, onTap: onAction!),
           ],
         ],
@@ -2524,27 +2678,36 @@ class _ActionPill extends StatelessWidget {
   final VoidCallback onTap;
   const _ActionPill({required this.label, required this.onTap});
 
+  // The pill is ~34pt tall; the transparent padding around it makes the tap
+  // target 44pt without changing how it looks. The 12pt gap above it in both
+  // callers became 7 so the pill doesn't drift down.
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    behavior: HitTestBehavior.opaque,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        color: AppTheme.accentSurface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.accent),
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    child: GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: AppTheme.accentSurface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppTheme.accent),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(label,
+                style: TextStyle(
+                    color: AppTheme.accentText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded,
+                color: AppTheme.accentText, size: 16),
+          ]),
+        ),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(label,
-            style: TextStyle(
-                color: AppTheme.accentText,
-                fontSize: 12,
-                fontWeight: FontWeight.w700)),
-        const SizedBox(width: 4),
-        Icon(Icons.chevron_right_rounded,
-            color: AppTheme.accentText, size: 16),
-      ]),
     ),
   );
 }
@@ -2565,9 +2728,13 @@ class _StatPill extends StatelessWidget {
       Icon(icon, size: 12,
           color: highlighted ? AppTheme.accent : AppTheme.muted),
       const SizedBox(width: 5),
-      Text(label, style: TextStyle(
-        color: highlighted ? AppTheme.accentText : AppTheme.muted,
-        fontSize: 11, fontWeight: FontWeight.w600)),
+      // Flexible + ellipsis: a long organization name overflowed the card.
+      Flexible(
+        child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: highlighted ? AppTheme.accentText : AppTheme.muted,
+              fontSize: 11, fontWeight: FontWeight.w600)),
+      ),
     ]),
   );
 }

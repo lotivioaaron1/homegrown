@@ -175,7 +175,8 @@ class _AthleteProfileContent extends StatelessWidget {
           // should not be below a scroll.
           _buildHighlightsTeaser(context),
           const SizedBox(height: 16),
-          AthleteStatAverages(athleteId: athleteId),
+          AthleteStatAverages(
+              athleteId: athleteId, ratings: athlete['ratings'] as Map?),
           const SizedBox(height: 16),
           Divider(color: AppTheme.border),
           const SizedBox(height: 12),

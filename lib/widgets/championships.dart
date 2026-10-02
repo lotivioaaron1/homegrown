@@ -137,6 +137,42 @@ class _TitleCard extends StatelessWidget {
   }
 }
 
+/// "Tournaments" on a coach's own profile: the team's record in one line,
+/// then a card per title. Unlike the shelf it always shows, so a coach can
+/// see their tournaments counted before the first win.
+class TournamentRecord extends StatefulWidget {
+  final String coachId;
+  const TournamentRecord({super.key, required this.coachId});
+
+  @override
+  State<TournamentRecord> createState() => _TournamentRecordState();
+}
+
+class _TournamentRecordState extends State<TournamentRecord> {
+  late final _stream = TournamentService.completedStream();
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<Tournament>>(
+        stream: _stream,
+        builder: (context, snap) {
+          // Nothing until the first read lands: an empty list here would
+          // briefly claim the team has never finished a tournament.
+          if (!snap.hasData) return const SizedBox.shrink();
+          final tournaments = snap.data!;
+          final played = tournamentsPlayed(tournaments, widget.coachId);
+          final titles = teamTitles(tournaments, widget.coachId);
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tournamentRecordLabel(played.length, titles.length),
+                    style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+                if (titles.isNotEmpty) const SizedBox(height: 10),
+                for (final t in titles) _TitleCard(t),
+              ]);
+        },
+      );
+}
+
 /// A team's titles on its team page: "2× Champion" and a chip per title
 /// (the newest three), each opening its championship page.
 class TeamTitlesRow extends StatelessWidget {

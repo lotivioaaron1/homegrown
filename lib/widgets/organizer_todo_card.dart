@@ -94,13 +94,15 @@ class _OrganizerTodoCardState extends State<OrganizerTodoCard> {
               const Spacer(),
               GestureDetector(
                 onTap: () => showOrganizerGuideSheet(context),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                // accentText, not accent: raw gold on the light background is
+                // ~1.7:1.
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.help_outline_rounded,
-                      color: AppTheme.accent, size: 13),
-                  SizedBox(width: 4),
+                      color: AppTheme.accentText, size: 13),
+                  const SizedBox(width: 4),
                   Text('How it works',
                       style: TextStyle(
-                          color: AppTheme.accent,
+                          color: AppTheme.accentText,
                           fontSize: 11,
                           fontWeight: FontWeight.w700)),
                 ]),
