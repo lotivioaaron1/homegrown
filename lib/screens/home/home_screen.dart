@@ -1156,7 +1156,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final points   = _toInt(data['points']);
     final position = data['position']          as String? ?? '—';
     final years    = data['yearsOfPlaying']    as String? ?? '—';
-    final isOpen   = data['openToRecruitment'] as bool?   ?? false;
 
     final ranked = points > 0;
 
@@ -1226,21 +1225,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ]),
       const SizedBox(height: 12),
-      // A Wrap, not a Row: with the recruitment pill spelled out, a long
-      // position ("Defensive Specialist") no longer fits one line on a small
-      // phone, and a Row would overflow instead of wrapping.
+      // No recruitment pill here on purpose. Beside any position longer than
+      // "Center" it wrapped onto a second row on a typical phone, it couldn't
+      // be acted on from Home, and since joining a team closes recruitment it
+      // mostly read "Recruitment closed" every day. The status lives in
+      // Settings and is changed in Edit Profile.
+      //
+      // Still a Wrap, not a Row: with a large system font even these two can
+      // outgrow one line, and a Row would overflow instead of wrapping.
       Wrap(spacing: 6, runSpacing: 6, children: [
         _StatPill(label: position,
             icon: LucideIcons.activity),
         _StatPill(label: years, icon: LucideIcons.clock),
-        // Said in full — a bare "Open"/"Closed" left the athlete guessing
-        // open to what, and "Not recruiting" read as if the athlete were the
-        // one recruiting. "Recruitment closed" rather than "Not open to
-        // recruitment": the longer one pushed this pill onto a second row and
-        // made the hero taller on a typical phone.
-        _StatPill(
-            label: isOpen ? 'Open to recruitment' : 'Recruitment closed',
-            icon: LucideIcons.search, highlighted: isOpen),
       ]),
     ]);
   }
@@ -2780,26 +2776,22 @@ class _ActionPill extends StatelessWidget {
 }
 
 class _StatPill extends StatelessWidget {
-  final String label; final IconData icon; final bool highlighted;
-  const _StatPill({required this.label, required this.icon,
-      this.highlighted = false});
+  final String label; final IconData icon;
+  const _StatPill({required this.label, required this.icon});
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
     decoration: BoxDecoration(
-      color: highlighted ? AppTheme.accentSurface : AppTheme.cardNested,
+      color: AppTheme.cardNested,
       borderRadius: BorderRadius.circular(8),
-      border: Border.all(
-          color: highlighted ? AppTheme.accent : AppTheme.border)),
+      border: Border.all(color: AppTheme.border)),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(icon, size: 12,
-          color: highlighted ? AppTheme.accent : AppTheme.muted),
+      Icon(icon, size: 12, color: AppTheme.muted),
       const SizedBox(width: 5),
       // Flexible + ellipsis: a long organization name overflowed the card.
       Flexible(
         child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: highlighted ? AppTheme.accentText : AppTheme.muted,
+            style: TextStyle(color: AppTheme.muted,
               fontSize: 11, fontWeight: FontWeight.w600)),
       ),
     ]),
