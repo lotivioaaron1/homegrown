@@ -9,6 +9,7 @@ import '../utils/auth_routing.dart';
 import '../utils/onboarding_flag.dart';
 import '../widgets/fill_viewport_scroll.dart';
 import '../widgets/homegrown_wordmark.dart';
+import '../widgets/sport_ball_scene.dart';
 
 /// Deliberately a single dark scene in both themes.
 ///
@@ -17,17 +18,22 @@ import '../widgets/homegrown_wordmark.dart';
 /// snap to the saved one, which was most visible here. main() now resolves the
 /// theme before the first frame, and this screen simply ignores it.
 ///
-/// The scene is a flat [_kInk] ground. Two earlier versions are worth knowing
-/// about before reaching for something richer: a blurred photograph behind a
-/// gradient scrim, and before that a flat gradient with the wordmark inside an
-/// orbiting ring. Both were replaced on the same complaint — the background
-/// competed with the lockup — and the ground is now the same near-black as the
-/// Android launch screen and the adaptive icon's plate, so the OS hands over to
-/// Flutter with nothing changing colour.
+/// The ground is flat [_kInk], the same near-black as the Android launch
+/// screen and the adaptive icon's plate, so the OS hands over to Flutter with
+/// nothing changing colour. On it, a basketball, a volleyball and a
+/// shuttlecock ([SportBallScene]) fill the top of the screen, and the wordmark,
+/// tagline, loading rail and — for a first launch — the welcome actions sit on
+/// plain ink below them.
+///
+/// Two earlier versions put something *behind* the lockup — a blurred
+/// photograph under a scrim, and before that a gradient with the wordmark in an
+/// orbiting ring — and both were replaced on the same complaint: the
+/// background competed with it. The balls are not a background. They take only
+/// the height left above the text, so nothing is ever drawn under a letter.
 ///
 /// The reveal is staged rather than simultaneous: half a second of nothing,
-/// then the wordmark, then the tagline, then a progress rail. The empty beat is
-/// load-bearing — it is what makes the wordmark read as arriving instead of
+/// then the balls, then the wordmark, the tagline and the rail. The empty beat
+/// is load-bearing — it is what makes everything read as arriving instead of
 /// having always been there.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -38,8 +44,9 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  /// The intro's stagger: black hold, wordmark, tagline, rail.
+  /// The intro's stagger: black hold, balls, wordmark, tagline, rail.
   late AnimationController _introController;
+  late Animation<double> _ballsAnim;
   late Animation<double> _markAnim;
   late Animation<double> _taglineAnim;
   late Animation<double> _taglineRise;
@@ -48,6 +55,15 @@ class _SplashScreenState extends State<SplashScreen>
   /// The progress rail's value, 0..1. Separate from [_introController] because
   /// it is not purely time-driven — see [_startLaunch].
   late AnimationController _progress;
+
+  /// The welcome actions' entrance, once a first launch has resolved: the
+  /// rail settles into a divider, then the pitch and the two buttons rise in
+  /// one after another.
+  late AnimationController _cta;
+  late Animation<double> _railSettle;
+  late Animation<double> _pitchIn;
+  late Animation<double> _createIn;
+  late Animation<double> _signInIn;
 
   bool _showButtons = false;
   bool _launched = false;
@@ -66,6 +82,14 @@ class _SplashScreenState extends State<SplashScreen>
 
   /// Nothing is painted before this. The whole point of the change.
   static const _kBlackHold = 500;
+
+  /// The balls arrive first and on their own, starting the moment the hold
+  /// ends; the scene staggers the three inside this window.
+  static const _kBallsEnd = 1200;
+
+  /// The wordmark follows a quarter of a second behind the first ball, so the
+  /// eye travels from the top of the screen down to the text.
+  static const _kMarkStart = 750;
   static const _kMarkEnd = 1150;
 
   /// Starts 50ms before the wordmark lands — see the note in [initState].
@@ -100,6 +124,12 @@ class _SplashScreenState extends State<SplashScreen>
   static const _kRailFinish = Duration(milliseconds: 240);
   static const _kSettle = Duration(milliseconds: 140);
 
+  /// The welcome actions' whole entrance, stagger included.
+  static const _kCtaReveal = Duration(milliseconds: 460);
+
+  /// A strong ease-out for things arriving: fast off the mark, long settle.
+  static const _kArrive = Cubic(0.23, 1, 0.32, 1);
+
   // Ink for this screen only. The scene is always dark, so these do not come
   // from AppTheme — a theme-aware getter here would produce dark text on a
   // dark ground in light mode.
@@ -107,12 +137,28 @@ class _SplashScreenState extends State<SplashScreen>
   static final _inkSoft = Colors.white.withValues(alpha: 0.72);
   static final _railTrack = Colors.white.withValues(alpha: 0.12);
 
+  /// What the full rail fades to once loading is over and it stays on as the
+  /// divider above the actions. Gold would put a second gold bar directly over
+  /// the gold button.
+  static final _railDivider = Colors.white.withValues(alpha: 0.28);
+
+  /// Side padding for the text column, which the ball scene paints past so
+  /// the balls can run off the screen edges.
+  static const _kGutter = 24.0;
+
   @override
   void initState() {
     super.initState();
 
     _introController = AnimationController(vsync: this, duration: _kIntro);
     _progress = AnimationController(vsync: this);
+    _cta = AnimationController(vsync: this, duration: _kCtaReveal);
+
+    // Linear on purpose: the scene gives each ball its own curve.
+    _ballsAnim = CurvedAnimation(
+      parent: _introController,
+      curve: const Interval(_kBlackHold / _kIntroMs, _kBallsEnd / _kIntroMs),
+    );
 
     // Fractions of _kIntro. The wordmark and tagline overlap by 50ms on
     // purpose: a hard gap reads as two animations stopping and starting, a
@@ -120,7 +166,7 @@ class _SplashScreenState extends State<SplashScreen>
     _markAnim = CurvedAnimation(
       parent: _introController,
       curve: const Interval(
-        _kBlackHold / _kIntroMs,
+        _kMarkStart / _kIntroMs,
         _kMarkEnd / _kIntroMs,
         curve: Curves.easeOutCubic,
       ),
@@ -142,6 +188,24 @@ class _SplashScreenState extends State<SplashScreen>
         _kRailFadeEnd / _kIntroMs,
         curve: Curves.easeOut,
       ),
+    );
+
+    // Fractions of _kCtaReveal; about 55ms between each element.
+    _railSettle = CurvedAnimation(
+      parent: _cta,
+      curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+    );
+    _pitchIn = CurvedAnimation(
+      parent: _cta,
+      curve: const Interval(0.0, 0.8, curve: _kArrive),
+    );
+    _createIn = CurvedAnimation(
+      parent: _cta,
+      curve: const Interval(0.12, 0.92, curve: _kArrive),
+    );
+    _signInIn = CurvedAnimation(
+      parent: _cta,
+      curve: const Interval(0.2, 1.0, curve: _kArrive),
     );
   }
 
@@ -212,13 +276,13 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     if (destination == null) {
-      setState(() => _showButtons = true);
+      _revealActions();
     } else {
       Get.offAllNamed(destination);
     }
   }
 
-  /// Where this launch should land, or null to show the Get Started CTA.
+  /// Where this launch should land, or null to show the welcome actions.
   Future<String?> _resolveDestination() async {
     final user = await _restoredUser();
 
@@ -322,13 +386,27 @@ class _SplashScreenState extends State<SplashScreen>
     return restored;
   }
 
-  void _onGetStarted() => Get.offNamed('/onboarding');
+  /// Hands a first launch over to the welcome actions.
+  void _revealActions() {
+    setState(() => _showButtons = true);
+    if (_reducedMotion) {
+      _cta.value = 1.0;
+    } else {
+      _cta.forward();
+    }
+  }
+
+  // Create Account goes through the intro pages on its way to registration,
+  // exactly as the Get Started it replaced did: they are the only route into
+  // onboarding, and each one carries a Skip.
+  void _onCreateAccount() => Get.offNamed('/onboarding');
   void _onSignIn() => Get.offNamed('/login');
 
   @override
   void dispose() {
     _introController.dispose();
     _progress.dispose();
+    _cta.dispose();
     super.dispose();
   }
 
@@ -347,20 +425,37 @@ class _SplashScreenState extends State<SplashScreen>
       ),
       child: Scaffold(
         backgroundColor: _kInk,
+        // Not inset at the top: the balls run up behind the transparent status
+        // bar, the way they run off the sides. The text below them is nowhere
+        // near it.
         body: SafeArea(
-          // Scrolls rather than overflows once the lockup outgrows the
-          // viewport, which it does at the largest system text sizes. The
-          // Spacers still do their job while it fits — that is the whole
-          // reason this widget exists rather than a plain scroll view.
+          top: false,
+          // Scrolls rather than overflows once the text outgrows the viewport,
+          // which it does at the largest system text sizes. The scene is the
+          // flexible part, so it gives up its height first.
           child: FillViewportScroll(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
+            padding:
+                EdgeInsets.fromLTRB(_kGutter, 0, _kGutter, compact ? 20 : 28),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Spacer(flex: 3),
+                // Whatever height the text leaves, so a ball can never sit
+                // behind a line of it on any screen.
+                Expanded(
+                  child: SportBallScene(
+                    entrance: _ballsAnim,
+                    idle: _showButtons,
+                    reducedMotion: _reducedMotion,
+                    bleed: _kGutter,
+                  ),
+                ),
                 _identity(compact),
-                const Spacer(flex: 4),
-                _footer(),
-                const SizedBox(height: 40),
+                SizedBox(height: compact ? 10 : 14),
+                _pitch(compact),
+                SizedBox(height: compact ? 18 : 22),
+                _rail(),
+                SizedBox(height: compact ? 18 : 22),
+                _actions(),
               ],
             ),
           ),
@@ -369,17 +464,17 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  /// Wordmark and tagline as one stacked lockup, revealed in that order.
+  /// Wordmark over tagline, left-aligned, revealed in that order.
   ///
-  /// The app name is the hero and the tagline carries the screen. Both can be
-  /// large because the artwork is wide and short — it takes horizontal space,
-  /// the tagline takes vertical, so they occupy different room instead of
-  /// competing for the same.
+  /// The wordmark names the app and the tagline carries the screen, which is
+  /// why the tagline keeps its full size: it was once cut to a small single
+  /// line and the screen lost its voice.
   Widget _identity(bool compact) {
     return AnimatedBuilder(
       animation: _introController,
       builder: (context, child) {
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Always the on-dark variant — this scene is dark in both themes,
             // so the light-background artwork would put black letters on a
@@ -389,10 +484,10 @@ class _SplashScreenState extends State<SplashScreen>
               child: Transform.translate(
                 offset: Offset(0, (1 - _markAnim.value) * 18),
                 child:
-                    HomegrownWordmark(width: compact ? 172 : 200, onDark: true),
+                    HomegrownWordmark(width: compact ? 128 : 150, onDark: true),
               ),
             ),
-            SizedBox(height: compact ? 16 : 22),
+            SizedBox(height: compact ? 12 : 16),
             Opacity(
               opacity: _taglineAnim.value,
               child: Transform.translate(
@@ -405,7 +500,6 @@ class _SplashScreenState extends State<SplashScreen>
       },
       child: Text(
         'Every Game\nCounts.',
-        textAlign: TextAlign.center,
         style: TextStyle(
           color: Colors.white,
           fontSize: compact ? 32 : 38,
@@ -417,74 +511,64 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  /// The rail and the CTA share one slot, cross-fading between them.
+  /// What the app does, in one line, for someone deciding whether to sign up.
   ///
-  /// A Stack rather than a swap so the slot keeps the height of the taller
-  /// child — the buttons — and nothing above it shifts when loading finishes.
-  /// Non-positioned Stack children report intrinsics, so this is safe inside
-  /// FillViewportScroll's IntrinsicHeight.
-  Widget _footer() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        AnimatedOpacity(
-          opacity: _showButtons ? 0.0 : 1.0,
-          duration: const Duration(milliseconds: 260),
-          child: _rail(),
+  /// Only shown with the welcome actions. A returning user sees this screen on
+  /// every launch on the way into the app, and a sales line every time would
+  /// be noise. Its space is held either way so nothing moves when it appears.
+  Widget _pitch(bool compact) {
+    return _rising(
+      _pitchIn,
+      Text(
+        // "Leaderboard" rather than "Elo": it is the word a newcomer already
+        // knows, and Elo is explained once they are inside.
+        'Track your stats. Get scouted by coaches. Climb the leaderboard.',
+        style: TextStyle(
+          color: _inkSoft,
+          fontSize: compact ? 13.5 : 14.5,
+          height: 1.5,
         ),
-        _actions(),
-      ],
+      ),
     );
   }
 
+  /// The loading rail, which stays on afterwards as the divider above the
+  /// welcome actions.
+  ///
+  /// The fill used to be a bare ColoredBox in a loose Stack, which gave it no
+  /// height at all: the track showed and the gold never did. StackFit.expand
+  /// hands the fill the rail's full height.
   Widget _rail() {
     return AnimatedBuilder(
-      animation: Listenable.merge([_introController, _progress]),
+      animation: Listenable.merge([_introController, _progress, _cta]),
       builder: (context, child) {
-        final percent = (_progress.value * 100).round();
         return Opacity(
           opacity: _railAnim.value,
           child: Semantics(
-            label: 'Loading',
-            // The number changes many times a second and carries nothing a
-            // screen reader user needs; the label above says all of it.
+            // Only while it means something. Once the actions are up it is a
+            // divider, and announcing "Loading" then would be wrong.
+            label: _showButtons ? null : 'Loading',
             excludeSemantics: true,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 200,
-                  height: 3,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ColoredBox(color: _railTrack),
-                        ),
-                        FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: _progress.value.clamp(0.0, 1.0),
-                          child: const ColoredBox(color: AppTheme.accent),
-                        ),
-                      ],
+            child: SizedBox(
+              key: const Key('splash-rail'),
+              height: 2,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(1),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ColoredBox(color: _railTrack),
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: _progress.value.clamp(0.0, 1.0),
+                      child: ColoredBox(
+                        color: Color.lerp(
+                            AppTheme.accent, _railDivider, _railSettle.value)!,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  '$percent%',
-                  style: TextStyle(
-                    color: _inkSoft,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.6,
-                    // Tabular figures so the digits keep their column and the
-                    // number does not jitter as it counts up.
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         );
@@ -492,53 +576,105 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
+  /// Create Account and Log in, held transparent and inert until a first
+  /// launch resolves, then risen in one after the other.
+  ///
+  /// Always laid out, so the screen does not reflow when they appear.
   Widget _actions() {
-    return AnimatedOpacity(
-      opacity: _showButtons ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 400),
-      child: AnimatedSlide(
-        offset: _showButtons ? Offset.zero : const Offset(0, 0.08),
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeOut,
-        child: IgnorePointer(
-          ignoring: !_showButtons,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: double.infinity,
+    return IgnorePointer(
+      ignoring: !_showButtons,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _rising(
+            _createIn,
+            _PressScale(
+              child: SizedBox(
                 height: 54,
                 child: ElevatedButton(
-                  onPressed: _onGetStarted,
-                  child: const Text('Get Started'),
+                  onPressed: _onCreateAccount,
+                  child: const Text('Create Account'),
                 ),
               ),
-              const SizedBox(height: 18),
-              GestureDetector(
-                onTap: _onSignIn,
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: RichText(
-                    text: TextSpan(
-                      text: 'Already have an account?  ',
-                      style: TextStyle(color: _inkSoft, fontSize: 14),
-                      children: const [
-                        TextSpan(
-                          text: 'Sign in',
-                          style: TextStyle(
-                            color: AppTheme.accent,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _rising(
+            _signInIn,
+            _PressScale(
+              child: SizedBox(
+                height: 54,
+                child: OutlinedButton(
+                  onPressed: _onSignIn,
+                  // Set here rather than taken from the theme: the light
+                  // theme's outlined button is dark gold on a pale border,
+                  // and this scene is dark in both.
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: AppTheme.accent, width: 1.5),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
+                  child: const Text('Log in'),
                 ),
               ),
-            ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Fades [child] in as [anim] runs, rising the last few pixels into place.
+  Widget _rising(Animation<double> anim, Widget child) {
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (context, child) => Opacity(
+        opacity: anim.value.clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(0, (1 - anim.value) * 10),
+          child: child,
         ),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Shrinks its child a touch while a finger is down on it.
+///
+/// The buttons' ink ripple confirms a tap after the fact; this answers the
+/// moment the finger lands, which is what makes a press feel heard.
+class _PressScale extends StatefulWidget {
+  final Widget child;
+
+  const _PressScale({required this.child});
+
+  @override
+  State<_PressScale> createState() => _PressScaleState();
+}
+
+class _PressScaleState extends State<_PressScale> {
+  bool _down = false;
+
+  void _set(bool down) {
+    if (_down != down) setState(() => _down = down);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => _set(true),
+      onPointerUp: (_) => _set(false),
+      onPointerCancel: (_) => _set(false),
+      child: AnimatedScale(
+        scale: _down ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: widget.child,
       ),
     );
   }

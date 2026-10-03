@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:iconsax/iconsax.dart';
 import '../../theme/app_theme.dart';
 
 // ── Sport intro panel data ────────────────────────────────────────
@@ -43,6 +42,21 @@ const List<_SportPanelData> _sportPanels = [
   ),
 ];
 
+/// Three full-bleed sport panels between the splash's Create Account and the
+/// registration form.
+///
+/// A Features page used to follow them: a light page of three cards pitching
+/// the dashboard, talent discovery and the venue locator. It was removed
+/// because by then the same pitch had been made twice already — on the
+/// splash's welcome screen and on the basketball panel — and because it made
+/// someone who had tapped Create Account tap Get Started as well before
+/// reaching the form. The last panel now carries Create Account itself.
+///
+/// A "What sport do you play?" page before that was removed too. It saved the
+/// answer to SharedPreferences and nothing ever read it, so registration asked
+/// for the sport again anyway — and because this runs before the role picker,
+/// it asked coaches and organizers a question meant for athletes. The
+/// role-specific registration screens own the question now.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
   @override
@@ -52,19 +66,9 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
 
-  // Three full-bleed sport intro panels, then the Features page.
-  //
-  // A "What sport do you play?" page used to follow Features. It saved the
-  // answer to SharedPreferences and nothing ever read it, so registration
-  // asked for the sport again anyway — and because this runs before the
-  // role picker, it asked coaches and organizers a question meant for
-  // athletes. The role-specific registration screens own the question now.
-  static final int _sportPanelCount = _sportPanels.length; // 3
-  static final int _totalPages = _sportPanelCount + 1; // 4
+  static final int _lastPage = _sportPanels.length - 1;
 
   int _currentPage = 0;
-
-  bool get _onSportPanel => _currentPage < _sportPanelCount;
 
   void _goToPage(int page) {
     _pageController.animateToPage(
@@ -74,23 +78,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  void _onContinue() {
-    if (_currentPage < _totalPages - 1) {
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOut,
-      );
-    } else {
-      _onGetStarted();
-    }
-  }
-
   // Deliberately records nothing. splash_screen.dart marks onboarding done
   // once it finds a signed-in user, because the splash's CTA is the only
   // route to this screen: setting the flag here stranded anyone who watched
   // the intro and then abandoned registration, since they were sent to the
   // login screen from then on and could never reach the intro again.
-  void _onGetStarted() => Get.offAllNamed('/register');
+  void _onCreateAccount() => Get.offAllNamed('/register');
 
   @override
   void dispose() {
@@ -101,75 +94,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Sport panels render full-bleed (no safe-area padding/background),
-      // so let the Stack inside each panel handle its own insets.
-      backgroundColor: AppTheme.bg,
+      // The panels' own ink rather than the theme's background. Every page is
+      // a dark photograph now, so a theme colour could only ever show as a
+      // pale flash behind one while it loads or slides.
+      backgroundColor: const Color(0xFF0A0A12),
       body: Stack(
         children: [
           PageView(
             controller: _pageController,
             onPageChanged: (i) => setState(() => _currentPage = i),
             children: [
-              for (int i = 0; i < _sportPanelCount; i++)
+              for (int i = 0; i < _sportPanels.length; i++)
                 _SportPanel(
                   data: _sportPanels[i],
-                  onAdvance: () => _goToPage(i + 1),
+                  isLast: i == _lastPage,
+                  onAdvance:
+                      i == _lastPage ? _onCreateAccount : () => _goToPage(i + 1),
                 ),
-              const _FeaturesPage(),
             ],
           ),
 
-          // Skip, so wanting an account does not cost four pages of pitch.
+          // Skip, so wanting an account does not cost three pages of pitch.
           //
-          // Shown on the sport panels only. Features is the last page and
-          // already carries a Get Started to the same destination, so a Skip
-          // beside it would be two controls doing one job — which is roughly
-          // how the original one came to be deleted: it was hidden on the
-          // last page, and once the sport-selection page went away Features
-          // became last and it could never render at all.
-          if (_onSportPanel)
+          // Hidden on the last panel, whose own button goes to the same place:
+          // a Skip beside it would be two controls doing one job.
+          if (_currentPage < _lastPage)
             Positioned(
               top: MediaQuery.of(context).padding.top + 8,
               right: 12,
-              child: _SkipButton(onTap: _onGetStarted),
+              child: _SkipButton(onTap: _onCreateAccount),
             ),
 
-          // Small progress dots over the sport panels themselves, matching
-          // the reference's per-panel indicator. Hidden on the Features
-          // page, which is the last page and carries the CTA instead.
-          if (_onSportPanel)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: MediaQuery.of(context).padding.bottom + 12,
-              child: _SportPanelDots(
-                total: _sportPanelCount,
-                current: _currentPage,
-              ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: MediaQuery.of(context).padding.bottom + 12,
+            child: _SportPanelDots(
+              total: _sportPanels.length,
+              current: _currentPage,
             ),
-
-          // The CTA for the Features page. It used to sit under a dot
-          // indicator and a Skip link, both of which only made sense while a
-          // sport-selection page followed: Features is now the last page, so
-          // the indicator would show a single dot and Skip could never
-          // render (it was hidden on the last page).
-          if (!_onSportPanel)
-            SafeArea(
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: _onContinue,
-                      child: const Text('Get Started'),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          ),
         ],
       ),
     );
@@ -216,13 +180,18 @@ class _SkipButton extends StatelessWidget {
   }
 }
 
-// ── Full-bleed sport intro panel (NEW) ────────────────────────────
+// ── Full-bleed sport intro panel ──────────────────────────────────
 class _SportPanel extends StatelessWidget {
   final _SportPanelData data;
+
+  /// The last panel's button is the way out of the intro rather than to the
+  /// next panel, and says so.
+  final bool isLast;
   final VoidCallback onAdvance;
 
   const _SportPanel({
     required this.data,
+    required this.isLast,
     required this.onAdvance,
   });
 
@@ -230,6 +199,11 @@ class _SportPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final bottomInset = MediaQuery.of(context).padding.bottom;
+
+    // Gold on the last panel, matching the splash's Create Account: it is the
+    // same action, and the one place in the intro that commits to something.
+    final buttonColor = isLast ? AppTheme.accent : Colors.white;
+    final labelColor = isLast ? AppTheme.buttonFg : const Color(0xFF0A0A12);
 
     return Stack(
       fit: StackFit.expand,
@@ -315,29 +289,30 @@ class _SportPanel extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: buttonColor,
                     borderRadius: BorderRadius.circular(30),
                   ),
-                  // "Next" on every panel. It used to read "Swipe to start" —
-                  // on a button you tap — and the last panel said "Get
-                  // Started ✓" only to open the Features page, which has the
-                  // real Get Started, so the same promise appeared twice.
-                  child: const Row(
+                  // "Next" on every panel but the last. It used to read
+                  // "Swipe to start" — on a button you tap — and the last
+                  // panel said "Get Started ✓" only to open a Features page
+                  // with another Get Started, so the same promise appeared
+                  // twice. Now the last panel's button is the real one.
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'Next',
+                        isLast ? 'Create Account' : 'Next',
                         style: TextStyle(
-                          color: Color(0xFF0A0A12),
+                          color: labelColor,
                           fontSize: 14.5,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Icon(
                         Icons.arrow_forward_rounded,
                         size: 17,
-                        color: Color(0xFF0A0A12),
+                        color: labelColor,
                       ),
                     ],
                   ),
@@ -373,158 +348,6 @@ class _SportPanelDots extends StatelessWidget {
           ),
         );
       }),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// Everything below this line is your ORIGINAL code, unchanged.
-// ══════════════════════════════════════════════════════════════════
-
-class _FeaturesPage extends StatelessWidget {
-  const _FeaturesPage();
-  final List<_FeatureItem> _features = const [
-    _FeatureItem(
-      icon: Iconsax.chart_2,
-      title: 'Performance Dashboard',
-      description:
-          'Track your game stats and see your growth with visual analytics.',
-    ),
-    _FeatureItem(
-      icon: Iconsax.cup,
-      title: 'Talent Discovery',
-      description:
-          'Get ranked by coaches through our Point-Based scoring system.',
-    ),
-    _FeatureItem(
-      icon: Iconsax.location,
-      title: 'Game Directory',
-      description: 'Find games and venues near you with our Venue Locator.',
-    ),
-  ];
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Text(
-              'HOMEGROWN',
-              style: TextStyle(
-                color: AppTheme.accent,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 3,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Your Digital\nAthletic Identity',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                height: 1.2,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Track your performance, get discovered by coaches, and find games near you.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppTheme.sub,
-                fontSize: 14,
-                height: 1.6,
-              ),
-            ),
-            const SizedBox(height: 32),
-            ..._features.map((f) => _FeatureCard(item: f)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FeatureItem {
-  final IconData icon;
-  final String title;
-  final String description;
-  const _FeatureItem({
-    required this.icon,
-    required this.title,
-    required this.description,
-  });
-}
-
-class _FeatureCard extends StatelessWidget {
-  final _FeatureItem item;
-  const _FeatureCard({required this.item});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  AppTheme.accent.withValues(alpha: 0.22),
-                  AppTheme.accent2.withValues(alpha: 0.10),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: AppTheme.accent.withValues(alpha: 0.25),
-              ),
-            ),
-            child: Center(
-              child: Icon(item.icon, size: 24, color: AppTheme.accent),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title,
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.description,
-                  style: TextStyle(
-                    color: AppTheme.sub,
-                    fontSize: 13,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

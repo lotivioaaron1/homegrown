@@ -1,0 +1,569 @@
+// lib/widgets/sport_ball_scene.dart
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import '../theme/app_theme.dart';
+
+/// The welcome scene: a basketball, a volleyball and a shuttlecock, one per
+/// sport the app covers, arriving on the splash and then hanging in the air.
+///
+/// Drawn rather than shipped as artwork so the seams can turn while the light
+/// stays put. A ball exported as a picture has its shading baked in, so
+/// spinning it spins the highlight and the shadow with it, which no ball under
+/// a fixed light does. Every ball here is lit from the same top-right point and
+/// only the seams move, which is also what makes the three read as one scene
+/// rather than three stickers.
+///
+/// It paints outside its own box on purpose. The splash places it in a padded
+/// column, where it takes whatever height is left above the text, so it can
+/// never end up behind the headline; [bleed] reaches past that column's side
+/// padding so the balls can run off the screen edges.
+///
+/// Decorative, so it is hidden from screen readers.
+class SportBallScene extends StatefulWidget {
+  /// Drives the arrival, 0 (nothing on screen) to 1 (every ball at rest).
+  ///
+  /// Each ball takes its own slice of it, so one animation staggers all three.
+  final Animation<double> entrance;
+
+  /// Whether the balls drift once they have arrived.
+  ///
+  /// Only worth it while someone is looking at the scene with nothing else
+  /// happening — the welcome state, not the launch — so the caller decides.
+  final bool idle;
+
+  /// Holds the balls perfectly still. The caller is expected to have finished
+  /// [entrance] already, which is how the splash presents its end state.
+  final bool reducedMotion;
+
+  /// How far past its left and right edges the scene paints.
+  final double bleed;
+
+  const SportBallScene({
+    super.key,
+    required this.entrance,
+    this.idle = false,
+    this.reducedMotion = false,
+    this.bleed = 0,
+  });
+
+  @override
+  State<SportBallScene> createState() => _SportBallSceneState();
+}
+
+class _SportBallSceneState extends State<SportBallScene>
+    with SingleTickerProviderStateMixin {
+  /// One loop of the idle drift. Slow enough to read as hanging in the air
+  /// rather than bobbing.
+  static const _kDriftPeriod = Duration(seconds: 6);
+
+  late final AnimationController _drift =
+      AnimationController(vsync: this, duration: _kDriftPeriod);
+
+  @override
+  void initState() {
+    super.initState();
+    _syncDrift();
+  }
+
+  @override
+  void didUpdateWidget(SportBallScene oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.idle != widget.idle ||
+        oldWidget.reducedMotion != widget.reducedMotion) {
+      _syncDrift();
+    }
+  }
+
+  void _syncDrift() {
+    if (widget.idle && !widget.reducedMotion) {
+      if (!_drift.isAnimating) _drift.repeat();
+    } else {
+      _drift.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _drift.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([widget.entrance, _drift]),
+          builder: (context, _) => CustomPaint(
+            painter: SportBallScenePainter(
+              entrance: widget.entrance.value,
+              drift: _drift.value,
+              bleed: widget.bleed,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Paints the whole scene for one moment of the arrival and the drift.
+///
+/// Public for the tests, which check it repaints only when what it shows has
+/// changed.
+class SportBallScenePainter extends CustomPainter {
+  /// 0..1, as [SportBallScene.entrance].
+  final double entrance;
+
+  /// 0..1 position in the idle loop. 0 is the rest position, so a scene that
+  /// starts drifting picks up from exactly where it stopped arriving.
+  final double drift;
+
+  /// As [SportBallScene.bleed].
+  final double bleed;
+
+  const SportBallScenePainter({
+    required this.entrance,
+    this.drift = 0,
+    this.bleed = 0,
+  });
+
+  // ── Motion ────────────────────────────────────
+  //
+  // Each ball's slice of [entrance]. They start about 120ms apart over the
+  // splash's 700ms window, so the eye can follow one at a time.
+
+  static const _kBasketball = (begin: 0.0, end: 0.72);
+  static const _kVolleyball = (begin: 0.16, end: 0.86);
+  static const _kShuttle = (begin: 0.30, end: 1.0);
+
+  /// A strong ease-out for things arriving: fast off the mark, long settle.
+  static const _kArrive = Cubic(0.23, 1, 0.32, 1);
+
+  /// Settles slightly past its mark and back, for the shuttlecock's tilt.
+  static const _kOvershoot = Cubic(0.34, 1.36, 0.64, 1);
+
+  /// How far each ball drifts while idle, in logical pixels.
+  static const _kDriftPx = 4.0;
+
+  /// Where each ball sits on its idle loop, so they never move in step.
+  static const _kDriftPhase = (basketball: 0.0, volleyball: 2.1, shuttle: 4.2);
+
+  /// Rest angles. The basketball's seams are tilted off the vertical so it
+  /// does not read as a diagram.
+  static const _kBasketballRest = -0.35;
+  static const _kShuttleRest = 0.6;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+
+    final left = -bleed;
+    final width = size.width + bleed * 2;
+    final height = size.height;
+
+    // One unit for every ball's size. Width alone would grow them into each
+    // other on a short screen; height alone would make them tiny on a narrow
+    // one. Capped so a tablet does not get beach balls.
+    final unit = math.min(math.min(width, height * 0.95), 480.0);
+
+    // Farthest first, so the basketball overlaps the volleyball and not the
+    // other way round if a very short screen ever pushes them together.
+    _volleyball(canvas, left, width, height, unit);
+    _basketball(canvas, left, width, height, unit);
+    _shuttlecock(canvas, left, width, height, unit);
+  }
+
+  void _basketball(
+      Canvas canvas, double left, double width, double height, double unit) {
+    final p = _slice(_kBasketball);
+    if (p == 0) return;
+    final r = unit * 0.29;
+    final rest = Offset(left + width * 0.22, height * 0.30);
+
+    // Dropped in from above: falls, lands, one small hop.
+    final fall = (1 - const _DropBounce().transform(p)) * r * 1.5;
+    final c = rest.translate(0, -fall + _sway(_kDriftPhase.basketball));
+    final spin = _kBasketballRest - 0.6 * (1 - _kArrive.transform(p));
+
+    _faded(canvas, p, () => paintBasketball(canvas, c, r, spin));
+  }
+
+  void _volleyball(
+      Canvas canvas, double left, double width, double height, double unit) {
+    final p = _slice(_kVolleyball);
+    if (p == 0) return;
+    final r = unit * 0.25;
+    final rest = Offset(left + width * 0.86, height * 0.56);
+
+    // Rolled in from the right. Turning by distance over radius is rolling
+    // without slipping, so the spin matches the travel exactly.
+    final travel = (1 - _kArrive.transform(p)) * r * 2.4;
+    final c = rest.translate(travel, _sway(_kDriftPhase.volleyball));
+
+    _faded(canvas, p, () => paintVolleyball(canvas, c, r, travel / r));
+  }
+
+  void _shuttlecock(
+      Canvas canvas, double left, double width, double height, double unit) {
+    final p = _slice(_kShuttle);
+    if (p == 0) return;
+    final length = unit * 0.34;
+    final rest = Offset(left + width * 0.40, height * 0.76);
+
+    // Cork first, the way a shuttlecock actually falls, with the tilt
+    // swinging slightly past its mark and back.
+    final fall = (1 - _kArrive.transform(p)) * unit * 0.45;
+    final c = rest.translate(0, -fall + _sway(_kDriftPhase.shuttle));
+    final tilt = 0.15 + (_kShuttleRest - 0.15) * _kOvershoot.transform(p);
+
+    _faded(canvas, p, () => paintShuttlecock(canvas, c, length, tilt));
+  }
+
+  /// This ball's progress through its own slice of [entrance].
+  double _slice(({double begin, double end}) s) =>
+      ((entrance - s.begin) / (s.end - s.begin)).clamp(0.0, 1.0);
+
+  /// Vertical idle offset. Zero at the start of the loop whatever the phase,
+  /// so the drift starting never makes a ball jump.
+  double _sway(double phase) =>
+      (math.sin(drift * 2 * math.pi + phase) - math.sin(phase)) * _kDriftPx;
+
+  /// Fades a ball in over the first 40% of its slice. Never scaled up from
+  /// nothing: it arrives at its full size, which is what real objects do.
+  void _faded(Canvas canvas, double p, VoidCallback paintBall) {
+    final alpha = (p / 0.4).clamp(0.0, 1.0);
+    if (alpha >= 1) {
+      paintBall();
+      return;
+    }
+    canvas.saveLayer(
+        null, Paint()..color = Colors.black.withValues(alpha: alpha));
+    paintBall();
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(SportBallScenePainter oldDelegate) =>
+      oldDelegate.entrance != entrance ||
+      oldDelegate.drift != drift ||
+      oldDelegate.bleed != bleed;
+}
+
+/// Falls under gravity, lands at 62%, and makes one small hop before settling.
+///
+/// Accelerating into the landing is deliberate here even though ease-in is
+/// wrong for interface motion: this is a ball falling, and a ball that slows
+/// down as it nears the ground reads as being lowered on a string.
+class _DropBounce extends Curve {
+  const _DropBounce();
+
+  static const _land = 0.62;
+  static const _hop = 0.12;
+
+  @override
+  double transformInternal(double t) {
+    if (t < _land) {
+      final f = t / _land;
+      return f * f;
+    }
+    final s = (t - _land) / (1 - _land);
+    return 1 - _hop * 4 * s * (1 - s);
+  }
+}
+
+// ── The balls ─────────────────────────────────────
+//
+// Each is painted in the same four passes: a base lit from the top right, the
+// seams (the only part that turns), a shadow laid over the seams so they sink
+// into the dark side instead of staying crisp across it, and a thin gold rim
+// on the lit edge — the stadium light, and the one place the brand colour
+// touches the scene.
+
+const _kInk = Color(0xFF07070C);
+
+/// Where the light hits, as a point on each ball's own box.
+const _kLight = Alignment(0.45, -0.5);
+
+Paint _seamPaint(double r) => Paint()
+  ..style = PaintingStyle.stroke
+  ..strokeWidth = math.max(1.0, r * 0.024)
+  ..strokeCap = StrokeCap.round
+  ..color = const Color(0xE60B0B0F);
+
+void _base(Canvas canvas, Offset c, double r, List<Color> colors) {
+  final rect = Rect.fromCircle(center: c, radius: r);
+  canvas.drawCircle(
+    c,
+    r,
+    Paint()
+      ..shader = RadialGradient(
+        center: _kLight,
+        radius: 0.85,
+        colors: colors,
+        stops: const [0.0, 0.3, 0.68, 1.0],
+      ).createShader(rect),
+  );
+}
+
+void _shade(Canvas canvas, Path silhouette, Rect bounds) {
+  canvas.drawPath(
+    silhouette,
+    Paint()
+      ..shader = LinearGradient(
+        begin: const Alignment(0.75, -0.75),
+        end: const Alignment(-0.85, 0.85),
+        colors: [
+          _kInk.withValues(alpha: 0),
+          _kInk.withValues(alpha: 0.18),
+          _kInk.withValues(alpha: 0.94),
+        ],
+        stops: const [0.0, 0.48, 1.0],
+      ).createShader(bounds),
+  );
+}
+
+void _rim(Canvas canvas, Offset c, double r) {
+  final stroke = math.max(1.0, r * 0.035);
+  final rect = Rect.fromCircle(center: c, radius: r - stroke / 2);
+  // Centred on the top-right, where the light is.
+  const sweep = math.pi * 0.74;
+  const start = -math.pi / 4 - sweep / 2;
+  canvas.drawArc(
+    rect,
+    start,
+    sweep,
+    false,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..shader = SweepGradient(
+        endAngle: sweep,
+        colors: [
+          AppTheme.accent.withValues(alpha: 0),
+          AppTheme.accent.withValues(alpha: 0.6),
+          AppTheme.accent.withValues(alpha: 0),
+        ],
+        transform: const GradientRotation(start),
+      ).createShader(rect),
+  );
+}
+
+/// A basketball of radius [r] centred on [c], its seams turned by [spin].
+void paintBasketball(Canvas canvas, Offset c, double r, double spin) {
+  _base(canvas, c, r, const [
+    Color(0xFFF7A35A),
+    Color(0xFFE8731E),
+    Color(0xFF8A3A0A),
+    _kInk,
+  ]);
+
+  final ball = Rect.fromCircle(center: c, radius: r);
+  final outline = Path()..addOval(ball);
+  final seam = _seamPaint(r);
+
+  canvas.save();
+  canvas.clipPath(outline);
+  canvas.translate(c.dx, c.dy);
+  canvas.rotate(spin);
+  canvas.drawLine(Offset(0, -r), Offset(0, r), seam);
+  canvas.drawLine(Offset(-r, 0), Offset(r, 0), seam);
+  // The two side seams bow in towards the middle, like brackets facing out.
+  for (final side in const [-1.0, 1.0]) {
+    canvas.drawPath(
+      Path()
+        ..moveTo(side * r * 0.66, -r * 0.82)
+        ..quadraticBezierTo(side * r * 0.18, 0, side * r * 0.66, r * 0.82),
+      seam,
+    );
+  }
+  canvas.restore();
+
+  _shade(canvas, outline, ball);
+  _rim(canvas, c, r);
+}
+
+/// A volleyball of radius [r] centred on [c], its panels turned by [spin].
+///
+/// Three seams curl out from the middle like a pinwheel, each with a second
+/// line beside it to make a panel — the silhouette people recognise from the
+/// ball itself, without drawing all eighteen panels.
+void paintVolleyball(Canvas canvas, Offset c, double r, double spin) {
+  _base(canvas, c, r, const [
+    Color(0xFFFFFFFF),
+    Color(0xFFE4E4EA),
+    Color(0xFF8C8C94),
+    _kInk,
+  ]);
+
+  final ball = Rect.fromCircle(center: c, radius: r);
+  final outline = Path()..addOval(ball);
+  final seam = _seamPaint(r);
+
+  // Each main seam is an arc of a circle that passes through the ball's
+  // centre, so it starts at the middle and curls out to the rim; three of
+  // them a third of a turn apart make the pinwheel. Where that arc meets the
+  // rim follows from the geometry: a circle of radius h centred h from the
+  // middle crosses the unit rim where 2h²(1 + cos θ) = 1.
+  const hub = 0.9;
+  final seamEnd = math.pi + math.acos(1 - 1 / (2 * hub * hub));
+  final seamRim = Offset(hub * (1 + math.cos(seamEnd)), hub * math.sin(seamEnd));
+  final rimAngle = math.atan2(seamRim.dy, seamRim.dx);
+  const third = 2 * math.pi / 3;
+
+  canvas.save();
+  canvas.clipPath(outline);
+  canvas.translate(c.dx, c.dy);
+  canvas.rotate(spin);
+  for (var k = 0; k < 3; k++) {
+    final a = k * third;
+    Rect circleAt(double turn, double radius) => Rect.fromCircle(
+        center: Offset(math.cos(turn), math.sin(turn)) * (r * hub),
+        radius: radius);
+    final seamCircle = circleAt(a, r * hub);
+
+    canvas.drawArc(seamCircle, math.pi + a, seamEnd - math.pi, false, seam);
+
+    // The sector between this seam and the next, clockwise. The panel lines
+    // are clipped to it, so each one starts on the neighbouring seam instead
+    // of floating in the middle of the ball.
+    final sector = Path()
+      ..moveTo(0, 0)
+      ..arcTo(seamCircle, math.pi + a, seamEnd - math.pi, false)
+      ..arcTo(Rect.fromCircle(center: Offset.zero, radius: r * 1.02),
+          rimAngle + a, third, false)
+      ..arcTo(circleAt(a + third, r * hub), seamEnd + a + third,
+          math.pi - seamEnd, false)
+      ..close();
+
+    canvas.save();
+    canvas.clipPath(sector);
+    // Two lines running alongside this seam split the sector into three
+    // strips, which is how a volleyball's panels actually run. They are the
+    // seam's own arc slid sideways rather than smaller circles around the
+    // same centre — those curve tighter than the seam and read as a target.
+    // Each is drawn as half a circle, far longer than shows, and left to the
+    // sector clip to trim it to rim-to-rim.
+    final across = Offset(math.cos(a), math.sin(a));
+    for (final shift in const [0.27, 0.54]) {
+      canvas.drawArc(
+        seamCircle.shift(across * (r * shift)),
+        math.pi / 2 + a,
+        math.pi * 1.5,
+        false,
+        seam,
+      );
+    }
+    canvas.restore();
+  }
+  canvas.restore();
+
+  _shade(canvas, outline, ball);
+  _rim(canvas, c, r);
+}
+
+/// A shuttlecock [length] long centred on [c], cork pointing down and turned
+/// clockwise by [tilt].
+///
+/// The light stays fixed while it turns: the geometry is built upright and
+/// then rotated as a path, so the gradients are laid on in screen space.
+void paintShuttlecock(Canvas canvas, Offset c, double length, double tilt) {
+  final w = length * 0.62; // across the open end of the skirt
+  final corkR = length * 0.17;
+  final top = -length / 2;
+  final corkC = length / 2 - corkR;
+  final bandTop = corkC - corkR * 0.35;
+  final skirtBase = corkR * 0.9; // half-width where the skirt meets the cork
+
+  final turn = Matrix4.translationValues(c.dx, c.dy, 0)..rotateZ(tilt);
+  Path placed(Path p) => p.transform(turn.storage);
+
+  // Skirt: a cone of feathers flaring from the cork to a scalloped rim.
+  const feathers = 8;
+  final skirt = Path()..moveTo(-skirtBase, bandTop);
+  skirt.lineTo(-w / 2, top + length * 0.04);
+  for (var i = 0; i < feathers; i++) {
+    final x0 = -w / 2 + w * i / feathers;
+    final x1 = -w / 2 + w * (i + 1) / feathers;
+    skirt.quadraticBezierTo((x0 + x1) / 2, top - length * 0.04, x1,
+        top + length * 0.04);
+  }
+  skirt
+    ..lineTo(skirtBase, bandTop)
+    ..close();
+
+  final cork = Path()
+    ..addArc(Rect.fromCircle(center: Offset(0, corkC), radius: corkR), 0,
+        math.pi)
+    ..lineTo(-corkR, bandTop)
+    ..lineTo(corkR, bandTop)
+    ..close();
+
+  final skirtPlaced = placed(skirt);
+  final corkPlaced = placed(cork);
+  final bounds = skirtPlaced.getBounds().expandToInclude(corkPlaced.getBounds());
+
+  canvas.drawPath(
+    skirtPlaced,
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment(0.8, -0.8),
+        end: Alignment(-0.8, 0.8),
+        colors: [Color(0xFFFFFFFF), Color(0xFFD9D9E0), Color(0xFF6E6E78)],
+      ).createShader(bounds),
+  );
+  // The cork is lit on its own box rather than the whole shuttlecock's: it
+  // sits at the shadowed end, and on the shared gradient it went black and
+  // took the shuttlecock's most recognisable part with it.
+  canvas.drawPath(
+    corkPlaced,
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment(0.8, -0.8),
+        end: Alignment(-0.8, 0.8),
+        colors: [Color(0xFFFFFDF8), Color(0xFFE2DCCF), Color(0xFF8E8778)],
+      ).createShader(corkPlaced.getBounds()),
+  );
+
+  // The band where the feathers meet the cork, in the brand gold.
+  final band = placed(Path()
+    ..addRect(
+        Rect.fromLTRB(-corkR, bandTop, corkR, bandTop + corkR * 0.34)));
+  canvas.drawPath(
+    band,
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment(0.8, -0.8),
+        end: Alignment(-0.8, 0.8),
+        colors: [AppTheme.accentLight, AppTheme.accent, AppTheme.accent2],
+      ).createShader(band.getBounds()),
+  );
+
+  // Feather shafts from the cork to each scallop, and the two rings of
+  // thread that hold them — the detail that makes it a shuttlecock and not
+  // a cone.
+  final seam = _seamPaint(length * 0.5)
+    ..strokeWidth = math.max(1.0, length * 0.012);
+  final shafts = Path();
+  for (var i = 0; i <= feathers; i++) {
+    final x = -w / 2 + w * i / feathers;
+    shafts
+      ..moveTo(-skirtBase + 2 * skirtBase * i / feathers, bandTop)
+      ..lineTo(x, top + length * 0.04);
+  }
+  for (final at in const [0.38, 0.62]) {
+    final y = bandTop + (top - bandTop) * at;
+    final half = skirtBase + (w / 2 - skirtBase) * at;
+    shafts
+      ..moveTo(-half, y)
+      ..lineTo(half, y);
+  }
+  canvas.drawPath(placed(shafts), seam);
+
+  // Only the feathers take the shared shadow, for the same reason the cork
+  // is lit on its own.
+  _shade(canvas, skirtPlaced, bounds);
+}

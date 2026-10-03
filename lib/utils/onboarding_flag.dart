@@ -3,9 +3,10 @@
 // Whether this device has already been through onboarding, as one owner of
 // one key.
 //
-// SplashScreen uses this to choose between the Get Started CTA (which is the
-// only route into /onboarding) and /login. The flag is deliberately about the
-// *device*, not the account: before sign-in there is nothing else to go on.
+// SplashScreen uses this to choose between its welcome actions (whose Create
+// Account is the only route into /onboarding) and /login. The flag is
+// deliberately about the *device*, not the account: before sign-in there is
+// nothing else to go on.
 //
 // It is marked when an account starts existing on the device — registration or
 // sign-in — rather than when the intro finishes playing. Those are different

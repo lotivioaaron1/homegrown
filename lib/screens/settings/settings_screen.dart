@@ -634,7 +634,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// only — the alternative while developing is wiping the app's data.
   ///
   /// Pushed rather than replaced so backing out returns here. Note that the
-  /// intro's own Get Started still routes on to /register, which is a little
+  /// intro's own Create Account still routes on to /register, which is a little
   /// odd when you are already signed in; acceptable for a debug shortcut.
   Future<void> _replayOnboarding() async {
     await clearOnboardingComplete();
