@@ -13,6 +13,7 @@ import '../../services/team_service.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/championships.dart';
 import '../../widgets/member_profiles.dart';
+import '../../widgets/team_standing_card.dart';
 import '../../utils/error_messages.dart';
 import '../../utils/roster_labels.dart';
 import '../../utils/sports.dart';
@@ -65,6 +66,8 @@ class _MyTeamScreenState extends State<MyTeamScreen> {
                     children: [
                   _buildTeamIdentityCard(
                       rosterCount: waiting ? null : members.length),
+                  // Where the team sits this season; opens the table.
+                  TeamStandingCard(coachId: _uid),
                   // The team's titles; nothing until it has won one.
                   TeamTitlesRow(coachId: _uid),
                   const SizedBox(height: 20),

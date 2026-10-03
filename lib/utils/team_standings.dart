@@ -212,3 +212,37 @@ String formatPct(double pct) {
   final fixed = pct.toStringAsFixed(3);
   return fixed.startsWith('0') ? fixed.substring(1) : fixed;
 }
+
+/// Point difference with its sign: `+13`, `−18` (a true minus), `0`.
+String formatDiff(int diff) =>
+    diff > 0 ? '+$diff' : diff < 0 ? '−${-diff}' : '0';
+
+/// Where [coachId]'s team sits in a [computeStandings] table, or null when it
+/// hasn't played. [tied] when another team holds the same rank.
+({TeamStanding standing, int rank, bool tied})? placeOf(
+    List<TeamStanding> table, List<int> ranks, String coachId) {
+  final i = table.indexWhere((s) => s.coachId == coachId);
+  if (i < 0) return null;
+  final rank = ranks[i];
+  return (
+    standing: table[i],
+    rank: rank,
+    tied: ranks.where((r) => r == rank).length > 1,
+  );
+}
+
+/// "3rd of 8", or "Tied 5th of 8" when the place is shared.
+String placeLabel(int rank, int teams, {bool tied = false}) {
+  final place = '$rank${_ordinalSuffix(rank)} of $teams';
+  return tied ? 'Tied $place' : place;
+}
+
+String _ordinalSuffix(int n) {
+  // 11th, 12th and 13th break the 1st/2nd/3rd pattern, and so do 111th–113th.
+  if (n % 100 >= 11 && n % 100 <= 13) return 'th';
+  return switch (n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', _ => 'th' };
+}
+
+/// A team's season in one line: "3–3 · .500 · +13".
+String recordLabel(TeamStanding s) =>
+    '${s.wins}–${s.losses} · ${formatPct(s.winPct)} · ${formatDiff(s.diff)}';

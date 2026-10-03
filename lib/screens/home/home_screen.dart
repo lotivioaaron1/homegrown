@@ -22,8 +22,10 @@ import '../../services/tournament_service.dart';
 import '../../widgets/championships.dart';
 import '../../widgets/coach_todo_card.dart';
 import '../../widgets/member_profiles.dart';
+import '../../widgets/next_game_card.dart';
 import '../../widgets/organizer_todo_card.dart';
 import '../../widgets/team_carousel.dart';
+import '../../widgets/team_standing_card.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/points_explainer_sheet.dart';
 import '../profile/edit_profile_screen.dart';
@@ -757,6 +759,13 @@ class _HomeScreenState extends State<HomeScreen> {
       _buildRoleBadge(data, role),
       const SizedBox(height: 12),
       _buildHeroCard(data, role),
+      // The soonest game, straight under the hero: Upcoming Games below is the
+      // last section on Home, so a game tomorrow used to sit under the team
+      // deck and Recent Activity. Renders nothing when there's no game; the
+      // list below still explains an empty schedule. Organizers have their
+      // own Next Event panel instead.
+      if (role == 'athlete' || role == 'coach')
+        NextGameCard(stream: _myGamesStream(role)),
       // Every role sees who has just won a tournament, for a week after the
       // final. Renders nothing the rest of the time. An organizer's own
       // tournaments are left out: their Tournaments card below already
@@ -1099,19 +1108,23 @@ class _HomeScreenState extends State<HomeScreen> {
         : role == 'coach' ? LucideIcons.binoculars : LucideIcons.calendarDays;
     final label = role == 'athlete' ? 'Athlete'
         : role == 'coach' ? 'Coach' : 'Organizer';
+    // Neutral, not gold: it is who you are, which you already know, and it
+    // sat beside a gold rank chip, a gold champions banner and a gold team
+    // deck. Leaving gold to the points, the rank and the actions is what lets
+    // those stand out.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        decoration: BoxDecoration(color: AppTheme.accentSurface,
+        decoration: BoxDecoration(color: AppTheme.cardNested,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.accent)),
+            border: Border.all(color: AppTheme.border)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, color: AppTheme.accentText, size: 12),
+          Icon(icon, color: AppTheme.sub, size: 12),
           const SizedBox(width: 6),
           Text(
             sport.isNotEmpty ? '$label · $sport' : label,
-            style: TextStyle(color: AppTheme.accentText,
+            style: TextStyle(color: AppTheme.sub,
                 fontSize: 11, fontWeight: FontWeight.w700)),
         ]),
       ),
@@ -1170,7 +1183,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 Icon(LucideIcons.info, color: AppTheme.sub, size: 12),
               ]),
               const SizedBox(height: 4),
-              Text('$points', style: const TextStyle(color: AppTheme.accent,
+              // accentText, not accent: the same gold in dark mode, a darker
+              // readable gold in light mode, where raw gold on the white card
+              // is ~1.7:1 — the fix the coach hero already had.
+              Text('$points', style: TextStyle(color: AppTheme.accentText,
                   fontSize: 36, fontWeight: FontWeight.w900, height: 1)),
               const SizedBox(height: 2),
               Text(ranked
@@ -1184,6 +1200,10 @@ class _HomeScreenState extends State<HomeScreen> {
         // ── Real city rank ──
         // No query while unranked: the answer would be a tie for first with
         // everyone else on zero, which is exactly what used to be shown.
+        //
+        // Deliberately not a link to Rankings: this is a rank by total points,
+        // while the Leaderboard ranks by sport Elo, so "#2" here opened a
+        // board saying "Your Rank 10".
         FutureBuilder<int>(
           future: ranked ? _cityRankFuture(points) : null,
           builder: (context, snap) {
@@ -1214,8 +1234,12 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: LucideIcons.activity),
         _StatPill(label: years, icon: LucideIcons.clock),
         // Said in full — a bare "Open"/"Closed" left the athlete guessing
-        // open to what.
-        _StatPill(label: isOpen ? 'Open to recruit' : 'Not recruiting',
+        // open to what, and "Not recruiting" read as if the athlete were the
+        // one recruiting. "Recruitment closed" rather than "Not open to
+        // recruitment": the longer one pushed this pill onto a second row and
+        // made the hero taller on a typical phone.
+        _StatPill(
+            label: isOpen ? 'Open to recruitment' : 'Recruitment closed',
             icon: LucideIcons.search, highlighted: isOpen),
       ]),
     ]);
@@ -1318,8 +1342,10 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('ORGANIZATION', style: TextStyle(color: AppTheme.sub,
                 fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1)),
             const SizedBox(height: 4),
+            // accentText, as in the coach and athlete heroes: raw gold on the
+            // light card is ~1.7:1.
             Text(org, maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AppTheme.accent,
+                style: TextStyle(color: AppTheme.accentText,
                     fontSize: 20, fontWeight: FontWeight.w900, height: 1.1)),
           ]),
         ),
@@ -1512,27 +1538,47 @@ class _HomeScreenState extends State<HomeScreen> {
                   fallbackSubtitle: 'Teammate',
                 )),
           ],
-          footer: GestureDetector(
-            onTap: () {
-              if (teams.length == 1 && pendingCount == 0) {
-                Get.toNamed('/team/mine', arguments: {
-                  'coachId': team.coachId,
-                  'coachName': team.coachName,
-                  'teamName': teamName,
-                });
-              } else {
-                Get.toNamed('/team/invites');
-              }
-            },
-            behavior: HitTestBehavior.opaque,
-            child: const Row(children: [
-              Text('View Team', style: TextStyle(
-                  color: AppTheme.accent, fontSize: 13,
-                  fontWeight: FontWeight.w700)),
-              SizedBox(width: 4),
-              Icon(Icons.chevron_right_rounded,
-                  color: AppTheme.accent, size: 16),
-            ]),
+          footer: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // How the team is doing, not just who is on it: the roster
+              // above rarely changes, the standing does. Loads itself and
+              // renders nothing until the team has played an official game,
+              // so a new team doesn't get one more empty card on Home.
+              TeamStandingCard(
+                coachId: team.coachId,
+                padding: EdgeInsets.zero,
+                showUnplayed: false,
+              ),
+              // accentText, not accent: raw gold on the light card is ~1.7:1.
+              // The vertical padding makes the line a 44pt tap target, as on
+              // the coach's "View Full Roster".
+              GestureDetector(
+                onTap: () {
+                  if (teams.length == 1 && pendingCount == 0) {
+                    Get.toNamed('/team/mine', arguments: {
+                      'coachId': team.coachId,
+                      'coachName': team.coachName,
+                      'teamName': teamName,
+                    });
+                  } else {
+                    Get.toNamed('/team/invites');
+                  }
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  child: Row(children: [
+                    Text('View Team', style: TextStyle(
+                        color: AppTheme.accentText, fontSize: 13,
+                        fontWeight: FontWeight.w700)),
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.accentText, size: 16),
+                  ]),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -1855,13 +1901,15 @@ class _HomeScreenState extends State<HomeScreen> {
               GestureDetector(
                 onTap: () => Get.toNamed('/events/detail',
                     arguments: {'eventId': doc.id}),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                // accentText, as on the athlete's "View Team": raw gold on the
+                // light card is ~1.7:1.
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Text('View Roster', style: TextStyle(
-                      color: AppTheme.accent, fontSize: 13,
+                      color: AppTheme.accentText, fontSize: 13,
                       fontWeight: FontWeight.w700)),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Icon(Icons.chevron_right_rounded,
-                      color: AppTheme.accent, size: 16),
+                      color: AppTheme.accentText, size: 16),
                 ]),
               ),
               // No "Record Results" here: this card only ever shows a game
@@ -2024,6 +2072,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Activity section ──────────────────────
 
+  /// The athlete's or coach's own games — shared by Upcoming Games and the
+  /// Next Game card, so the two can never disagree about whose games these
+  /// are. Firestore serves identical queries from one listener.
+  ///
+  /// Coach: an OR across teamACoachId/teamBCoachId, mirroring the query in
+  /// _showAllEventsSheet. Neither query orders in Firestore — sorting happens
+  /// client-side — so no composite index is needed for either.
+  ///
+  /// Not 10, for the organizer's reason below: both callers filter to
+  /// upcoming games, and an unordered 10 could be all past ones, which told a
+  /// coach with a game tomorrow that they had none.
+  Stream<QuerySnapshot> _myGamesStream(String role) => role == 'athlete'
+      ? FirebaseFirestore.instance.collection('events')
+          .where('playerUids', arrayContains: _uid)
+          .limit(kMaxListQuery).snapshots()
+      : FirebaseFirestore.instance.collection('events')
+          .where(Filter.or(
+            Filter('teamACoachId', isEqualTo: _uid),
+            Filter('teamBCoachId', isEqualTo: _uid),
+          ))
+          .limit(kMaxListQuery).snapshots();
+
   Widget _buildActivitySection(String role) {
     if (role == 'organizer') {
       return Padding(
@@ -2080,23 +2150,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // Coach: an OR across teamACoachId/teamBCoachId, mirroring the query in
-    // _showAllEventsSheet. Neither query orders in Firestore — sorting happens
-    // client-side below — so no composite index is needed for either.
-    //
-    // Not 10, for the organizer's reason above: the list is filtered to
-    // upcoming games below, and an unordered 10 could be all past ones, which
-    // told a coach with a game tomorrow that they had none.
-    final stream = role == 'athlete'
-        ? FirebaseFirestore.instance.collection('events')
-            .where('playerUids', arrayContains: _uid)
-            .limit(kMaxListQuery).snapshots()
-        : FirebaseFirestore.instance.collection('events')
-            .where(Filter.or(
-              Filter('teamACoachId', isEqualTo: _uid),
-              Filter('teamBCoachId', isEqualTo: _uid),
-            ))
-            .limit(kMaxListQuery).snapshots();
+    final stream = _myGamesStream(role);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -2113,11 +2167,13 @@ class _HomeScreenState extends State<HomeScreen> {
           // but seeing what is being played nearby is not.
           Widget noUpcomingGames() => _EmptyCard(
               icon: LucideIcons.activity,
+              // "games", like the section title above it — this used to say
+              // "events" under a heading that says Upcoming Games.
               title: role == 'athlete'
-                  ? "You're not in any upcoming events"
+                  ? "You're not in any upcoming games"
                   : 'No upcoming games yet',
               subtitle: role == 'athlete'
-                  ? 'An organizer will add you to events'
+                  ? 'An organizer will add you to games'
                   // No longer "check back soon": the list is now this coach's
                   // own games, so the thing they are waiting on is an
                   // organizer entering their team into one.
@@ -2515,27 +2571,38 @@ class _ActivityEntryTileState extends State<_ActivityEntryTile> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // One line: tournament games get long generated names
+                    // ("asd — Semifinal: Coach vs Tamaoyan Tigers") that
+                    // wrapped to two and outweighed the numbers below.
                     Text(s['eventName'] as String? ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             color: AppTheme.textPrimary,
                             fontSize: 13,
                             fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
+                    // The athlete's own numbers come straight after, in
+                    // full-strength text — they were the faintest line on the
+                    // row. "—" (nothing recorded) isn't worth a line.
+                    if (breakdown.isNotEmpty && breakdown != '—') ...[
+                      const SizedBox(height: 3),
+                      Text(breakdown,
+                          style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
+                    ],
+                    const SizedBox(height: 3),
                     Text('$sport · $when',
                         style: TextStyle(color: AppTheme.sub, fontSize: 11)),
-                    if (breakdown.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(breakdown,
-                          style:
-                              TextStyle(color: AppTheme.muted, fontSize: 11)),
-                    ],
                   ],
                 ),
               ),
               const SizedBox(width: 8),
+              // accentText: raw gold on the light card is ~1.7:1.
               Text('+$pts',
-                  style: const TextStyle(
-                      color: AppTheme.accent,
+                  style: TextStyle(
+                      color: AppTheme.accentText,
                       fontSize: 14,
                       fontWeight: FontWeight.w800)),
               const SizedBox(width: 6),

@@ -14,6 +14,7 @@ import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/championships.dart';
 import '../../widgets/coach_profile_sheet.dart';
 import '../../widgets/member_profiles.dart';
+import '../../widgets/team_standing_card.dart';
 
 /// An athlete's read-only view of their own team: who their coach is and
 /// who their teammates are, with tap-through to each person's profile.
@@ -72,6 +73,8 @@ class _AthleteTeamScreenState extends State<AthleteTeamScreen> {
                       _buildSectionLabel('COACH'),
                       const SizedBox(height: 10),
                       _buildCoachCard(),
+                      // Where the team sits this season; opens the table.
+                      TeamStandingCard(coachId: _coachId),
                       // The team's titles; nothing until it has won one.
                       TeamTitlesRow(coachId: _coachId),
                       const SizedBox(height: 20),

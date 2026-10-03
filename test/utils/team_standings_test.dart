@@ -294,4 +294,80 @@ void main() {
       expect(formatPct(1), '1.000');
     });
   });
+
+  group('formatDiff', () {
+    test('signs every non-zero difference', () {
+      expect(formatDiff(13), '+13');
+      expect(formatDiff(-18), '−18');
+      expect(formatDiff(0), '0');
+    });
+  });
+
+  group('placeOf', () {
+    // a 2-0, then b and c level on 0-1 by 10, then d 0-1 by 20.
+    final table = computeStandings([
+      _game('a', 'b', 60, 50),
+      _game('a', 'c', 60, 50),
+      _game('x', 'd', 70, 50),
+      _game('x', 'y', 40, 50),
+      _game('y', 'x', 60, 70),
+    ]);
+    final ranks = standingRanks(table);
+
+    test("finds the team's rank", () {
+      final place = placeOf(table, ranks, 'a')!;
+      expect(place.standing.coachId, 'a');
+      expect(place.rank, 1);
+      expect(place.tied, isFalse);
+    });
+
+    test('marks a rank shared with another team as tied', () {
+      final b = placeOf(table, ranks, 'b')!;
+      final c = placeOf(table, ranks, 'c')!;
+      expect(b.rank, c.rank);
+      expect(b.tied, isTrue);
+      expect(c.tied, isTrue);
+    });
+
+    test('is null for a team that has not played', () {
+      expect(placeOf(table, ranks, 'nobody'), isNull);
+    });
+  });
+
+  group('placeLabel', () {
+    test('uses the right ordinal suffix', () {
+      expect(placeLabel(1, 8), '1st of 8');
+      expect(placeLabel(2, 8), '2nd of 8');
+      expect(placeLabel(3, 8), '3rd of 8');
+      expect(placeLabel(4, 8), '4th of 8');
+    });
+
+    test('the teens are all "th"', () {
+      expect(placeLabel(11, 30), '11th of 30');
+      expect(placeLabel(12, 30), '12th of 30');
+      expect(placeLabel(13, 30), '13th of 30');
+    });
+
+    test('back to st, nd, rd after the teens', () {
+      expect(placeLabel(21, 30), '21st of 30');
+      expect(placeLabel(22, 30), '22nd of 30');
+      expect(placeLabel(23, 30), '23rd of 30');
+      expect(placeLabel(111, 120), '111th of 120');
+    });
+
+    test('says so when the place is shared', () {
+      expect(placeLabel(5, 8, tied: true), 'Tied 5th of 8');
+    });
+  });
+
+  group('recordLabel', () {
+    test('wins and losses, percentage, then point difference', () {
+      final table = computeStandings([
+        _game('a', 'b', 70, 65),
+        _game('b', 'a', 60, 52),
+      ]);
+      final a = table.firstWhere((s) => s.coachId == 'a');
+      expect(recordLabel(a), '1–1 · .500 · −3');
+    });
+  });
 }

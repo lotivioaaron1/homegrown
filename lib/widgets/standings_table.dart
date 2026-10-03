@@ -106,11 +106,7 @@ class StandingsTable extends StatelessWidget {
     final logoUrl = coach?['teamLogoUrl'] as String?;
     final isMine = myTeams.contains(standing.coachId);
     final diff = standing.diff;
-    final diffText = diff > 0
-        ? '+$diff'
-        : diff < 0
-            ? '−${-diff}'
-            : '0';
+    final diffText = formatDiff(diff);
     final pct = formatPct(standing.winPct);
 
     final initials = Center(
