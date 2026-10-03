@@ -25,7 +25,6 @@ import '../../widgets/member_profiles.dart';
 import '../../widgets/next_game_card.dart';
 import '../../widgets/organizer_todo_card.dart';
 import '../../widgets/team_carousel.dart';
-import '../../widgets/team_standing_card.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/points_explainer_sheet.dart';
 import '../profile/edit_profile_screen.dart';
@@ -1534,47 +1533,36 @@ class _HomeScreenState extends State<HomeScreen> {
                   fallbackSubtitle: 'Teammate',
                 )),
           ],
-          footer: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // How the team is doing, not just who is on it: the roster
-              // above rarely changes, the standing does. Loads itself and
-              // renders nothing until the team has played an official game,
-              // so a new team doesn't get one more empty card on Home.
-              TeamStandingCard(
-                coachId: team.coachId,
-                padding: EdgeInsets.zero,
-                showUnplayed: false,
-              ),
-              // accentText, not accent: raw gold on the light card is ~1.7:1.
-              // The vertical padding makes the line a 44pt tap target, as on
-              // the coach's "View Full Roster".
-              GestureDetector(
-                onTap: () {
-                  if (teams.length == 1 && pendingCount == 0) {
-                    Get.toNamed('/team/mine', arguments: {
-                      'coachId': team.coachId,
-                      'coachName': team.coachName,
-                      'teamName': teamName,
-                    });
-                  } else {
-                    Get.toNamed('/team/invites');
-                  }
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  child: Row(children: [
-                    Text('View Team', style: TextStyle(
-                        color: AppTheme.accentText, fontSize: 13,
-                        fontWeight: FontWeight.w700)),
-                    const SizedBox(width: 4),
-                    Icon(Icons.chevron_right_rounded,
-                        color: AppTheme.accentText, size: 16),
-                  ]),
-                ),
-              ),
-            ],
+          // No standing card here: the team screen this opens shows it, and
+          // on Home it only repeated that.
+          //
+          // accentText, not accent: raw gold on the light card is ~1.7:1.
+          // The vertical padding makes the line a 44pt tap target, as on
+          // the coach's "View Full Roster".
+          footer: GestureDetector(
+            onTap: () {
+              if (teams.length == 1 && pendingCount == 0) {
+                Get.toNamed('/team/mine', arguments: {
+                  'coachId': team.coachId,
+                  'coachName': team.coachName,
+                  'teamName': teamName,
+                });
+              } else {
+                Get.toNamed('/team/invites');
+              }
+            },
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              child: Row(children: [
+                Text('View Team', style: TextStyle(
+                    color: AppTheme.accentText, fontSize: 13,
+                    fontWeight: FontWeight.w700)),
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right_rounded,
+                    color: AppTheme.accentText, size: 16),
+              ]),
+            ),
           ),
         );
       },

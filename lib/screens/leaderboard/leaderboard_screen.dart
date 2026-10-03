@@ -134,7 +134,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         // Team standings for the sport on show. Labelled rather than
         // icon-only: it's the only way into that table.
         GestureDetector(
-          onTap: () => Get.toNamed('/standings', arguments: _filter),
+          onTap: () =>
+              Get.toNamed('/standings', arguments: {'sport': _filter}),
           child: Container(
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 12),

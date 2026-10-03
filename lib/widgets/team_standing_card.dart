@@ -30,7 +30,9 @@ class TeamStandingLine {
 
 /// Where a coach's team sits this season, on the team screens (the coach's
 /// My Team and an athlete's view of their team). Tapping a line opens that
-/// sport's full table, which highlights the viewer's team.
+/// sport's full table, locked to it — a team plays one sport, so the other
+/// sports' chips would only lead away from it — with the viewer's team
+/// highlighted.
 ///
 /// Loads itself, like TeamTitlesRow. Shows a placeholder while loading and
 /// nothing at all if loading fails: the standing is extra, and must never get
@@ -41,16 +43,10 @@ class TeamStandingCard extends StatefulWidget {
   /// Space around the card, applied only when there is a card to show.
   final EdgeInsets padding;
 
-  /// Whether a team with no official game this season still gets its
-  /// "No official games yet" line. The team screens keep it, as their way
-  /// into the standings; Home drops it rather than add another empty state.
-  final bool showUnplayed;
-
   const TeamStandingCard({
     super.key,
     required this.coachId,
     this.padding = const EdgeInsets.only(top: 12),
-    this.showUnplayed = true,
   });
 
   @override
@@ -95,15 +91,12 @@ class _TeamStandingCardState extends State<TeamStandingCard> {
         }
         final lines = snapshot.data ?? const [];
         if (snapshot.hasError || lines.isEmpty) return const SizedBox.shrink();
-        // linesToShow only keeps an unplayed line when nothing was played.
-        if (!widget.showUnplayed && lines.every((l) => l.place == null)) {
-          return const SizedBox.shrink();
-        }
         return Padding(
           padding: widget.padding,
           child: TeamStandingView(
             lines: lines,
-            onOpen: (sport) => Get.toNamed('/standings', arguments: sport),
+            onOpen: (sport) => Get.toNamed('/standings',
+                arguments: {'sport': sport, 'lockSport': true}),
           ),
         );
       },

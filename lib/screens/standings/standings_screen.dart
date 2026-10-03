@@ -23,8 +23,13 @@ const Map<String, String> _kSportEmoji = {
 };
 
 /// One season's table for one sport: every coach's team that played an
-/// official game, ranked by record. Opened from the Leaderboard's Teams
-/// button, which passes the sport it was showing as `Get.arguments`.
+/// official game, ranked by record.
+///
+/// `Get.arguments` is `{'sport': String, 'lockSport': bool?}`. The
+/// Leaderboard's Teams button passes the sport it was showing and leaves the
+/// other sports a chip away. A team screen's standing card also locks it,
+/// hiding the sport chips: a team plays one sport, and from the team the
+/// question is only how that team is doing.
 class StandingsScreen extends StatefulWidget {
   const StandingsScreen({super.key});
 
@@ -55,6 +60,9 @@ class _StandingsScreenState extends State<StandingsScreen> {
   late int _season;
   late Future<_Board> _board;
 
+  /// Opened from a team, so the sport chips are hidden.
+  late final bool _sportLocked;
+
   /// The coaches whose teams count as the viewer's: their own uid (a coach's
   /// team is keyed by the coach) plus the coaches of any team they play for.
   /// Empty for an organizer. Only drives the highlight, so a failed read
@@ -64,8 +72,11 @@ class _StandingsScreenState extends State<StandingsScreen> {
   @override
   void initState() {
     super.initState();
-    final arg = Get.arguments;
-    _sport = arg is String && _kSports.contains(arg) ? arg : _kSports.first;
+    final args = Get.arguments;
+    final sport = args is Map ? args['sport'] : null;
+    _sport =
+        sport is String && _kSports.contains(sport) ? sport : _kSports.first;
+    _sportLocked = args is Map && args['lockSport'] == true;
     _season = _seasons.first;
     _board = _load();
     _loadMyTeams();
@@ -115,7 +126,7 @@ class _StandingsScreenState extends State<StandingsScreen> {
       body: SafeArea(
         child: Column(children: [
           _buildTopBar(),
-          _buildSportRow(),
+          if (!_sportLocked) _buildSportRow(),
           if (_seasons.length > 1) _buildSeasonRow(),
           _buildBasis(),
           Expanded(child: _buildBody()),
@@ -142,7 +153,8 @@ class _StandingsScreenState extends State<StandingsScreen> {
           ),
         ),
         const SizedBox(width: 12),
-        Text('Standings',
+        // Locked, there is no chip left naming the sport, so the title does.
+        Text(_sportLocked ? '$_sport Standings' : 'Standings',
             style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: 18,
