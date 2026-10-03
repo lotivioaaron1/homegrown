@@ -77,3 +77,6 @@ serviceAccount*.json
 # Build-time --dart-define values (the Maps web-services key).
 # The .example file is the tracked template; the real one never is.
 dart_defines.json
+
+# Manuscript working notes: kept locally, never published (docs/ is the public website)
+docs/implementation-audit.md
