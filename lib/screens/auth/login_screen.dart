@@ -43,10 +43,17 @@ class _LoginScreenState extends State<LoginScreen> {
   /// problem — it is created and destroyed with the screen.
   String _error = '';
 
-  static const _kRadius       = 16.0;
-  static const _kSheetRadius  = 28.0;
-  static const _kErrorRed     = Color(0xFFFF5C5C);
-  static const _kMaxFormWidth = 440.0; // caps width on tablets/large screens
+  /// Natural height of the form, read once after the first frame so the
+  /// photograph can be sized from what is left. Null until then.
+  double? _formHeight;
+
+  static const _kRadius         = 16.0;
+  static const _kSheetRadius    = 28.0;
+  static const _kSheetPadTop    = 26.0;
+  static const _kSheetPadBottom = 28.0;
+  static const _kMinHero        = 150.0; // below this the photo is a sliver
+  static const _kErrorRed       = Color(0xFFFF5C5C);
+  static const _kMaxFormWidth   = 440.0; // caps width on tablets/large screens
 
   /// Login's own photograph rather than one of the onboarding panels, which is
   /// where this used to point — tapping through onboarding into login showed
@@ -55,6 +62,19 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Landscape (3:2), deliberately: the hero is a wide band, so a portrait
   /// frame has to be crop-biased into it by hand. This one needs no bias.
   static const _kHeroAsset = 'assets/images/auth_hero_court.jpg';
+
+  @override
+  void initState() {
+    super.initState();
+    // Once only, and before any error banner can exist, so a failed sign-in
+    // pushes the sheet's content down rather than making the photograph jump.
+    // The Form sits under Center in an unbounded scroll view, so its size is
+    // the form's natural height, not the sheet's minHeight stretch.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final height = _formKey.currentContext?.size?.height;
+      if (mounted && height != null) setState(() => _formHeight = height);
+    });
+  }
 
   @override
   void dispose() {
@@ -118,15 +138,33 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
+    // viewPadding rather than padding: padding drops to zero while the
+    // keyboard is up, which would resize the pinned photograph under it.
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
-    // Shorter devices give the photograph less room so the form is not pushed
-    // into a scroll fight with the keyboard.
-    // Sized so the sign-up link still clears the fold on a normal phone.
-    // At 0.38 the photograph looked better in isolation but pushed the only
-    // route to registration off the bottom of the screen, which is a poor
-    // trade on the screen a new user lands on by mistake.
-    final heroHeight = (size.height * (size.height < 700 ? 0.28 : 0.34))
+    // The photograph's preferred size, and its ceiling. Shorter devices give
+    // it less room so the form is not pushed into a scroll fight with the
+    // keyboard.
+    final fullHero = (size.height * (size.height < 700 ? 0.28 : 0.34))
         .clamp(170.0, 310.0);
+
+    // The photograph yields to the form, not the other way round. A fixed
+    // share of the screen left the sign-up link — the only route to
+    // registration, on the screen a new user lands on by mistake — below the
+    // fold on most Android phones, and under the gesture bar even once
+    // scrolled. So once the form has been measured the photograph takes only
+    // what the form leaves, down to a floor; on a phone with room to spare
+    // that is still fullHero, and nothing changes. The first frame uses
+    // fullHero, which lands inside the route's entry transition.
+    final heroHeight = _formHeight == null
+        ? fullHero
+        : (size.height -
+                _formHeight! -
+                _kSheetPadTop -
+                _kSheetPadBottom -
+                bottomInset +
+                _kSheetRadius)
+            .clamp(_kMinHero, fullHero);
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
@@ -176,7 +214,10 @@ class _LoginScreenState extends State<LoginScreen> {
           top: Radius.circular(_kSheetRadius),
         ),
       ),
-      padding: const EdgeInsets.fromLTRB(24, 26, 24, 28),
+      // The sheet runs under the system navigation bar, edge to edge, but its
+      // content stops above it.
+      padding: EdgeInsets.fromLTRB(24, _kSheetPadTop, 24,
+          _kSheetPadBottom + MediaQuery.viewPaddingOf(context).bottom),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: _kMaxFormWidth),

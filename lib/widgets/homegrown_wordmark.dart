@@ -33,6 +33,9 @@ class HomegrownWordmark extends StatelessWidget {
     this.onDark = false,
   });
 
+  /// Both variants are 623 × 192.
+  static const _kAspect = 623 / 192;
+
   @override
   Widget build(BuildContext context) {
     final useDarkVariant =
@@ -43,6 +46,10 @@ class HomegrownWordmark extends StatelessWidget {
           ? 'assets/images/wordmark_on_dark.png'
           : 'assets/images/wordmark_on_light.png',
       width: width,
+      // Stated rather than left to the decoded image. Without it the mark is
+      // zero pixels tall until the PNG decodes, so the first frame lays out
+      // without it — which is the frame login measures its form on.
+      height: width / _kAspect,
       fit: BoxFit.contain,
       // Read aloud as the brand name rather than announced as an image.
       semanticLabel: 'Homegrown',
