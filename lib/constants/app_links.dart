@@ -4,17 +4,24 @@ import 'package:url_launcher/url_launcher.dart';
 
 /// Public web pages the app links out to.
 ///
-/// Both are served by GitHub Pages from the `docs/` folder of this repository
-/// (Settings → Pages → Deploy from a branch → main → /docs). Google Play
+/// All three are served by GitHub Pages from the `docs/` folder of this
+/// repository (Settings → Pages → Deploy from a branch → main → /docs), so a
+/// change to one of those pages is live only once it reaches main. Google Play
 /// requires the privacy policy to be reachable from inside the app as well as
 /// from the store listing, and requires the deletion page to work for people
 /// who have already uninstalled.
 ///
-/// If the repository is ever renamed or moved, these are the only two strings
+/// If the repository is ever renamed or moved, these are the only strings
 /// that need updating — and the Play Console listing needs the same change.
 class AppLinks {
   static const String privacyPolicy =
       'https://lotivioaaron1.github.io/homegrown/privacy-policy.html';
+
+  /// The rules for using the app — conduct, content, moderation, and that
+  /// games are played at your own risk. Agreed to at registration alongside
+  /// the privacy policy.
+  static const String terms =
+      'https://lotivioaaron1.github.io/homegrown/terms.html';
 
   static const String deleteAccountRequest =
       'https://lotivioaaron1.github.io/homegrown/delete-account.html';

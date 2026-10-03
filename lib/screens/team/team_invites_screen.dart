@@ -43,13 +43,14 @@ class _TeamInvitesScreenState extends State<TeamInvitesScreen> {
       // Joining a team is the moment an athlete has been waiting for; it used
       // to pass in silence, with the card simply moving down the page.
       Get.snackbar('Welcome to $teamName!',
-          "You're on Coach ${invite.coachName}'s roster now.",
+          "You're on Coach ${invite.coachName}'s roster now, so you're no "
+          'longer listed as open to recruitment.',
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: AppTheme.successSurface,
           colorText: AppTheme.successText,
           margin: const EdgeInsets.all(16),
           borderRadius: 12,
-          duration: const Duration(seconds: 3));
+          duration: const Duration(seconds: 4));
     } on TeamFullException {
       Get.snackbar('Team Full',
           'Sorry — this team just reached its roster limit.',

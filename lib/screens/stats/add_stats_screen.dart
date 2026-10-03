@@ -10,13 +10,16 @@ import '../../services/notification_service.dart';
 import '../../services/rating_service.dart';
 import '../../services/team_service.dart';
 import '../../utils/event_history.dart';
+import '../../utils/event_types.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/match_players.dart';
+import '../../utils/stat_limits.dart';
 import '../../utils/stat_scoring.dart';
 import '../../utils/error_messages.dart';
 import '../../widgets/member_profiles.dart';
+import '../../widgets/organizer_guide_sheet.dart';
 import '../../widgets/player_avatar.dart';
 const _kRadius   = 14.0;
-const _kErrorRed = Color(0xFFFF5C5C);
 class AddStatsScreen extends StatefulWidget {
   const AddStatsScreen({super.key});
   @override
@@ -35,8 +38,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
   /// key-by-key when the stat entry is written.
   String? _selectedPlayerPhotoUrl;
   Set<String> _submittedUids = {};
+  /// Each athlete's basketball points already saved for the selected match,
+  /// so teammates can't be given more than their team scored between them.
+  Map<String, int> _enteredByAthlete = {};
   List<QueryDocumentSnapshot> _pendingMatches = [];
   String? _selectedMatchId;
+  bool _openingEvent = false;
   final _ptsCtrl = TextEditingController();
   final _astCtrl = TextEditingController();
   final _rebCtrl = TextEditingController();
@@ -98,30 +105,302 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     }
     return {};
   }
+  /// False for a tune-up: its stats are kept, but it awards no points and
+  /// moves no one's Elo.
+  bool get _ranked =>
+      countsTowardRankings(_selectedEvent?['eventType'] as String?);
   int _calcPoints() {
+    if (!_ranked) return 0;
     final sport = _selectedEvent?['sport'] as String? ?? '';
     return calcPointsAwarded(sport, _buildStatsData(sport));
   }
   double _n(TextEditingController c) =>
       double.tryParse(c.text.trim()) ?? 0;
-  Future<void> _loadSubmitted(String eventId) async {
+  Map<String, dynamic>? get _selectedMatch => _pendingMatches
+      .where((d) => d.id == _selectedMatchId)
+      .firstOrNull
+      ?.data() as Map<String, dynamic>?;
+
+  /// The event's players who actually played the selected match, so nobody
+  /// who sat out can be given stats for it.
+  List<Map<String, dynamic>> get _matchPlayers {
+    final all = (_selectedEvent?['players'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+    final match = _selectedMatch;
+    return match == null ? all : playersInMatch(all, match);
+  }
+
+  String get _teamAName =>
+      _selectedEvent?['teamAName'] as String? ?? 'Team A';
+  String get _teamBName =>
+      _selectedEvent?['teamBName'] as String? ?? 'Team B';
+
+  @override
+  void initState() {
+    super.initState();
+    final eventId = (Get.arguments as Map?)?['eventId'] as String?;
+    if (eventId != null && eventId.isNotEmpty) _openPresetEvent(eventId);
+  }
+
+  /// Opens straight onto one game. Record Match, the event page and Home's
+  /// to-do all hand the organizer over this way, so they don't have to find
+  /// the game again in a list a tournament may have filled.
+  Future<void> _openPresetEvent(String eventId) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('events').doc(eventId).get();
+      final ev = doc.data();
+      if (ev != null && mounted) await _openEvent({...ev, 'eventId': doc.id});
+    } catch (e) {
+      _snack('Error', friendlyError(e), isError: true);
+    }
+  }
+
+  /// Stats always belong to a recorded match, so the match is settled as
+  /// soon as the event is picked: none sends the organizer to record one,
+  /// one is taken as is, and several are chosen between.
+  Future<void> _openEvent(Map<String, dynamic> ev,
+      {bool afterRecording = false}) async {
+    if (_openingEvent) return;
+    final eventId = ev['eventId'] as String;
+    setState(() => _openingEvent = true);
+    List<QueryDocumentSnapshot>? matches;
+    try {
+      matches =
+          (await RatingService.pendingMatchesForEvent(eventId).first).docs;
+    } catch (e) {
+      _snack('Error', friendlyError(e), isError: true);
+    } finally {
+      if (mounted) setState(() => _openingEvent = false);
+    }
+    if (matches == null || !mounted) return;
+
+    if (matches.isEmpty) {
+      // No pending match on a game with a result means its match already
+      // closed: every player's stats are in. Offering Record Match here only
+      // led to "Already recorded", which read as stats being impossible.
+      if (hasResult(ev)) {
+        _showStatsAlreadyIn(ev);
+        return;
+      }
+      // After a trip to Record Match that didn't record anything, stay
+      // quiet rather than asking the same question again.
+      if (!afterRecording && await _offerRecordMatch()) {
+        await Get.toNamed('/matches/record', arguments: {'eventId': eventId});
+        if (mounted) await _openEvent(ev, afterRecording: true);
+      }
+      return;
+    }
+
+    final matchId = matches.length == 1
+        ? matches.first.id
+        : await _chooseMatch(matches);
+    if (matchId == null || !mounted) return;
+    setState(() {
+      _selectedEvent = ev;
+      _pendingMatches = matches!;
+      _selectedMatchId = matchId;
+      _step = 1;
+    });
+    await _loadSubmitted(matchId);
+    // Every stat line is in but the match never closed: the ratings update
+    // failed after the last save. Opening the game again is the retry.
+    final players = _matchPlayers;
+    if (mounted && players.isNotEmpty &&
+        _doneCount(players) == players.length) {
+      try {
+        if (await _maybeFinalizeMatch(matchId)) _showAllStatsIn();
+      } catch (e) {
+        _snack('Error', friendlyError(e), isError: true);
+      }
+    }
+  }
+
+  int _doneCount(List<Map<String, dynamic>> players) =>
+      players.where((p) => _submittedUids.contains(p['uid'])).length;
+
+  /// The end of a game's paperwork, said plainly: the organizer is otherwise
+  /// never told that the last save is what updated everyone's rating.
+  void _showAllStatsIn() {
+    if (!mounted) return;
+    final ranked = _ranked;
+    final name = _selectedEvent?['name'] as String? ?? 'this game';
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('All stats in', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            ranked
+                ? "Every player's stats for $name are saved, and their ratings "
+                    'have been updated. This game is complete.'
+                : "Every player's stats for $name are saved. Tune-ups don't "
+                    'change ratings, so this game is now closed.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Done', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14,
+                fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    // Back to the list of games: this one no longer needs anything.
+    setState(() {
+      _step = 0;
+      _selectedEvent = null;
+      _selectedTeam = null;
+      _selectedPlayer = null;
+      _selectedPlayerPhotoUrl = null;
+      _submittedUids = {};
+      _pendingMatches = [];
+      _selectedMatchId = null;
+    });
+  }
+
+  /// For a game opened after its stats were finished. Not [_showAllStatsIn],
+  /// which reads the selected event and resets the screen, neither of which
+  /// applies before a game is opened.
+  void _showStatsAlreadyIn(Map<String, dynamic> ev) {
+    final name = ev['name'] as String? ?? 'this game';
+    final ranked = countsTowardRankings(ev['eventType'] as String?);
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('All stats are in', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            ranked
+                ? "Every player's stats for $name are already saved, and their "
+                    "ratings have been updated. There's nothing left to add "
+                    'for this game.'
+                : "Every player's stats for $name are already saved. There's "
+                    'nothing left to add for this game.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Done', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14,
+                fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool> _offerRecordMatch() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('No recorded match yet', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            'Stats are added for a recorded match. Record the final score '
+            "first, then add each player's stats.",
+            style: TextStyle(color: AppTheme.sub, fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text('Not now',
+                style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Record Match', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14,
+                fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    return go ?? false;
+  }
+
+  Future<String?> _chooseMatch(List<QueryDocumentSnapshot> matches) {
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppTheme.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(top: 12),
+                decoration: BoxDecoration(color: AppTheme.border,
+                    borderRadius: BorderRadius.circular(2))),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 2),
+              child: Text('Which match are these stats for?', style: TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 16,
+                  fontWeight: FontWeight.w800)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text('This event has more than one recorded match.',
+                  style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+            ),
+            for (final doc in matches)
+              Builder(builder: (_) {
+                final m = doc.data() as Map<String, dynamic>;
+                final a = (m['sideA'] as List? ?? const []).length;
+                final b = (m['sideB'] as List? ?? const []).length;
+                return ListTile(
+                  leading: const Icon(Icons.sports_score_rounded,
+                      color: AppTheme.accent),
+                  title: Text(
+                      matchLabel(m, nameA: _teamAName, nameB: _teamBName),
+                      style: TextStyle(color: AppTheme.textPrimary,
+                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: Text('$a vs $b players',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                  onTap: () => Navigator.pop(sheetContext, doc.id),
+                );
+              }),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _loadSubmitted(String matchId) async {
     try {
       final snap = await FirebaseFirestore.instance
           .collection('stats')
-          .where('eventId', isEqualTo: eventId)
+          .where('matchId', isEqualTo: matchId)
           .get();
       if (mounted) {
         setState(() {
           _submittedUids = snap.docs
               .map((d) => d['athleteId'] as String)
               .toSet();
+          _enteredByAthlete = {
+            for (final d in snap.docs)
+              d['athleteId'] as String:
+                  ((d.data()['stats'] as Map?)?['points'] as num?)?.toInt() ??
+                      0,
+          };
         });
       }
     } catch (_) {}
-  }
-  Future<void> _loadPendingMatches(String eventId) async {
-    final snap = await RatingService.pendingMatchesForEvent(eventId).first;
-    if (mounted) setState(() => _pendingMatches = snap.docs);
   }
   void _clearStats() {
     for (final c in [
@@ -131,15 +410,67 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     ]) { c.clear(); }
     _matchWon = false;
   }
+  /// The limit on the selected player's points (basketball) or sets
+  /// (badminton) in this match; null when the sport isn't capped.
+  ScoreCap? get _scoreCap {
+    final match = _selectedMatch;
+    final uid = _selectedPlayer?['uid'] as String?;
+    if (match == null || uid == null) return null;
+    return scoreCapFor(
+      sport: _selectedEvent?['sport'] as String? ?? '',
+      match: match,
+      athleteId: uid,
+      nameA: _teamAName,
+      nameB: _teamBName,
+      enteredByAthlete: _enteredByAthlete,
+    );
+  }
+
+  /// Why the capped stat as typed can't be saved, or null.
+  String? get _capError {
+    final cap = _scoreCap;
+    if (cap == null) return null;
+    final ctrl = cap.statKey == 'setsWon' ? _setsCtrl : _ptsCtrl;
+    return scoreCapError(cap, _n(ctrl).toInt());
+  }
+
+  /// Whether badminton's Win/Loss comes from the recorded result. Only an
+  /// event without recorded sides leaves it to the organizer.
+  bool get _resultLocked {
+    final match = _selectedMatch;
+    final uid = _selectedPlayer?['uid'] as String?;
+    return match != null && uid != null && matchWonFor(match, uid) != null;
+  }
+
+  /// Badminton's Win/Loss and Sets Won follow from the recorded result, so
+  /// they're filled in rather than left to be got wrong.
+  void _prefillFromResult() {
+    if (_selectedEvent?['sport'] != 'Badminton') return;
+    final match = _selectedMatch;
+    final uid = _selectedPlayer?['uid'] as String?;
+    if (match == null || uid == null) return;
+    final won = matchWonFor(match, uid);
+    if (won != null) _matchWon = won;
+    final cap = _scoreCap;
+    if (cap != null) _setsCtrl.text = '${cap.teamScore}';
+  }
+
   Future<void> _saveStats() async {
+    // The button is disabled while this is set; this is the backstop.
+    final capError = _capError;
+    if (capError != null) {
+      _snack('Check the stats', capError, isError: true);
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final statId     = const Uuid().v4();
       final sport      = _selectedEvent!['sport'] as String;
       final statsData  = _buildStatsData(sport);
-      final points     = calcPointsAwarded(sport, statsData);
+      final ranked     = _ranked;
+      final points     = ranked ? calcPointsAwarded(sport, statsData) : 0;
       final athleteId  = _selectedPlayer!['uid'] as String;
-      final matchId    = _selectedMatchId;
+      final matchId    = _selectedMatchId!;
       final batch = FirebaseFirestore.instance.batch();
       batch.set(
         FirebaseFirestore.instance.collection('stats').doc(statId),
@@ -160,10 +491,13 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           'createdAt':     FieldValue.serverTimestamp(),
         },
       );
-      batch.update(
-        FirebaseFirestore.instance.collection('users').doc(athleteId),
-        {'points': FieldValue.increment(points)},
-      );
+      // A tune-up leaves the athlete's points where they were.
+      if (ranked) {
+        batch.update(
+          FirebaseFirestore.instance.collection('users').doc(athleteId),
+          {'points': FieldValue.increment(points)},
+        );
+      }
       // NEW: notify the athlete that their stats were recorded.
       // Included in the same batch so it can never be created
       // without the stats/points write actually succeeding.
@@ -171,24 +505,55 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         userId: athleteId,
         type: 'stats_added',
         title: 'Stats recorded',
-        body:
-            'You earned $points points in ${_selectedEvent!['name']}',
+        body: ranked
+            ? 'You earned $points points in ${_selectedEvent!['name']}'
+            : 'Your stats from ${_selectedEvent!['name']} were recorded. '
+                "Tune-ups don't earn points.",
         relatedId: statId,
         writeBatch: batch,
       );
       await batch.commit();
-      if (matchId != null) await _maybeFinalizeMatch(matchId);
+      // Read before the selection is cleared below.
+      final playerName = _selectedPlayer!['fullName'] as String? ?? 'Player';
       if (!mounted) return;
+      // Marked done as soon as the stat line is saved, before the ratings
+      // step: re-entering a player whose line already exists would save it
+      // twice and double their points.
       setState(() {
         _submittedUids.add(athleteId);
-        _step = _titles.indexOf('Select Player');
+        _enteredByAthlete[athleteId] =
+            (statsData['points'] as num?)?.toInt() ?? 0;
+        // A finished team goes back to the team list, where the other
+        // team's progress shows; otherwise on to this team's next player.
+        final teamDone = _selectedTeam != null &&
+            _matchPlayers
+                .where((p) => p['team'] == _selectedTeam)
+                .every((p) => _submittedUids.contains(p['uid']));
+        _step = _titles.indexOf(teamDone ? 'Select Team' : 'Select Player');
         _selectedPlayer = null;
         _selectedPlayerPhotoUrl = null;
         _clearStats();
       });
+      final bool finalized;
+      try {
+        finalized = await _maybeFinalizeMatch(matchId);
+      } catch (e) {
+        _snack('Ratings not updated yet',
+            "$playerName's stats are saved, but the ratings update didn't go "
+                'through. Open this game again in Add Stats to retry.',
+            isError: true);
+        return;
+      }
+      if (!mounted) return;
+      if (finalized) {
+        _showAllStatsIn();
+        return;
+      }
       Get.snackbar(
         'Stats Saved! ⭐',
-        '${_selectedPlayer?['fullName'] ?? 'Player'} earned $points points',
+        ranked
+            ? '$playerName earned $points points'
+            : "$playerName's stats are saved",
         snackPosition:   SnackPosition.BOTTOM,
         backgroundColor: AppTheme.accentSurface,
         colorText:       AppTheme.accentText,
@@ -203,23 +568,24 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     }
   }
   /// Once every participant of [matchId] has a stats entry, applies the
-  /// Elo/MMR update to their ratings.
-  Future<void> _maybeFinalizeMatch(String matchId) async {
+  /// Elo/MMR update to their ratings. True when that closed the match.
+  Future<bool> _maybeFinalizeMatch(String matchId) async {
     final matchDoc = _pendingMatches.where((d) => d.id == matchId).firstOrNull;
-    if (matchDoc == null) return;
+    if (matchDoc == null) return false;
     final matchData = matchDoc.data() as Map<String, dynamic>;
     final participants = [
       ...List<String>.from(matchData['sideA'] as List? ?? []),
       ...List<String>.from(matchData['sideB'] as List? ?? []),
     ];
     final complete = await RatingService.allStatsSubmitted(matchId, participants);
-    if (complete) await RatingService.finalizeMatch(matchId);
+    if (complete) await RatingService.finalizeMatch(matchId, ranked: _ranked);
+    return complete;
   }
   void _snack(String t, String m, {bool isError = false}) {
     Get.snackbar(t, m,
       snackPosition:   SnackPosition.BOTTOM,
-      backgroundColor: isError ? const Color(0xFF2A1A1A) : AppTheme.card,
-      colorText:       isError ? _kErrorRed : AppTheme.textPrimary,
+      backgroundColor: isError ? AppTheme.errorSurface : AppTheme.card,
+      colorText:       isError ? AppTheme.errorText : AppTheme.textPrimary,
       margin:          const EdgeInsets.all(16),
       borderRadius:    12,
       duration:        const Duration(seconds: 3));
@@ -291,6 +657,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
           Text(titles[_step], style: TextStyle(color: AppTheme.sub, fontSize: 12)),
         ]),
         const Spacer(),
+        IconButton(
+          tooltip: 'How running a game works',
+          onPressed: () => showOrganizerGuideSheet(context),
+          icon: Icon(Icons.help_outline_rounded,
+              color: AppTheme.sub, size: 20),
+        ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
@@ -369,9 +741,19 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 padding: const EdgeInsets.only(bottom: 4),
                 // Not "Upcoming": finished games are listed here too, and they
                 // are the ones stats are for.
-                child: Text('Your Events',
-                  style: TextStyle(color: AppTheme.sub, fontSize: 12,
-                      fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Your Events',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12,
+                          fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                    if (_openingEvent) ...[
+                      const SizedBox(height: 8),
+                      const LinearProgressIndicator(
+                          minHeight: 2, color: AppTheme.accent),
+                    ],
+                  ],
+                ),
               );
             }
             final ev   = events[i - 1].data() as Map<String, dynamic>;
@@ -381,11 +763,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 : 'No date';
 
             return GestureDetector(
-              onTap: () async {
-                setState(() { _selectedEvent = ev; _step = 1; });
-                await _loadSubmitted(ev['eventId'] as String);
-                await _loadPendingMatches(ev['eventId'] as String);
-              },
+              onTap: () => _openEvent(ev),
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -432,25 +810,25 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     );
   }
   Widget _buildTeamStep() {
-    final players = (_selectedEvent?['players'] as List? ?? [])
-        .cast<Map<String, dynamic>>();
-    final teamAName = _selectedEvent?['teamAName'] as String? ?? 'Team A';
-    final teamBName = _selectedEvent?['teamBName'] as String? ?? 'Team B';
-    final countA = players.where((p) => p['team'] == 'A').length;
-    final countB = players.where((p) => p['team'] == 'B').length;
+    final players = _matchPlayers;
+    final teamAName = _teamAName;
+    final teamBName = _teamBName;
+    final teamA = players.where((p) => p['team'] == 'A').toList();
+    final teamB = players.where((p) => p['team'] == 'B').toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       children: [
         Text('Which team is this stat for?', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
         const SizedBox(height: 12),
-        _teamCard(teamAName, countA, 'A'),
+        _teamCard(teamAName, teamA.length, _doneCount(teamA), 'A'),
         const SizedBox(height: 10),
-        _teamCard(teamBName, countB, 'B'),
+        _teamCard(teamBName, teamB.length, _doneCount(teamB), 'B'),
       ],
     );
   }
-  Widget _teamCard(String name, int count, String team) => GestureDetector(
+  Widget _teamCard(String name, int count, int done, String team) =>
+      GestureDetector(
     onTap: () => setState(() { _selectedTeam = team; _step++; }),
     child: Container(
       padding: const EdgeInsets.all(16),
@@ -469,16 +847,22 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         const SizedBox(width: 12),
         Expanded(child: Text(name, style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.w700))),
-        Text('$count', style: TextStyle(
-            color: AppTheme.muted, fontSize: 13, fontWeight: FontWeight.w600)),
+        if (done == count && count > 0) ...[
+          Icon(Icons.check_circle, color: AppTheme.successText, size: 16),
+          const SizedBox(width: 4),
+        ],
+        Text('$done of $count done', style: TextStyle(
+            color: done == count && count > 0
+                ? AppTheme.successText
+                : AppTheme.muted,
+            fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(width: 8),
         Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
       ]),
     ),
   );
   Widget _buildStep2() {
-    final allPlayers = (_selectedEvent?['players'] as List? ?? [])
-        .cast<Map<String, dynamic>>();
+    final allPlayers = _matchPlayers;
     final players = _selectedTeam == null
         ? allPlayers
         : allPlayers.where((p) => p['team'] == _selectedTeam).toList();
@@ -516,21 +900,22 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
         child: Row(children: [
-          Text('${players.length} Players',
+          Text('${_doneCount(players)} of ${players.length} done',
             style: TextStyle(color: AppTheme.textPrimary,
                 fontSize: 13, fontWeight: FontWeight.w700)),
           const Spacer(),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFF0D3020),
+              color: AppTheme.successSurface,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: AppTheme.success)),
-            child: const Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.check_circle_outline, color: AppTheme.success, size: 12),
-              SizedBox(width: 4),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.check_circle_outline,
+                  color: AppTheme.successText, size: 12),
+              const SizedBox(width: 4),
               Text('= Stats submitted',
-                style: TextStyle(color: AppTheme.success, fontSize: 10,
+                style: TextStyle(color: AppTheme.successText, fontSize: 10,
                     fontWeight: FontWeight.w600)),
             ]),
           ),
@@ -564,6 +949,7 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                         // Held beside the selection rather than injected into
                         // the map, which is the source for the stats write.
                         _selectedPlayerPhotoUrl = identity.photoUrl;
+                        _prefillFromResult();
                         _step++;
                       });
                     },
@@ -596,12 +982,12 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                             ],
                           )),
                           done
-                              ? const Row(children: [
+                              ? Row(children: [
                                   Icon(Icons.check_circle_rounded,
-                                      color: AppTheme.success, size: 18),
-                                  SizedBox(width: 4),
+                                      color: AppTheme.successText, size: 18),
+                                  const SizedBox(width: 4),
                                   Text('Done', style: TextStyle(
-                                    color: AppTheme.success, fontSize: 11,
+                                    color: AppTheme.successText, fontSize: 11,
                                     fontWeight: FontWeight.w600)),
                                 ])
                               : const Icon(Icons.add_circle_outline_rounded,
@@ -661,6 +1047,11 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                   Text('$pts',
                     style: TextStyle(color: AppTheme.accentText,
                         fontSize: 28, fontWeight: FontWeight.w900, height: 1)),
+                  if (!_ranked) ...[
+                    const SizedBox(height: 4),
+                    Text('Tune-up — no points or Elo', style: TextStyle(
+                      color: AppTheme.sub, fontSize: 11)),
+                  ],
                 ]),
                 const Spacer(),
                 Text(sport, style: TextStyle(
@@ -669,10 +1060,11 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
               ]),
             ),
             const SizedBox(height: 20),
-            if (_pendingMatches.isNotEmpty) ..._matchSelector(setInnerState),
+            ..._matchSummary(),
             if (sport == 'Basketball') ..._basketballFields(setInnerState),
             if (sport == 'Volleyball') ..._volleyballFields(setInnerState),
             if (sport == 'Badminton')  ..._badmintonFields(setInnerState),
+            ..._capBar(),
             const SizedBox(height: 16),
             _label('Notes (Optional)'),
             const SizedBox(height: 8),
@@ -688,8 +1080,9 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
                 : SizedBox(
                     width: double.infinity, height: 54,
                     child: ElevatedButton(
-                      onPressed: _saveStats,
-                      child: Text('Save Stats (+$pts pts)'),
+                      onPressed: _capError == null ? _saveStats : null,
+                      child: Text(
+                          _ranked ? 'Save Stats (+$pts pts)' : 'Save Stats'),
                     ),
                   ),
           ]),
@@ -697,41 +1090,35 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       },
     );
   }
-  List<Widget> _matchSelector(StateSetter set) => [
-    _label('Link to Match (Optional)'),
-    const SizedBox(height: 8),
-    Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.card, borderRadius: BorderRadius.circular(_kRadius),
-        border: Border.all(color: AppTheme.border)),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String?>(
-          isExpanded: true,
-          value: _selectedMatchId,
-          dropdownColor: AppTheme.card,
-          hint: Text('No match — just record stats',
-            style: TextStyle(color: AppTheme.muted, fontSize: 13)),
-          items: [
-            DropdownMenuItem<String?>(
-              value: null,
-              child: Text('No match', style: TextStyle(color: AppTheme.textPrimary)),
-            ),
-            ..._pendingMatches.map((doc) {
-              final m = doc.data() as Map<String, dynamic>;
-              return DropdownMenuItem<String?>(
-                value: doc.id,
-                child: Text(
-                  'Side A (${m['sideA']?.length ?? 0}) vs Side B (${m['sideB']?.length ?? 0}) · ${m['scoreA']}-${m['scoreB']}',
-                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 13)),
-              );
-            }),
-          ],
-          onChanged: (value) => set(() => setState(() => _selectedMatchId = value)),
-        ),
+  /// Fixed rather than a picker: the match was settled when the event was
+  /// opened, so every stat line is guaranteed a match.
+  List<Widget> _matchSummary() {
+    final match = _selectedMatch;
+    if (match == null) return const [];
+    return [
+      _label('Match'),
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.card, borderRadius: BorderRadius.circular(_kRadius),
+          border: Border.all(color: AppTheme.border)),
+        child: Row(children: [
+          const Icon(Icons.sports_score_rounded,
+              color: AppTheme.accent, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(matchLabel(match, nameA: _teamAName, nameB: _teamBName),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppTheme.textPrimary,
+                    fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ]),
       ),
-    ),
-  ];
+      const SizedBox(height: 16),
+    ];
+  }
   List<Widget> _basketballFields(StateSetter set) => [
     _label('Statistics'),
     const SizedBox(height: 8),
@@ -741,7 +1128,8 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
       crossAxisSpacing: 10, mainAxisSpacing: 10,
       childAspectRatio: 2.2,
       children: [
-        _statField(_ptsCtrl, 'Points',     '0', set, multiplier: '×1.0'),
+        _statField(_ptsCtrl, 'Points',     '0', set,
+            multiplier: '×1.0', invalid: _capError != null),
         _statField(_astCtrl, 'Assists',    '0', set, multiplier: '×1.5'),
         _statField(_rebCtrl, 'Rebounds',   '0', set, multiplier: '×1.0'),
         _statField(_stlCtrl, 'Steals',     '0', set, multiplier: '×2.0'),
@@ -772,21 +1160,32 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
     const SizedBox(height: 8),
     Row(children: [
       Expanded(child: GestureDetector(
-        onTap: () => set(() { _matchWon = true; setState(() {}); }),
+        // Read-only once the recorded result says who won.
+        onTap: _resultLocked
+            ? null
+            : () => set(() { _matchWon = true; setState(() {}); }),
         // "Win", matching the plain "Loss" beside it.
         child: _resultTile('Win', _matchWon, true),
       )),
       const SizedBox(width: 10),
       Expanded(child: GestureDetector(
-        onTap: () => set(() { _matchWon = false; setState(() {}); }),
+        onTap: _resultLocked
+            ? null
+            : () => set(() { _matchWon = false; setState(() {}); }),
         child: _resultTile('Loss', !_matchWon, false),
       )),
     ]),
+    if (_resultLocked) ...[
+      const SizedBox(height: 6),
+      Text('Set from the recorded result.',
+          style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+    ],
     const SizedBox(height: 16),
     _label('Statistics'),
     const SizedBox(height: 8),
     Row(children: [
-      Expanded(child: _statField(_setsCtrl, 'Sets Won',       '0', set, multiplier: '×3.0')),
+      Expanded(child: _statField(_setsCtrl, 'Sets Won',       '0', set,
+          multiplier: '×3.0', invalid: _capError != null)),
       const SizedBox(width: 10),
       Expanded(child: _statField(_bPtsCtrl, 'Points Scored',  '0', set, multiplier: '×0.5')),
     ]),
@@ -811,13 +1210,45 @@ class _AddStatsScreenState extends State<AddStatsScreen> {
         fontSize: 14, fontWeight: FontWeight.w700))),
     );
   }
+  /// The limit this player's points (or sets) must stay within, and why
+  /// once they don't. Its own row, since the grid cells have no room for it.
+  List<Widget> _capBar() {
+    final cap = _scoreCap;
+    if (cap == null) return const [];
+    final error = _capError;
+    final bad = error != null;
+    return [
+      const SizedBox(height: 10),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: bad ? AppTheme.errorSurface : AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: bad ? AppTheme.errorText : AppTheme.border)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(bad ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+              color: bad ? AppTheme.errorText : AppTheme.muted, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(error ?? scoreCapHint(cap),
+                style: TextStyle(
+                    color: bad ? AppTheme.errorText : AppTheme.sub,
+                    fontSize: 12, height: 1.35)),
+          ),
+        ]),
+      ),
+    ];
+  }
   Widget _statField(TextEditingController ctrl, String label,
-      String hint, StateSetter set, {String multiplier = ''}) {
+      String hint, StateSetter set,
+      {String multiplier = '', bool invalid = false}) {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
         color: AppTheme.card, borderRadius: BorderRadius.circular(_kRadius),
-        border: Border.all(color: AppTheme.border)),
+        border: Border.all(
+            color: invalid ? AppTheme.errorText : AppTheme.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(label, style: TextStyle(color: AppTheme.sub,

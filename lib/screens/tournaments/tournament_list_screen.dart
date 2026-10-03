@@ -137,7 +137,7 @@ class TournamentListScreen extends StatelessWidget {
           ]),
           const SizedBox(height: 6),
           Text(
-              '${t.sport} · ${t.entrantCount} teams · ${t.venue}'
+              '${t.sport} · ${t.entrantCount} ${t.isSingles ? 'players' : 'teams'} · ${t.venue}'
               '${t.createdAt == null ? '' : ' · ${DateFormat('MMM d, y').format(t.createdAt!)}'}',
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: AppTheme.sub, fontSize: 12)),

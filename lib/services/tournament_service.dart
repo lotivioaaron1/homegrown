@@ -2,9 +2,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/query_limits.dart';
 import '../models/bracket_slot.dart';
 import '../models/tournament.dart';
 import '../utils/bracket.dart';
+import '../utils/event_recipients.dart';
+import '../utils/tournament_notices.dart';
 import 'notification_service.dart';
 import 'team_service.dart';
 
@@ -61,6 +64,32 @@ class TournamentService {
           .where('organizerId', isEqualTo: uid)
           .orderBy('createdAt', descending: true)
           .snapshots();
+
+  /// Every finished tournament, for the champion showcases (profile shelf,
+  /// team titles, Home spotlight), which each pick out the titles they need
+  /// with lib/utils/championships.dart. One equality filter, so no composite
+  /// index is needed.
+  static Stream<List<Tournament>> completedStream() => _tournaments
+      .where('status', isEqualTo: Tournament.statusCompleted)
+      .limit(kMaxListQuery)
+      .snapshots()
+      .map((s) =>
+          s.docs.map((d) => Tournament.fromMap(d.id, d.data())).toList());
+
+  /// Every player's stat line from the games in [matchIds], for the
+  /// championship page's team averages. A champion plays one game a round,
+  /// at most four, well inside the thirty values `whereIn` accepts; one
+  /// equality-style filter, so no composite index is needed.
+  static Future<List<Map<String, dynamic>>> statLinesFor(
+      List<String> matchIds) async {
+    // whereIn throws on an empty list.
+    if (matchIds.isEmpty) return const [];
+    final snap = await _db
+        .collection('stats')
+        .where('matchId', whereIn: matchIds)
+        .get();
+    return snap.docs.map((d) => d.data()).toList();
+  }
 
   static List<BracketSlot> sortSlots(Iterable<BracketSlot> slots) =>
       slots.toList()
@@ -132,6 +161,7 @@ class TournamentService {
     required String name,
     required String description,
     required String sport,
+    String format = Tournament.formatTeam,
     required bool isPublic,
     required String venue,
     required String venueAddress,
@@ -160,6 +190,7 @@ class TournamentService {
       name: name,
       description: description,
       sport: sport,
+      format: format,
       status: Tournament.statusActive,
       isPublic: isPublic,
       venue: venue,
@@ -177,11 +208,28 @@ class TournamentService {
       ...tournament.toMap(),
       'createdAt': FieldValue.serverTimestamp(),
     });
-    for (final slot in generateBracket(seeded, organizerId: organizerId)) {
+    final bracket = generateBracket(seeded, organizerId: organizerId);
+    // Every bracket also has a battle for third, filled as the semifinals
+    // are played.
+    for (final slot in [
+      ...bracket,
+      thirdPlaceSlotFor(bracket, tournament.roundCount,
+          organizerId: organizerId),
+    ]) {
       batch.set(slotsOf(tournamentId).doc(slot.id), slot.toMap());
     }
     await batch.commit();
     return tournamentId;
+  }
+
+  /// Adds a battle for third to a bracket made before every bracket had one.
+  /// Semifinals already played put their losers straight in, so on a
+  /// finished bracket it's ready to schedule at once.
+  static Future<void> addThirdPlace(
+      Tournament tournament, List<BracketSlot> slots) {
+    final third = thirdPlaceSlotFor(slots, tournament.roundCount,
+        organizerId: tournament.organizerId);
+    return slotsOf(tournament.id).doc(third.id).set(third.toMap());
   }
 
   // ── Scheduling a matchup ─────────────────────────────
@@ -212,13 +260,16 @@ class TournamentService {
       for (final p in a.players) {...p.toMap(), 'team': 'A'},
       for (final p in b.players) {...p.toMap(), 'team': 'B'},
     ];
-    final label = roundLabel(slot.round, tournament.roundCount);
+    final label = slotLabel(slot, tournament.roundCount);
 
     final batch = _db.batch();
     batch.set(_events.doc(eventId), {
       'eventId': eventId,
       'organizerId': tournament.organizerId,
       'name': '${tournament.name} — $label: ${a.teamName} vs ${b.teamName}',
+      // Which game of the bracket this is ("Final", "Battle for third"), so
+      // Record Match can word its confirmation to suit.
+      'bracketStage': label,
       'description': '$label of ${tournament.name}.',
       'sport': tournament.sport,
       'eventType': 'Tournament',
@@ -235,8 +286,10 @@ class TournamentService {
       'playerCount': players.length,
       'maxPlayers': null,
       'isPublic': tournament.isPublic,
-      'teamACoachId': a.coachId,
-      'teamBCoachId': b.coachId,
+      // A singles entrant's coachId is the athlete's own uid, so it must not
+      // land here: Home and the reminders would treat the player as a coach.
+      'teamACoachId': tournament.isSingles ? null : a.coachId,
+      'teamBCoachId': tournament.isSingles ? null : b.coachId,
       'status': 'upcoming',
       'createdAt': FieldValue.serverTimestamp(),
       // Back-pointers. Their presence is also what tells the event detail
@@ -247,50 +300,88 @@ class TournamentService {
 
     batch.update(slotsOf(tournament.id).doc(slot.id), {
       'eventId': eventId,
+      'kickoff': Timestamp.fromDate(kickoff),
       'status': BracketSlot.statusScheduled,
     });
 
-    for (final p in players) {
-      await NotificationService.create(
-        userId: p['uid'] as String,
-        type: 'event_added',
-        title: "You're in an upcoming game",
-        body: '$label of ${tournament.name} at ${tournament.venue}',
-        relatedId: eventId,
-        writeBatch: batch,
+    // Each side's roster and head coach, told the round, their own opponent,
+    // the kickoff and the venue. The coach is included because their team is
+    // in the matchup even though they aren't on the roster.
+    for (final (team, opponent) in [(a, b), (b, a)]) {
+      final notice = scheduledNotice(
+        round: slot.round,
+        roundCount: tournament.roundCount,
+        team: team.teamName,
+        opponent: opponent.teamName,
+        kickoff: kickoff,
+        venue: tournament.venue,
+        stage: label,
       );
-    }
-
-    // Both head coaches too — their team is in the matchup even though they
-    // aren't on the roster. A Set dedupes the (unlikely) case of one coach
-    // fielding both entrants.
-    for (final coachId in {a.coachId, b.coachId}) {
-      await NotificationService.create(
-        userId: coachId,
-        type: 'event_added',
-        title: 'Your team has an upcoming game',
-        body: '${a.teamName} vs ${b.teamName} — $label of ${tournament.name}',
-        relatedId: eventId,
-        writeBatch: batch,
-      );
+      for (final uid
+          in teamRecipients(team.coachId, team.players.map((p) => p.uid))) {
+        await NotificationService.create(
+          userId: uid,
+          type: 'event_added',
+          title: notice.title,
+          body: notice.body,
+          relatedId: eventId,
+          writeBatch: batch,
+        );
+      }
     }
 
     await batch.commit();
     return eventId;
   }
 
-  /// Puts a slot back to ready and forgets its event.
+  /// Puts a slot back to ready and calls off the game set up for it.
   ///
   /// Firestore cannot enforce that a child event still exists, so a slot
   /// can end up pointing at an event the organizer deleted or cancelled
   /// outside the bracket. Rather than leaving the tournament permanently
   /// stuck, the bracket screen offers this and the matchup can be
   /// scheduled again.
-  static Future<void> unscheduleSlot(String tournamentId, String slotId) =>
-      slotsOf(tournamentId).doc(slotId).update({
-        'eventId': null,
-        'status': BracketSlot.statusReady,
-      });
+  ///
+  /// The old event is cancelled in the same commit rather than left alone:
+  /// otherwise its players are never told the game is off, and once its
+  /// kickoff passes it sits in Record Match, where recording it would still
+  /// advance the bracket.
+  static Future<void> unscheduleSlot(String tournamentId, BracketSlot slot) async {
+    final batch = _db.batch();
+    batch.update(slotsOf(tournamentId).doc(slot.id), {
+      'eventId': null,
+      'kickoff': null,
+      'status': BracketSlot.statusReady,
+    });
+    if (slot.eventId != null) await _stageCallOff(batch, slot.eventId!);
+    await batch.commit();
+  }
+
+  /// Cancels a bracket game that will no longer be played and tells its
+  /// roster and both coaches, with the same notice Cancel Event sends.
+  ///
+  /// Skipped when the event is already gone or cancelled (the case Reset
+  /// exists for), or has a result, which the rules would refuse to touch.
+  static Future<void> _stageCallOff(WriteBatch batch, String eventId) async {
+    final ev = (await _events.doc(eventId).get()).data();
+    if (ev == null ||
+        ev['status'] == 'cancelled' ||
+        ev['hasMatchData'] == true) {
+      return;
+    }
+    batch.update(_events.doc(eventId), {'status': 'cancelled'});
+    final name = ev['name'] as String? ?? 'The game';
+    for (final uid in eventAudienceUids(ev)) {
+      await NotificationService.create(
+        userId: uid,
+        type: 'event_cancelled',
+        title: 'Game cancelled',
+        body: '$name has been cancelled by the organizer.',
+        relatedId: eventId,
+        writeBatch: batch,
+      );
+    }
+  }
 
   // ── Advancing ────────────────────────────────────────
 
@@ -309,7 +400,11 @@ class TournamentService {
   /// the moment a score is entered. The bracket therefore moves on
   /// immediately while the Elo update waits for per-player stats, so a
   /// sixteen-team draw is never stalled behind box scores.
-  static void stageAdvance(
+  ///
+  /// [thirdPlaceSlot] is the bracket's battle for third, if it has one: a
+  /// semifinal's loser is placed into it the same way the winner is placed
+  /// into the final.
+  static Future<void> stageAdvance(
     WriteBatch batch, {
     required Tournament tournament,
     required BracketSlot slot,
@@ -318,11 +413,24 @@ class TournamentService {
     required int scoreA,
     required int scoreB,
     required String winnerSide, // 'A' | 'B'
-  }) {
+    BracketSlot? thirdPlaceSlot,
+  }) async {
     final winner = winnerSide == 'A' ? slot.entrantA : slot.entrantB;
+    final loser = winnerSide == 'A' ? slot.entrantB : slot.entrantA;
     if (winner == null) {
       throw StateError('Slot ${slot.id} has no team on side $winnerSide');
     }
+    final loserPlaysOn = thirdPlaceSlot != null &&
+        !slot.isThirdPlace &&
+        slot.round == tournament.roundCount - 1;
+
+    await _stageResultNotices(batch,
+        tournament: tournament,
+        slot: slot,
+        winnerSide: winnerSide,
+        scoreA: scoreA,
+        scoreB: scoreB,
+        thirdPlaceNext: loserPlaysOn);
 
     batch.update(slotsOf(tournament.id).doc(slot.id), {
       'matchId': matchId,
@@ -332,6 +440,24 @@ class TournamentService {
       'status': BracketSlot.statusCompleted,
       'completedAt': FieldValue.serverTimestamp(),
     });
+
+    // Checked before the final, which it resembles (neither advances
+    // anyone): the battle for third settles 2nd and 3rd runner-up and
+    // leaves the champion alone.
+    if (slot.isThirdPlace) {
+      batch.update(_tournaments.doc(tournament.id), {'hasMatchData': true});
+      return;
+    }
+
+    if (loserPlaysOn && loser != null) {
+      final onSideA = slot.nextSlotSide == 'A';
+      final otherSide =
+          onSideA ? thirdPlaceSlot.entrantB : thirdPlaceSlot.entrantA;
+      batch.update(slotsOf(tournament.id).doc(thirdPlaceSlot.id), {
+        onSideA ? 'entrantA' : 'entrantB': loser.toMap(),
+        if (otherSide != null) 'status': BracketSlot.statusReady,
+      });
+    }
 
     if (slot.nextSlotId == null || nextSlot == null) {
       // That was the final.
@@ -360,17 +486,82 @@ class TournamentService {
     batch.update(_tournaments.doc(tournament.id), {'hasMatchData': true});
   }
 
+  /// Tells both teams (every player on the entered roster, plus the coach)
+  /// how the game went: advanced or eliminated, or champion and runner-up
+  /// after the final. Staged on the result's own batch, so nobody hears about
+  /// a result that didn't save. At most 32 writes, well inside the batch cap.
+  static Future<void> _stageResultNotices(
+    WriteBatch batch, {
+    required Tournament tournament,
+    required BracketSlot slot,
+    required String winnerSide,
+    required int scoreA,
+    required int scoreB,
+    bool thirdPlaceNext = false,
+  }) async {
+    final winnerSlot = winnerSide == 'A' ? slot.entrantA : slot.entrantB;
+    final loserSlot = winnerSide == 'A' ? slot.entrantB : slot.entrantA;
+    if (winnerSlot == null || loserSlot == null) return;
+
+    final winnerScore = winnerSide == 'A' ? scoreA : scoreB;
+    final loserScore = winnerSide == 'A' ? scoreB : scoreA;
+    final notices = slot.isThirdPlace
+        ? thirdPlaceNotices(
+            tournamentName: tournament.name,
+            winnerTeam: winnerSlot.teamName,
+            loserTeam: loserSlot.teamName,
+            winnerScore: winnerScore,
+            loserScore: loserScore,
+          )
+        : resultNotices(
+            tournamentName: tournament.name,
+            round: slot.round,
+            roundCount: tournament.roundCount,
+            winnerTeam: winnerSlot.teamName,
+            loserTeam: loserSlot.teamName,
+            winnerScore: winnerScore,
+            loserScore: loserScore,
+            thirdPlaceNext: thirdPlaceNext,
+          );
+
+    // The roster snapshot taken when the team was entered, as scheduleSlot
+    // uses for the matchup itself.
+    List<String> recipients(String coachId) => teamRecipients(coachId,
+        tournament.entrantFor(coachId)?.players.map((p) => p.uid) ?? const []);
+
+    for (final (coachId, notice) in [
+      (winnerSlot.coachId, notices.winner),
+      (loserSlot.coachId, notices.loser),
+    ]) {
+      for (final uid in recipients(coachId)) {
+        await NotificationService.create(
+          userId: uid,
+          type: 'tournament_result',
+          title: notice.title,
+          body: notice.body,
+          relatedId: tournament.id,
+          writeBatch: batch,
+        );
+      }
+    }
+  }
+
   // ── Deleting ─────────────────────────────────────────
 
-  /// Removes a tournament and its bracket.
+  /// Removes a tournament and its bracket, calling off any games already
+  /// scheduled from it.
   ///
   /// Firestore does not cascade, so the slots have to go explicitly or they
-  /// would linger as orphans readable by any signed-in user. At most
-  /// sixteen writes.
+  /// would linger as orphans readable by any signed-in user. A scheduled
+  /// game's event can't be deleted (the rules keep bracket events), so it is
+  /// cancelled instead and its players told, rather than left pointing at a
+  /// bracket that no longer exists.
   static Future<void> delete(String tournamentId) async {
     final slots = await slotsOf(tournamentId).get();
     final batch = _db.batch();
     for (final doc in slots.docs) {
+      final eventId = doc.data()['eventId'] as String?;
+      if (eventId != null) await _stageCallOff(batch, eventId);
       batch.delete(doc.reference);
     }
     batch.delete(_tournaments.doc(tournamentId));

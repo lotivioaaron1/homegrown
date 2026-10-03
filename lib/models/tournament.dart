@@ -39,6 +39,9 @@ class EntrantPlayer {
 /// midway through should not silently change who is on the teamsheet for a
 /// semifinal. The organizer can still trim an individual matchup's roster
 /// through the existing Edit Teams screen.
+///
+/// In a singles tournament an entrant is one athlete instead (see
+/// [TournamentEntrant.singles]), and [coachId] holds that athlete's uid.
 class TournamentEntrant {
   /// 1-based. Seed 1 is the top seed; seeding drives bye placement.
   final int seed;
@@ -56,6 +59,29 @@ class TournamentEntrant {
     this.teamLogoUrl,
     this.players = const [],
   });
+
+  /// One athlete entering a singles bracket on their own.
+  ///
+  /// Every bracket lookup — the slot's entrant, the winner, the champion —
+  /// is by [coachId], so the athlete's uid goes there and the rest of the
+  /// bracket runs unchanged. Their name stands in for the team name, and
+  /// their photo for the logo.
+  factory TournamentEntrant.singles({
+    required int seed,
+    required String uid,
+    required String fullName,
+    String position = '',
+    String? photoUrl,
+  }) =>
+      TournamentEntrant(
+        seed: seed,
+        coachId: uid,
+        teamName: fullName,
+        teamLogoUrl: photoUrl,
+        players: [
+          EntrantPlayer(uid: uid, fullName: fullName, position: position),
+        ],
+      );
 
   TournamentEntrant copyWith({int? seed}) => TournamentEntrant(
         seed: seed ?? this.seed,
@@ -100,6 +126,12 @@ class Tournament {
   static const String statusCompleted = 'completed';
   static const String statusCancelled = 'cancelled';
 
+  /// Coach teams against each other — every sport, and the default.
+  static const String formatTeam = 'team';
+
+  /// Individual athletes against each other — badminton singles.
+  static const String formatSingles = 'singles';
+
   /// Below four teams a bracket is just an event; above sixteen the
   /// entrants array starts to strain a single document.
   static const int minEntrants = 4;
@@ -110,6 +142,11 @@ class Tournament {
   final String name;
   final String description;
   final String sport;
+
+  /// [formatTeam] or [formatSingles]. Tournaments made before singles
+  /// existed have no value stored, and read as team.
+  final String format;
+
   final String status;
   final bool isPublic;
 
@@ -142,6 +179,7 @@ class Tournament {
     required this.organizerId,
     required this.name,
     required this.sport,
+    this.format = formatTeam,
     this.description = '',
     this.status = statusActive,
     this.isPublic = true,
@@ -162,6 +200,7 @@ class Tournament {
 
   bool get isCompleted => status == statusCompleted;
   bool get isCancelled => status == statusCancelled;
+  bool get isSingles => format == formatSingles;
 
   /// The entrant a bracket slot's coachId refers to, or null if that coach
   /// is not in this tournament.
@@ -178,6 +217,7 @@ class Tournament {
         'name': name,
         'description': description,
         'sport': sport,
+        'format': format,
         'status': status,
         'isPublic': isPublic,
         'venue': venue,
@@ -202,6 +242,7 @@ class Tournament {
         name: map['name'] as String? ?? '',
         description: map['description'] as String? ?? '',
         sport: map['sport'] as String? ?? '',
+        format: map['format'] as String? ?? formatTeam,
         status: map['status'] as String? ?? statusActive,
         isPublic: map['isPublic'] as bool? ?? true,
         venue: map['venue'] as String? ?? '',

@@ -9,10 +9,9 @@ import '../../utils/error_messages.dart';
 import '../../widgets/member_profiles.dart';
 import '../../widgets/player_avatar.dart';
 
-/// Lets an organizer name two teams and assign each registered player to
-/// one, for an event that was created before team-based stat entry
-/// existed (or one where the organizer just wants to change the split).
-/// Add Stats and Record Match both read this same `team` field once saved.
+/// Lets an organizer rename an event's two teams. Players are listed under
+/// their team but can't be moved: each player's team comes from their
+/// coach's roster, and a player belongs to only one.
 class EditTeamsScreen extends StatefulWidget {
   const EditTeamsScreen({super.key});
   @override
@@ -50,9 +49,6 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
     _players = ((data['players'] as List?) ?? [])
         .map((p) => Map<String, dynamic>.from(p as Map))
         .toList();
-    for (final p in _players) {
-      p['team'] ??= 'A';
-    }
     if (mounted) setState(() => _isLoading = false);
   }
 
@@ -66,11 +62,10 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
       await FirebaseFirestore.instance.collection('events').doc(_eventId).update({
         'teamAName': teamAName,
         'teamBName': teamBName,
-        'players': _players,
       });
       if (!mounted) return;
       Get.back();
-      Get.snackbar('Teams Updated', 'Roster split saved.',
+      Get.snackbar('Teams Updated', 'Team names saved.',
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: AppTheme.accentSurface,
           colorText: AppTheme.accentText,
@@ -79,8 +74,8 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
     } catch (e) {
       Get.snackbar('Error', friendlyError(e),
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF2A1A1A),
-          colorText: AppTheme.error,
+          backgroundColor: AppTheme.errorSurface,
+          colorText: AppTheme.errorText,
           margin: const EdgeInsets.all(16), borderRadius: 12);
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -118,7 +113,7 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
               color: AppTheme.textPrimary, size: 16)),
       ),
       const SizedBox(width: 12),
-      Text('Edit Teams', style: TextStyle(
+      Text('Rename Teams', style: TextStyle(
           color: AppTheme.textPrimary, fontSize: 18,
           fontWeight: FontWeight.w800)),
     ]),
@@ -138,10 +133,13 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
           Expanded(child: _teamNameField(_teamBCtrl, 'Team B name')),
         ]),
         const SizedBox(height: 20),
-        Text('ASSIGN PLAYERS', style: TextStyle(
+        Text('PLAYERS', style: TextStyle(
             color: AppTheme.muted, fontSize: 12,
             fontWeight: FontWeight.w800, letterSpacing: 1)),
-        const SizedBox(height: 10),
+        const SizedBox(height: 4),
+        Text("Players come from each coach's roster and stay on that team.",
+            style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+        const SizedBox(height: 12),
         if (_players.isEmpty)
           Container(
             width: double.infinity,
@@ -163,45 +161,21 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
           // treatment the event detail roster gets, so the two agree.
           MemberProfilesBuilder(
             uids: _players.map((p) => p['uid'] as String? ?? '').toList(),
-            builder: (context, profiles) => Container(
-              decoration: BoxDecoration(
-                  color: AppTheme.card,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.border)),
-              child: Column(children: _players.asMap().entries.map((e) {
-                final isLast = e.key == _players.length - 1;
-                final p = e.value;
-                final position = p['position'] as String? ?? '';
-                final identity = resolveMemberIdentity(
-                    profiles[p['uid'] as String? ?? ''],
-                    fallbackName: p['fullName'] as String? ?? '');
-                return Container(
-                  decoration: BoxDecoration(border: Border(
-                      bottom: isLast
-                          ? BorderSide.none
-                          : BorderSide(color: AppTheme.border))),
-                  child: ListTile(
-                    dense: true,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                    leading: PlayerAvatar(
-                        name: identity.name,
-                        photoUrl: identity.photoUrl,
-                        size: 36, fontSize: 12),
-                    title: Text(identity.name, style: TextStyle(
-                        color: AppTheme.textPrimary, fontSize: 13,
-                        fontWeight: FontWeight.w600)),
-                    subtitle: position.isNotEmpty
-                        ? Text(position,
-                            style: TextStyle(color: AppTheme.sub, fontSize: 11))
-                        : null,
-                    trailing: _teamToggle(p),
-                  ),
-                );
-              }).toList()),
-            ),
+            builder: (context, profiles) {
+              final unassigned = _players
+                  .where((p) => p['team'] != 'A' && p['team'] != 'B')
+                  .toList();
+              return Column(children: [
+                _teamGroup(_teamLabel('A'),
+                    _players.where((p) => p['team'] == 'A').toList(), profiles),
+                _teamGroup(_teamLabel('B'),
+                    _players.where((p) => p['team'] == 'B').toList(), profiles),
+                if (unassigned.isNotEmpty)
+                  _teamGroup('Not on a team', unassigned, profiles),
+              ]);
+            },
           ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 8),
         SizedBox(
           width: double.infinity, height: 50,
           child: ElevatedButton(
@@ -225,6 +199,7 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
 
   Widget _teamNameField(TextEditingController ctrl, String hint) => TextField(
     controller: ctrl,
+    onChanged: (_) => setState(() {}),
     style: TextStyle(color: AppTheme.textPrimary, fontSize: 14),
     decoration: InputDecoration(
       hintText: hint,
@@ -243,25 +218,72 @@ class _EditTeamsScreenState extends State<EditTeamsScreen> {
     ),
   );
 
-  Widget _teamToggle(Map<String, dynamic> p) {
-    final team = p['team'] as String? ?? 'A';
-    Widget seg(String value) => GestureDetector(
-      onTap: () => setState(() => p['team'] = value),
-      child: Container(
-        width: 28, height: 28,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: team == value ? AppTheme.accentSurface : Colors.transparent,
-          borderRadius: BorderRadius.circular(6)),
-        child: Text(value, style: TextStyle(
-            color: team == value ? AppTheme.accentText : AppTheme.muted,
-            fontSize: 11, fontWeight: FontWeight.w700))));
+  String _teamLabel(String value) {
+    final typed = (value == 'A' ? _teamACtrl : _teamBCtrl).text.trim();
+    return typed.isNotEmpty ? typed : 'Team $value';
+  }
+
+  Widget _teamGroup(String label, List<Map<String, dynamic>> players,
+      Map<String, Map<String, dynamic>> profiles) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 14,
+                  fontWeight: FontWeight.w800))),
+          Text('${players.length} player${players.length == 1 ? '' : 's'}',
+              style: TextStyle(color: AppTheme.sub, fontSize: 12,
+                  fontWeight: FontWeight.w600)),
+        ]),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+              color: AppTheme.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.border)),
+          child: players.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('No players on this team',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+                )
+              : Column(children: [
+                  for (var i = 0; i < players.length; i++)
+                    _playerTile(players[i], profiles,
+                        isLast: i == players.length - 1),
+                ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _playerTile(Map<String, dynamic> p,
+      Map<String, Map<String, dynamic>> profiles, {required bool isLast}) {
+    final position = p['position'] as String? ?? '';
+    final identity = resolveMemberIdentity(profiles[p['uid'] as String? ?? ''],
+        fallbackName: p['fullName'] as String? ?? '');
     return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-          color: AppTheme.cardNested,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.border)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [seg('A'), seg('B')]));
+      decoration: BoxDecoration(border: Border(
+          bottom: isLast ? BorderSide.none : BorderSide(color: AppTheme.border))),
+      child: ListTile(
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+        leading: PlayerAvatar(
+            name: identity.name,
+            photoUrl: identity.photoUrl,
+            size: 36, fontSize: 12),
+        title: Text(identity.name, style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 13,
+            fontWeight: FontWeight.w600)),
+        subtitle: position.isNotEmpty
+            ? Text(position,
+                style: TextStyle(color: AppTheme.sub, fontSize: 11))
+            : null,
+      ),
+    );
   }
 }

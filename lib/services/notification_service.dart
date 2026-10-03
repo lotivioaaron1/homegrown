@@ -23,6 +23,7 @@ class NotificationService {
     'stats_added',
     'team_full',
     'team_invite',
+    'tournament_result',
   };
 
   /// Call this alongside whatever action should notify a user —

@@ -17,11 +17,13 @@ Map<String, dynamic> _event({
   required String name,
   DateTime? date,
   String status = 'upcoming',
+  bool recorded = false,
 }) =>
     {
       'name': name,
       'status': status,
       if (date != null) 'eventDate': Timestamp.fromDate(date),
+      if (recorded) 'hasMatchData': true,
     };
 
 List<String> _names(List<Map<String, dynamic>> events, EventTab tab) =>
@@ -127,15 +129,23 @@ void main() {
       expect(badgeFor(_event(name: 'a', status: 'draft')), EventBadge.draft);
     });
 
-    // The case status cannot answer: nothing ever writes 'completed', so a
-    // played game still reads 'upcoming' in Firestore forever.
-    test('derives completed from the date, not from status', () {
-      final played = _event(
-          name: 'a',
-          date: _now.subtract(const Duration(days: 1)),
-          status: 'upcoming');
+    // A past date alone only means the game should have been played; it is
+    // completed once its result is recorded.
+    test('marks a played game completed only once its result is recorded', () {
+      final yesterday = _now.subtract(const Duration(days: 1));
 
-      expect(badgeFor(played, now: _now), EventBadge.completed);
+      expect(badgeFor(_event(name: 'a', date: yesterday, recorded: true),
+              now: _now),
+          EventBadge.completed);
+      expect(badgeFor(_event(name: 'a', date: yesterday), now: _now),
+          EventBadge.awaitingResult);
+    });
+
+    test('a recorded result counts even before the scheduled date', () {
+      final early = _event(
+          name: 'a', date: _now.add(const Duration(days: 1)), recorded: true);
+
+      expect(badgeFor(early, now: _now), EventBadge.completed);
     });
 
     test('marks a future event upcoming', () {
@@ -149,6 +159,45 @@ void main() {
       expect(badgeLabel(EventBadge.completed), 'COMPLETED');
       expect(badgeLabel(EventBadge.draft), 'DRAFT');
       expect(badgeLabel(EventBadge.cancelled), 'CANCELLED');
+      expect(badgeLabel(EventBadge.awaitingResult), 'AWAITING RESULT');
+    });
+  });
+
+  // Record Match only offers games that have been played and have no result,
+  // so a result can't be entered twice or for a game that hasn't happened.
+  group('canRecordResult', () {
+    final yesterday = _now.subtract(const Duration(days: 1));
+
+    bool can(Map<String, dynamic> e) => canRecordResult(e, now: _now);
+
+    test('allows a played game with no result yet', () {
+      expect(can(_event(name: 'a', date: yesterday)), isTrue);
+    });
+
+    test('refuses a game whose result is already recorded', () {
+      expect(can(_event(name: 'a', date: yesterday, recorded: true)), isFalse);
+    });
+
+    test('refuses a game that has not started', () {
+      expect(can(_event(name: 'a', date: _now.add(const Duration(hours: 1)))),
+          isFalse);
+    });
+
+    test('refuses an undated event', () {
+      expect(can(_event(name: 'a')), isFalse);
+    });
+
+    test('refuses a draft or a cancelled game', () {
+      expect(can(_event(name: 'a', date: yesterday, status: 'draft')), isFalse);
+      expect(can(_event(name: 'a', date: yesterday, status: 'cancelled')),
+          isFalse);
+    });
+  });
+
+  group('hasResult', () {
+    test('is true only when a match has been recorded', () {
+      expect(hasResult(_event(name: 'a', recorded: true)), isTrue);
+      expect(hasResult(_event(name: 'a')), isFalse);
     });
   });
 

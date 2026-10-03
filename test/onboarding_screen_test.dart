@@ -6,6 +6,10 @@
 // before the role picker, it asked coaches and organizers a question meant
 // for athletes. These tests pin the page down as gone and pin down the
 // onboarding_complete flag that splash_screen.dart depends on.
+//
+// The Features page that followed the sport panels is gone too: it repeated
+// the pitch the splash's welcome screen had just made and asked for a second
+// tap before the form. The last sport panel carries Create Account instead.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,7 +17,7 @@ import 'package:get/get.dart';
 import 'package:homegrown/screens/onboarding/onboarding_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// GetMaterialApp, not MaterialApp: _onGetStarted calls Get.offAllNamed, which
+// GetMaterialApp, not MaterialApp: _onCreateAccount calls Get.offAllNamed, which
 // needs Get's navigator. The '/register' route is stubbed so the tap has
 // somewhere to land.
 Widget _host() => GetMaterialApp(
@@ -55,24 +59,37 @@ void main() {
     expect(find.text('Badminton'), findsNothing);
   });
 
-  testWidgets('ends on the Features page with a Get Started button',
+  testWidgets('ends on the last sport panel with Create Account',
       (tester) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
 
     await _pageToEnd(tester);
 
-    // Assert this really is the Features page, not merely that some last
-    // page exists — the sport page it replaced also ended with a CTA.
-    expect(find.text('Performance Dashboard'), findsOneWidget);
-    expect(find.text('Get Started'), findsOneWidget);
-    // Features carries its own Get Started to the same destination, so a
-    // second control beside it would be two CTAs doing one job.
+    // The badminton panel, not a Features page after it.
+    expect(find.text('BADMINTON'), findsOneWidget);
+    expect(find.text('Performance Dashboard'), findsNothing);
+    expect(find.text('Create Account'), findsOneWidget);
+    expect(find.text('Next'), findsNothing);
+    // Its own button goes where Skip would, so a Skip beside it would be two
+    // controls doing one job.
     expect(find.text('Skip'), findsNothing);
   });
 
+  testWidgets('Create Account on the last panel goes to registration',
+      (tester) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+    await _pageToEnd(tester);
+
+    await tester.tap(find.text('Create Account'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('register screen'), findsOneWidget);
+  });
+
   // Skip exists so someone who wants an account does not have to sit through
-  // a four-page pitch to reach one. It briefly did not exist at all: it was
+  // the whole pitch to reach one. It briefly did not exist at all: it was
   // hidden on the last page, and when the sport-selection page was removed,
   // Features became last and Skip could never render, so it was deleted as
   // dead code rather than as a decision.
@@ -84,18 +101,17 @@ void main() {
       expect(find.text('Skip'), findsOneWidget);
     });
 
-    testWidgets('stays available across every sport panel', (tester) async {
+    testWidgets('stays available past the first panel', (tester) async {
       await tester.pumpWidget(_host());
       await tester.pumpAndSettle();
 
-      // Two swipes leaves us on the third and last sport panel. Skip has to
-      // survive the whole run of them, not just the first.
-      for (var i = 0; i < 2; i++) {
-        await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
-        await tester.pumpAndSettle();
-      }
+      // One swipe leaves us on the middle panel. Skip has to survive the run
+      // of panels, not just the first; only the last, whose own button does
+      // Skip's job, drops it.
+      await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
+      await tester.pumpAndSettle();
 
-      expect(find.text('Basketball'), findsNothing); // still the intro
+      expect(find.text('VOLLEYBALL'), findsOneWidget);
       expect(find.text('Skip'), findsOneWidget);
     });
 
@@ -152,7 +168,7 @@ void main() {
     await tester.pumpAndSettle();
     await _pageToEnd(tester);
 
-    await tester.tap(find.text('Get Started'));
+    await tester.tap(find.text('Create Account'));
     await tester.pumpAndSettle();
 
     final prefs = await SharedPreferences.getInstance();
@@ -167,7 +183,7 @@ void main() {
     await tester.pumpAndSettle();
     await _pageToEnd(tester);
 
-    await tester.tap(find.text('Get Started'));
+    await tester.tap(find.text('Create Account'));
     await tester.pumpAndSettle();
 
     final prefs = await SharedPreferences.getInstance();

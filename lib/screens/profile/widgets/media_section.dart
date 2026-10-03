@@ -1,5 +1,6 @@
 // lib/screens/profile/widgets/media_section.dart
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../theme/app_theme.dart';
 import '../../../models/media_item.dart';
 import '../../../widgets/skeleton.dart';
@@ -37,6 +38,23 @@ class MediaSection extends StatelessWidget {
   /// profile someone else is viewing.
   final String? emptyMessage;
 
+  /// Starts an upload, on the owner's own profile only. With it, an empty
+  /// section's card carries the upload button, and a section with media in
+  /// it gets "+ Add" beside its counter until the quota is used up. Null on
+  /// someone else's profile, so neither appears.
+  final VoidCallback? onAdd;
+
+  /// The empty card's button, e.g. "Upload a clip".
+  final String emptyAddLabel;
+
+  /// An upload into this section is under way: both Add controls show a
+  /// spinner and stop responding.
+  final bool busy;
+
+  /// Shown between the header and the grid, e.g. the video upload's
+  /// progress bar.
+  final Widget? status;
+
   const MediaSection({
     super.key,
     required this.items,
@@ -48,23 +66,44 @@ class MediaSection extends StatelessWidget {
     this.onTapItem,
     this.showQuota = true,
     this.emptyMessage,
+    this.onAdd,
+    this.emptyAddLabel = 'Add',
+    this.busy = false,
+    this.status,
   });
 
   @override
   Widget build(BuildContext context) {
+    final owner = onAdd != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _header(loading ? null : items.length),
         const SizedBox(height: 12),
+        if (status != null) ...[
+          status!,
+          const SizedBox(height: 12),
+        ],
         if (loading)
           _loading()
         else if (type == MediaType.video)
           VideoGrid(
-              items: items, onTapItem: onTapItem, emptyMessage: emptyMessage)
+            items: items,
+            onTapItem: onTapItem,
+            emptyMessage: emptyMessage,
+            emptyCtaLabel: owner ? (busy ? 'Uploading...' : emptyAddLabel) : null,
+            onEmptyCta: onAdd,
+            emptyCtaBusy: owner && busy,
+          )
         else
           PhotoGrid(
-              items: items, onTapItem: onTapItem, emptyMessage: emptyMessage),
+            items: items,
+            onTapItem: onTapItem,
+            emptyMessage: emptyMessage,
+            emptyCtaLabel: owner ? (busy ? 'Uploading...' : emptyAddLabel) : null,
+            onEmptyCta: onAdd,
+            emptyCtaBusy: owner && busy,
+          ),
       ],
     );
   }
@@ -75,6 +114,10 @@ class MediaSection extends StatelessWidget {
     // Never at cap in the viewer's eyes: the amber warning below is an
     // "you can't upload more" signal, which means nothing to a coach.
     final atCap = showQuota && count != null && count >= max;
+    // An empty section offers the upload inside its card instead, and a full
+    // one has nothing to add; the amber counter says why.
+    final showAdd =
+        onAdd != null && count != null && count > 0 && (busy || count < max);
     return Row(children: [
       Container(
         width: 30,
@@ -86,12 +129,17 @@ class MediaSection extends StatelessWidget {
         child: Icon(icon, color: AppTheme.accent, size: 16),
       ),
       const SizedBox(width: 10),
-      Text(title,
-          style: TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 15,
-              fontWeight: FontWeight.w800)),
-      const Spacer(),
+      // Expanded so the Add button can never push the counter off a narrow
+      // phone; the title gives way first.
+      Expanded(
+        child: Text(title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w800)),
+      ),
       if (count != null)
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
@@ -111,7 +159,52 @@ class MediaSection extends StatelessWidget {
                   fontSize: 11,
                   fontWeight: FontWeight.w700)),
         ),
+      if (showAdd) ...[
+        const SizedBox(width: 8),
+        _addButton(),
+      ],
     ]);
+  }
+
+  /// "+ Add" beside the counter, in the empty card's gold. While busy it is
+  /// a spinner alone: "Uploading..." would squeeze the title on a small
+  /// phone, and the video section's progress bar already says what's
+  /// happening. The 44px-tall hit area is wider than the pill it wraps.
+  Widget _addButton() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: busy ? null : onAdd,
+      child: SizedBox(
+        height: 44,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.accentSurface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.accent),
+            ),
+            child: busy
+                ? SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                        color: AppTheme.accentText, strokeWidth: 2),
+                  )
+                : Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(LucideIcons.plus,
+                        color: AppTheme.accentText, size: 14),
+                    const SizedBox(width: 4),
+                    Text('Add',
+                        style: TextStyle(
+                            color: AppTheme.accentText,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700)),
+                  ]),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _loading() {

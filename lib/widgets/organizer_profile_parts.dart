@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../services/team_service.dart';
 import '../theme/app_theme.dart';
+import 'athlete_profile_parts.dart';
+import 'organizer_breakdown_sheet.dart';
 
 /// The pieces an organizer's public identity is built from, following the
 /// [athlete_profile_parts.dart] precedent.
@@ -18,13 +20,13 @@ import '../theme/app_theme.dart';
 /// The "this organizer is vetted" pill — rendered **only** for an approved
 /// organizer, and rendered as nothing for every other value.
 ///
-/// Deliberately not the same widget as `_organizerStatusBadge` in
-/// [ProfileScreen], which labels anything unrecognised "Pending Review". That
-/// is right on your own profile and wrong on a public one, for two reasons:
+/// Deliberately never labels the other states — "Pending Review" and the like.
 /// 'pending' / 'rejected' / 'revoked' are internal moderation states that a
 /// stranger has no business reading, and `organizerStatus` is simply **absent**
 /// on every Google-signup organizer (google_profile_setup_screen.dart never
 /// writes it), who would otherwise be branded "Pending Review" permanently.
+/// The organizer's own profile used to carry such a labelled badge; it now
+/// mirrors the public profile, and the Home to-do card reports approval state.
 ///
 /// A stranger's question is only ever "is this organizer vetted?" — absence is
 /// the answer "no", and the honest signal survives either way, since the track
@@ -238,4 +240,112 @@ class _OrganizerBylineState extends State<OrganizerByline> {
       },
     );
   }
+}
+
+/// Events Created and Tournaments Run — the two figures an organizer cannot
+/// self-report — as shown on the organizer's **own** profile.
+///
+/// A twin of `_TrackRecord` in organizer_profile_view_screen.dart, copied
+/// rather than moved so the public screen did not have to change. Keep the
+/// totals in step, since the organizer's own profile mirrors the public one.
+/// The one difference is deliberate: only the owner can tap a box for its
+/// breakdown, because that counts drafts, which are theirs alone.
+///
+/// A StatefulWidget so the counts are fetched once. ProfileScreen sits on a
+/// user-doc stream that rebuilds on every tick, and the `FutureBuilder` this
+/// replaced re-ran its aggregation each time.
+class OrganizerTrackRecord extends StatefulWidget {
+  final String organizerId;
+  const OrganizerTrackRecord({super.key, required this.organizerId});
+
+  @override
+  State<OrganizerTrackRecord> createState() => _OrganizerTrackRecordState();
+}
+
+class _OrganizerTrackRecordState extends State<OrganizerTrackRecord> {
+  late Future<List<int>> _counts;
+
+  @override
+  void initState() {
+    super.initState();
+    _counts = _load();
+  }
+
+  Future<List<int>> _load() {
+    // Single-field equality aggregations, served by the automatic index.
+    Future<int> countOf(String collection) => FirebaseFirestore.instance
+        .collection(collection)
+        .where('organizerId', isEqualTo: widget.organizerId)
+        .count()
+        .get()
+        .then((s) => s.count ?? 0);
+    return Future.wait([countOf('events'), countOf('tournaments')]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<int>>(
+      future: _counts,
+      builder: (context, snap) {
+        // A dash rather than a zero until the read resolves.
+        final ok = snap.hasData && !snap.hasError;
+        return Row(children: [
+          _TappableStatBox(
+              value: ok ? '${snap.data![0]}' : '—',
+              label: 'Events Created',
+              onTap: () =>
+                  showEventBreakdownSheet(context, widget.organizerId)),
+          const SizedBox(width: 8),
+          _TappableStatBox(
+              value: ok ? '${snap.data![1]}' : '—',
+              label: 'Tournaments Run',
+              onTap: () =>
+                  showTournamentBreakdownSheet(context, widget.organizerId)),
+        ]);
+      },
+    );
+  }
+}
+
+/// [ProfileStatBox]'s gold variant, made tappable. That widget is itself an
+/// `Expanded`, so it can't be wrapped in a tap handler; this copies its look
+/// and adds a chevron after the label as the hint that it opens something.
+class _TappableStatBox extends StatelessWidget {
+  final String value, label;
+  final VoidCallback onTap;
+  const _TappableStatBox(
+      {required this.value, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+                color: AppTheme.accentSurface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.accent)),
+            child: Column(children: [
+              Text(value,
+                  style: TextStyle(
+                      color: AppTheme.accentText,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900),
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Flexible(
+                  child: Text(label,
+                      style: TextStyle(color: AppTheme.muted, fontSize: 9),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                Icon(Icons.chevron_right_rounded,
+                    color: AppTheme.muted, size: 12),
+              ]),
+            ]),
+          ),
+        ),
+      );
 }

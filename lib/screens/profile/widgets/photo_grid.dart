@@ -16,8 +16,22 @@ class PhotoGrid extends StatelessWidget {
   /// portfolio's owner and reads oddly to a coach or teammate viewing it.
   final String? emptyMessage;
 
-  const PhotoGrid(
-      {super.key, required this.items, this.onTapItem, this.emptyMessage});
+  /// The empty card's button, e.g. "Upload a clip". Shown only with
+  /// [onEmptyCta], or while [emptyCtaBusy]; the owner's profile passes both,
+  /// a viewer's passes neither.
+  final String? emptyCtaLabel;
+  final VoidCallback? onEmptyCta;
+  final bool emptyCtaBusy;
+
+  const PhotoGrid({
+    super.key,
+    required this.items,
+    this.onTapItem,
+    this.emptyMessage,
+    this.emptyCtaLabel,
+    this.onEmptyCta,
+    this.emptyCtaBusy = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +40,9 @@ class PhotoGrid extends StatelessWidget {
         icon: LucideIcons.image,
         message: emptyMessage ??
             'No photos yet.\nGame-day shots and training snaps will show up here.',
+        ctaLabel: emptyCtaLabel,
+        onCta: onEmptyCta,
+        ctaBusy: emptyCtaBusy,
       );
     }
     return GridView.builder(

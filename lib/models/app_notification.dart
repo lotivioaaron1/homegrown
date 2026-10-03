@@ -14,6 +14,7 @@ enum NotificationType {
   rankChange,
   teamInvite,
   teamFull,
+  tournamentResult,
   other,
 }
 
@@ -70,6 +71,8 @@ class AppNotification {
         return NotificationType.teamInvite;
       case 'team_full':
         return NotificationType.teamFull;
+      case 'tournament_result':
+        return NotificationType.tournamentResult;
       default:
         return NotificationType.other;
     }

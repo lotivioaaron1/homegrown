@@ -11,18 +11,51 @@ import '../../models/report.dart';
 import '../../services/notification_service.dart';
 import '../../services/team_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/draft_publish.dart';
+import '../../utils/error_messages.dart';
+import '../../utils/event_history.dart';
 import '../../utils/event_recipients.dart';
+import '../../utils/event_types.dart';
 import '../../utils/firestore_helpers.dart';
+import '../../utils/match_players.dart';
 import '../../widgets/athlete_profile_sheet.dart';
 import '../../widgets/member_profiles.dart';
 import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/player_avatar.dart';
 import '../../widgets/report_dialog.dart';
 
-class EventDetailScreen extends StatelessWidget {
+class EventDetailScreen extends StatefulWidget {
   const EventDetailScreen({super.key});
 
-  String get _eventId => (Get.arguments as Map?)?['eventId'] as String? ?? '';
+  @override
+  State<EventDetailScreen> createState() => _EventDetailScreenState();
+}
+
+class _EventDetailScreenState extends State<EventDetailScreen> {
+  /// Read once, while this route is on top. `Get.arguments` always describes
+  /// the top route, so reading it on every build would pick up the bracket's
+  /// `{'tournamentId'}` while that is open above this screen, and a rebuild
+  /// underneath would ask for `doc('')`.
+  final String _eventId = (Get.arguments as Map?)?['eventId'] as String? ?? '';
+
+  // Held here rather than created in build, so a rebuild doesn't
+  // re-subscribe. The matches stream is only opened once a result exists.
+  late final _eventStream = FirebaseFirestore.instance
+      .collection('events').doc(_eventId).snapshots();
+  late final _matchesStream = FirebaseFirestore.instance
+      .collection('matches')
+      .where('eventId', isEqualTo: _eventId)
+      .snapshots();
+  // The same query for the Add Player Stats button, kept separate so the two
+  // StreamBuilders never share one subscription.
+  late final _statsMatchesStream = FirebaseFirestore.instance
+      .collection('matches')
+      .where('eventId', isEqualTo: _eventId)
+      .snapshots();
+
+  /// Blocks a second tap on Publish while the first is still writing, which
+  /// would otherwise notify the whole roster twice.
+  bool _publishing = false;
 
   @override
   Widget build(BuildContext context) {
@@ -30,8 +63,7 @@ class EventDetailScreen extends StatelessWidget {
       backgroundColor: AppTheme.bg,
       body: SafeArea(
         child: StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('events').doc(_eventId).snapshots(),
+          stream: _eventStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator(
@@ -97,48 +129,40 @@ class EventDetailScreen extends StatelessWidget {
         ),
       );
 
-  Widget _buildMatchResults(String? teamAName, String? teamBName) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('matches')
-          .where('eventId', isEqualTo: _eventId)
-          .where('status', isEqualTo: 'finalized')
-          .snapshots(),
+  /// Hands [header] the event's recorded result, if any. Read from the match
+  /// as soon as it's saved, not only once every player's stats are in and it
+  /// is finalized, which left the score hidden until then.
+  Widget _buildScoreboard(
+      Map<String, dynamic> ev, Widget Function(MatchResult? result) header) {
+    if (!hasResult(ev)) return header(null);
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _matchesStream,
       builder: (context, snapshot) {
-        final docs = snapshot.data?.docs ?? [];
-        if (docs.isEmpty) return const SizedBox.shrink();
-        final matches = docs
-            .map((d) => MatchResult.fromMap(d.id, d.data() as Map<String, dynamic>))
-            .toList();
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('RESULT', style: TextStyle(
-                color: AppTheme.muted, fontSize: 12,
-                fontWeight: FontWeight.w800, letterSpacing: 1)),
-            const SizedBox(height: 10),
-            ...matches.map((m) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _MatchResultCard(
-                    match: m, teamAName: teamAName, teamBName: teamBName))),
-          ]),
-        );
+        final doc =
+            latestMatch(snapshot.data?.docs ?? [], data: (d) => d.data());
+        return header(
+            doc == null ? null : MatchResult.fromMap(doc.id, doc.data()));
       },
     );
   }
 
   Widget _buildContent(BuildContext context, Map<String, dynamic> ev) {
     final name = ev['name'] as String? ?? 'Untitled Event';
-    // The raw `status` field is only ever 'draft' or 'upcoming' and never
-    // updates itself once a game happens, so the displayed label is derived
-    // from the real eventDate instead — see isEventUpcoming() in
-    // firestore_helpers.dart.
+    // Same badge as My Events and Home, so the three can't disagree.
     final isCancelled = ev['status'] == 'cancelled';
     final isDraft = ev['status'] == 'draft';
-    final isCompleted = !isCancelled && !isDraft && !isEventUpcoming(ev);
-    final statusLabel = isCancelled ? 'CANCELLED'
-        : isDraft ? 'DRAFT' : (isCompleted ? 'COMPLETED' : 'UPCOMING');
-    final isNeutralStatus = isCancelled || isDraft || isCompleted;
+    final badge = badgeFor(ev);
+    final statusLabel = badgeLabel(badge);
+    final isNeutralStatus = badge != EventBadge.upcoming;
+    // The same check Record Match makes. The button explains itself when the
+    // game can't take a result yet, and is left out where it never will.
+    final canRecord = canRecordResult(ev);
+    final recordLabel = switch (badge) {
+      EventBadge.awaitingResult => 'Record Match Results',
+      EventBadge.completed => 'Result Recorded',
+      EventBadge.upcoming => 'Results Open at Kickoff',
+      EventBadge.draft || EventBadge.cancelled => null,
+    };
     final sport = ev['sport'] as String? ?? '—';
     final venue = ev['venue'] as String? ?? '—';
     final venueAddress = ev['venueAddress'] as String? ?? '';
@@ -179,6 +203,10 @@ class EventDetailScreen extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (isOrganizer && isDraft) ...[
+              _buildDraftBanner(ev),
+              const SizedBox(height: 12),
+            ],
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -237,22 +265,27 @@ class EventDetailScreen extends StatelessWidget {
               OrganizerByline(organizerId: organizerId),
             ],
             const SizedBox(height: 20),
-            _buildMatchResults(teamAName, teamBName),
-            _TeamVsTeamHeader(
+            _buildScoreboard(ev, (result) => _TeamVsTeamHeader(
+              tuneUp: !countsTowardRankings(ev['eventType'] as String?),
               teamACoachId: ev['teamACoachId'] as String?,
               teamBCoachId: ev['teamBCoachId'] as String?,
               teamAName: teamAName ?? 'Team A',
               teamBName: teamBName ?? 'Team B',
               countA: players.where((p) => (p['team'] as String? ?? 'A') == 'A').length,
               countB: players.where((p) => (p['team'] as String? ?? 'A') == 'B').length,
-            ),
+              result: result,
+            )),
             const SizedBox(height: 16),
             Row(children: [
               Text('ROSTER', style: TextStyle(
                   color: AppTheme.muted, fontSize: 12,
                   fontWeight: FontWeight.w800, letterSpacing: 1)),
               const Spacer(),
-              if (isOrganizer && isEventUpcoming(ev) && !isBracketMatch) ...[
+              // A draft keeps Edit Event after its date passes: picking a new
+              // date is the only way it can still be published.
+              if (isOrganizer &&
+                  (isEventUpcoming(ev) || isDraft) &&
+                  !isBracketMatch) ...[
                 GestureDetector(
                   onTap: () => Get.toNamed('/events/edit',
                       arguments: {'eventId': _eventId}),
@@ -273,7 +306,7 @@ class EventDetailScreen extends StatelessWidget {
                   child: const Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.edit_outlined, color: AppTheme.accent, size: 13),
                     SizedBox(width: 4),
-                    Text('Edit Teams', style: TextStyle(
+                    Text('Rename Teams', style: TextStyle(
                         color: AppTheme.accent, fontSize: 12,
                         fontWeight: FontWeight.w700)),
                   ]),
@@ -330,21 +363,32 @@ class EventDetailScreen extends StatelessWidget {
               ),
             ],
             if (isOrganizer) ...[
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity, height: 50,
-                child: ElevatedButton(
-                  onPressed: () => Get.toNamed('/matches/record',
-                      arguments: isBracketMatch ? {'eventId': _eventId} : null),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.accent,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12))),
-                  child: const Text('Record Match Results', style: TextStyle(
-                      color: AppTheme.buttonFg, fontSize: 14,
-                      fontWeight: FontWeight.w700)),
+              if (badge == EventBadge.completed) ...[
+                const SizedBox(height: 20),
+                _buildStatsButton(),
+              ] else if (recordLabel != null) ...[
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity, height: 50,
+                  child: ElevatedButton(
+                    // Straight to this game's lineup and score, not the list
+                    // of every game waiting for a result.
+                    onPressed: canRecord
+                        ? () => Get.toNamed('/matches/record',
+                            arguments: {'eventId': _eventId})
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.accent,
+                        disabledBackgroundColor: AppTheme.cardNested,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12))),
+                    child: Text(recordLabel, style: TextStyle(
+                        color: canRecord ? AppTheme.buttonFg : AppTheme.muted,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700)),
+                  ),
                 ),
-              ),
+              ],
               if (!isCancelled && !isBracketMatch)
                 _buildDangerZone(context, ev),
             ],
@@ -352,6 +396,128 @@ class EventDetailScreen extends StatelessWidget {
         ),
       ),
     ]);
+  }
+
+  /// Shown to the organizer on their own draft. Saving a draft notified
+  /// nobody, so this is the one place it can go live from; without it a draft
+  /// could be edited or deleted but never announced.
+  Widget _buildDraftBanner(Map<String, dynamic> ev) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: AppTheme.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.accent, width: 1.5)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.edit_note_rounded, color: AppTheme.accent, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('Draft · Only you can see this', style: TextStyle(
+                color: AppTheme.textPrimary, fontSize: 14,
+                fontWeight: FontWeight.w800)),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+            "Players and coaches haven't been told yet. Publish when you're "
+            'ready to announce it.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 12, height: 1.4)),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity, height: 50,
+          child: ElevatedButton(
+            onPressed: _publishing ? null : () => _publishDraft(ev),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                disabledBackgroundColor: AppTheme.cardNested,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
+            child: _publishing
+                ? const SizedBox(
+                    width: 22, height: 22,
+                    child: CircularProgressIndicator(
+                        color: AppTheme.accent, strokeWidth: 2))
+                : const Text('Publish Event', style: TextStyle(
+                    color: AppTheme.buttonFg, fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  /// Takes a draft live: flips it to 'upcoming' and sends the roster and both
+  /// coaches the same "upcoming game" notice a straight publish sends, in one
+  /// batch so nobody is told about an event that failed to go live.
+  Future<void> _publishDraft(Map<String, dynamic> ev) async {
+    final problem = draftPublishProblem(ev);
+    if (problem != null) {
+      _snack("Can't Publish Yet", problem, isError: true);
+      return;
+    }
+
+    final name = ev['name'] as String? ?? 'this event';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Publish $name?', style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 16,
+            fontWeight: FontWeight.w800)),
+        content: Text(
+            'Everyone on the roster and both coaches will be notified.',
+            style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text('Back', style: TextStyle(color: AppTheme.sub, fontSize: 14)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Publish', style: TextStyle(
+                color: AppTheme.accent, fontSize: 14,
+                fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _publishing = true);
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(
+          FirebaseFirestore.instance.collection('events').doc(_eventId),
+          {'status': 'upcoming'});
+      for (final notice in publishNotices(ev)) {
+        await NotificationService.create(
+          userId: notice.uid,
+          type: 'event_added',
+          title: notice.title,
+          body: notice.body,
+          relatedId: _eventId,
+          writeBatch: batch,
+        );
+      }
+      await batch.commit();
+      // The event stream redraws the page as upcoming; no navigation needed.
+      _snack('Event Published! 🏆', '$name is now live!');
+    } catch (e) {
+      _snack('Error', friendlyError(e), isError: true);
+    } finally {
+      if (mounted) setState(() => _publishing = false);
+    }
+  }
+
+  void _snack(String title, String msg, {bool isError = false}) {
+    Get.snackbar(title, msg,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: isError ? const Color(0xFF2A1A1A) : AppTheme.accentSurface,
+      colorText: isError ? const Color(0xFFFF5C5C) : AppTheme.accentText,
+      margin: const EdgeInsets.all(16), borderRadius: 12,
+      duration: const Duration(seconds: 3));
   }
 
   Widget _buildPlayerGroup(
@@ -413,51 +579,71 @@ class EventDetailScreen extends StatelessWidget {
     );
   }
 
-  /// Offers exactly one action based on how much history the event has:
-  /// nothing recorded yet → hard delete is safe; a match exists but isn't
-  /// finalized → soft cancel instead, so nothing gets orphaned; a finalized
-  /// match already awarded points/ratings → neither is offered, since that
-  /// history shouldn't be erasable.
+  /// Offers exactly one action based on who has heard about the event:
+  /// a draft was never announced, so deleting it is safe; a published game
+  /// was, so it is cancelled instead and everyone told; once a result is
+  /// recorded the game was played, and neither is offered, since that
+  /// history (and the stats still to come) shouldn't be erasable.
   Widget _buildDangerZone(BuildContext context, Map<String, dynamic> ev) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('matches')
-          .where('eventId', isEqualTo: _eventId)
-          .snapshots(),
+    if (hasResult(ev)) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Text(
+            "This game has a recorded result, so it can't be cancelled or "
+            'deleted.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+      );
+    }
+    final isDraft = ev['status'] == 'draft';
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: OutlinedButton(
+          onPressed: () => isDraft
+              ? _confirmDelete(context)
+              : _confirmCancel(context, ev),
+          style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppTheme.error),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12))),
+          child: Text(isDraft ? 'Delete Draft' : 'Cancel Event',
+              style: const TextStyle(
+                  color: AppTheme.error,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700)),
+        ),
+      ),
+    );
+  }
+
+  /// Under a recorded result: the way on to Add Stats while any player's
+  /// stats are still owed, then a plain "done" once the match is finalized.
+  Widget _buildStatsButton() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _statsMatchesStream,
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const SizedBox.shrink();
-        final matches = snapshot.data!.docs;
-        final hasFinalized = matches.any((d) =>
-            (d.data() as Map<String, dynamic>)['status'] == 'finalized');
-        if (hasFinalized) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Text(
-                "This game has recorded results and can't be cancelled or "
-                'deleted.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 12)),
-          );
-        }
-        final hasMatches = matches.isNotEmpty;
-        return Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: OutlinedButton(
-              onPressed: () => hasMatches
-                  ? _confirmCancel(context, ev)
-                  : _confirmDelete(context),
-              style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppTheme.error),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12))),
-              child: Text(hasMatches ? 'Cancel Event' : 'Delete Event',
-                  style: const TextStyle(
-                      color: AppTheme.error,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700)),
-            ),
+        final doc =
+            latestMatch(snapshot.data?.docs ?? [], data: (d) => d.data());
+        final owed = doc != null && doc.data()['status'] == 'pending';
+        return SizedBox(
+          width: double.infinity, height: 50,
+          child: ElevatedButton(
+            onPressed: owed
+                ? () => Get.toNamed('/stats/add',
+                    arguments: {'eventId': _eventId})
+                : null,
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                disabledBackgroundColor: AppTheme.cardNested,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
+            child: Text(owed ? 'Add Player Stats' : 'Result Recorded',
+                style: TextStyle(
+                    color: owed ? AppTheme.buttonFg : AppTheme.muted,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700)),
           ),
         );
       },
@@ -470,11 +656,11 @@ class EventDetailScreen extends StatelessWidget {
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Delete this event?', style: TextStyle(
+        title: Text('Delete this draft?', style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
         content: Text(
-            "This can't be undone. Nobody has recorded a match for it yet, "
-            'so nothing else is affected.',
+            "This can't be undone. It was never published, so nobody was "
+            'told about it.',
             style: TextStyle(color: AppTheme.sub, fontSize: 13)),
         actions: [
           TextButton(
@@ -561,82 +747,9 @@ class _InfoRow extends StatelessWidget {
   ]);
 }
 
-/// One finalized match's score, with the winning side highlighted. An event
-/// can technically have more than one recorded match, so the caller renders
-/// one of these per finalized match rather than assuming a single result.
-class _MatchResultCard extends StatelessWidget {
-  final MatchResult match;
-  final String? teamAName;
-  final String? teamBName;
-  const _MatchResultCard({
-    required this.match,
-    required this.teamAName,
-    required this.teamBName,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-          color: AppTheme.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border)),
-      child: Row(children: [
-        Expanded(
-          child: _TeamScore(
-              name: teamAName ?? 'Team A',
-              score: match.scoreA,
-              isWinner: match.winner == 'A'),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text('vs', style: TextStyle(color: AppTheme.muted,
-              fontSize: 12, fontWeight: FontWeight.w700)),
-        ),
-        Expanded(
-          child: _TeamScore(
-              name: teamBName ?? 'Team B',
-              score: match.scoreB,
-              isWinner: match.winner == 'B'),
-        ),
-      ]),
-    );
-  }
-}
-
-class _TeamScore extends StatelessWidget {
-  final String name;
-  final int score;
-  final bool isWinner;
-  const _TeamScore({
-    required this.name,
-    required this.score,
-    required this.isWinner,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(children: [
-      Text(name, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-              color: isWinner ? AppTheme.textPrimary : AppTheme.sub,
-              fontSize: 13, fontWeight: FontWeight.w700)),
-      const SizedBox(height: 6),
-      Text('$score', style: TextStyle(
-          color: isWinner ? AppTheme.accent : AppTheme.muted,
-          fontSize: 24, fontWeight: FontWeight.w900)),
-      if (isWinner) ...[
-        const SizedBox(height: 4),
-        const Icon(Icons.emoji_events_rounded, color: AppTheme.accent, size: 14),
-      ],
-    ]);
-  }
-}
-
 /// The two teams facing off, each with its coach-set logo (or a generic
 /// placeholder if this side wasn't built from a picked coach team) and
-/// player count.
+/// player count. Once a result is recorded, its score replaces "VS".
 class _TeamVsTeamHeader extends StatelessWidget {
   final String? teamACoachId;
   final String? teamBCoachId;
@@ -644,34 +757,86 @@ class _TeamVsTeamHeader extends StatelessWidget {
   final String teamBName;
   final int countA;
   final int countB;
+  final MatchResult? result;
+
+  /// A practice or exhibition game, which says so instead of promising a
+  /// rating update.
+  final bool tuneUp;
 
   const _TeamVsTeamHeader({
+    this.tuneUp = false,
     required this.teamACoachId,
     required this.teamBCoachId,
     required this.teamAName,
     required this.teamBName,
     required this.countA,
     required this.countB,
+    this.result,
   });
 
   @override
   Widget build(BuildContext context) {
+    final result = this.result;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: AppTheme.card,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.border)),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-            child: _TeamBlock(coachId: teamACoachId, name: teamAName, count: countA)),
-        Padding(
-          padding: const EdgeInsets.only(top: 18),
-          child: Text('VS', style: TextStyle(
-              color: AppTheme.muted, fontSize: 12, fontWeight: FontWeight.w800)),
-        ),
-        Expanded(
-            child: _TeamBlock(coachId: teamBCoachId, name: teamBName, count: countB)),
+      child: Column(children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+              child: _TeamBlock(coachId: teamACoachId, name: teamAName, count: countA)),
+          if (result == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 18),
+              child: Text('VS', style: TextStyle(
+                  color: AppTheme.muted, fontSize: 12, fontWeight: FontWeight.w800)),
+            )
+          else
+            _buildScore(result),
+          Expanded(
+              child: _TeamBlock(coachId: teamBCoachId, name: teamBName, count: countB)),
+        ]),
+        if (tuneUp) ...[
+          const SizedBox(height: 12),
+          Text("Tune-up: doesn't change Elo or points.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+        ]
+        // The score is final once recorded; ratings wait for Add Stats.
+        else if (result != null && !result.isFinalized) ...[
+          const SizedBox(height: 12),
+          Text("Ratings update once every player's stats are in.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+        ],
+      ]),
+    );
+  }
+
+  /// "FINAL" over the score, the winner's number in gold. Sized to sit level
+  /// with the 56dp team logos either side.
+  Widget _buildScore(MatchResult result) {
+    TextStyle scoreStyle(bool won) => TextStyle(
+        color: won ? AppTheme.accentText : AppTheme.sub,
+        fontSize: 24, fontWeight: FontWeight.w900);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Column(children: [
+        Text('FINAL', style: TextStyle(
+            color: AppTheme.muted, fontSize: 10,
+            fontWeight: FontWeight.w800, letterSpacing: 1)),
+        const SizedBox(height: 2),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('${result.scoreA}', style: scoreStyle(result.winner == 'A')),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Text('–', style: TextStyle(
+                color: AppTheme.muted, fontSize: 20, fontWeight: FontWeight.w700)),
+          ),
+          Text('${result.scoreB}', style: scoreStyle(result.winner == 'B')),
+        ]),
       ]),
     );
   }

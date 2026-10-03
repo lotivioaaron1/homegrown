@@ -12,11 +12,17 @@
 /// already sent with it are treated as having no name at all.
 const String _kLegacyPlaceholder = 'your team';
 
+/// Whether [teamOrganization] is a name athletes will actually see, rather
+/// than one [teamDisplayName] replaces with the "Coach Ana's team" fallback.
+bool hasCustomTeamName(String? teamOrganization) {
+  final org = teamOrganization?.trim() ?? '';
+  return org.isNotEmpty && org.toLowerCase() != _kLegacyPlaceholder;
+}
+
 /// [teamOrganization] if it is a real name, otherwise "Coach {first name}'s
 /// team", or plain "Team" when even the coach's name is unknown.
 String teamDisplayName({String? teamOrganization, String? coachName}) {
-  final org = teamOrganization?.trim() ?? '';
-  if (org.isNotEmpty && org.toLowerCase() != _kLegacyPlaceholder) return org;
+  if (hasCustomTeamName(teamOrganization)) return teamOrganization!.trim();
 
   final first = (coachName ?? '').trim().split(RegExp(r'\s+')).first;
   return first.isEmpty ? 'Team' : "Coach $first's team";

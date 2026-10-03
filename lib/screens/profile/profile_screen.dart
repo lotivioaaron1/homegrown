@@ -11,13 +11,12 @@ import '../../models/team_invite.dart';
 import '../../services/media_service.dart';
 import '../../services/team_service.dart';
 import '../../utils/team_name.dart';
-import '../../widgets/athlete_profile_sheet.dart';
+import '../../widgets/championships.dart';
 import '../../widgets/organizer_profile_parts.dart';
 import '../../widgets/photo_viewer_dialog.dart';
 import '../../widgets/team_roster_grid.dart';
 import '../../widgets/video_player_sheet.dart';
 import '../settings/settings_screen.dart';
-import 'edit_profile_screen.dart';
 import 'widgets/media_section.dart';
 
 /// Portfolio-style profile. Header + avatar + bio, then Video/Photo
@@ -93,9 +92,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 : role == 'coach'
                     ? 'Coach'
                     : 'Organizer';
-            final subtitle = teamName.isNotEmpty
-                ? teamName
-                : (sport.isNotEmpty ? '$roleLabel · $sport' : roleLabel);
+            // Organizer-only details, read the way the public organizer
+            // profile reads them — the organizer's own profile mirrors it.
+            final orgDetails = [
+              (data['organizationType'] as String? ?? '').trim(),
+              (data['barangay'] as String? ?? '').trim(),
+            ].where((s) => s.isNotEmpty).join(' · ');
+            final orgType = (data['organizationType'] as String? ?? '').trim();
+            final orgSports = (data['sportsOrganized'] as List?)
+                    ?.map((e) => e.toString())
+                    .toList() ??
+                const <String>[];
+            final certifications =
+                (data['certifications'] as String? ?? '').trim();
+            // A coach's subtitle is where they're based. It used to be the
+            // team name, which the team card below already shows.
+            final barangay = (data['barangay'] as String? ?? '').trim();
+            final coachAddress = role == 'coach' && barangay.isNotEmpty
+                ? '$barangay, Legazpi City'
+                : '';
+            // An organizer's subtitle is type · barangay, as on the public
+            // profile; their organization has its own card below.
+            final subtitle = role == 'coach'
+                ? roleLabel
+                : role == 'organizer' && orgDetails.isNotEmpty
+                    ? orgDetails
+                    : teamName.isNotEmpty
+                        ? teamName
+                        : (sport.isNotEmpty ? '$roleLabel · $sport' : roleLabel);
 
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -142,16 +166,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 status: data['organizerStatus'] as String?),
                         ]),
                         const SizedBox(height: 3),
-                        Text(subtitle,
-                            style: TextStyle(
-                                color: AppTheme.sub,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500)),
+                        if (coachAddress.isNotEmpty)
+                          Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Icon(LucideIcons.mapPin,
+                                      color: AppTheme.muted, size: 13),
+                                ),
+                                const SizedBox(width: 4),
+                                // Barangay names run long ("Bgy. 8 -
+                                // Bagumbayan (Pob.)"), so wrap rather than
+                                // cut the city off.
+                                Flexible(
+                                  child: Text(coachAddress,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          color: AppTheme.sub,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500)),
+                                ),
+                              ])
+                        else
+                          Text(subtitle,
+                              style: TextStyle(
+                                  color: AppTheme.sub,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500)),
                       ],
                     ),
                   ),
                 ]),
                 const SizedBox(height: 14),
+
+                // Sports organized, above the bio as on the public organizer
+                // profile, in the same gold chips.
+                if (role == 'organizer' && orgSports.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: orgSports
+                        .map((s) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                  color: AppTheme.accentSurface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppTheme.accent)),
+                              child: Text(s,
+                                  style: TextStyle(
+                                      color: AppTheme.accentText,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600)),
+                            ))
+                        .toList(),
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Bio
                 if (bio.isNotEmpty) ...[
@@ -164,33 +237,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ] else
                   const SizedBox(height: 4),
 
-                // Own-profile shortcuts (athlete only). Edit Profile used to be
-                // reachable only through the gear and Settings, and the card a
-                // scouting coach sees only by finding yourself on the
-                // leaderboard. Neutral styling on purpose: gold stays with the
-                // upload buttons below, the actions that build the portfolio.
-                if (role == 'athlete') ...[
-                  Row(children: [
-                    Expanded(
-                        child: _secondaryButton(LucideIcons.pencil,
-                            'Edit Profile',
-                            () => Get.to(() => const EditProfileScreen()))),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _secondaryButton(LucideIcons.eye,
-                            "Coach's view",
-                            () => showAthleteProfileSheet(context,
-                                athleteId: _uid))),
-                  ]),
-                  const SizedBox(height: 12),
-                ],
+                // Tournament record, latest run and titles. Renders nothing
+                // until there is a finished tournament. A coach's are in
+                // their Tournaments section further down.
+                if (role == 'athlete')
+                  AthleteTournaments(
+                      uid: _uid, padding: const EdgeInsets.only(bottom: 18)),
 
-                // Portfolio (athlete only)
+                // Portfolio (athlete only). Edit Profile is in Settings.
                 if (role == 'athlete') _portfolio(context),
 
-                // Team identity hub (coach only) — My Team and Scout stay
-                // the real roster/scouting tools; this is a summary plus
-                // quick entry points into them, not a second copy.
+                // Team identity hub (coach only), read top to bottom as the
+                // coach, their team, then how it has done in tournaments. My
+                // Team stays the real roster tool; the team card is the way
+                // into it, not a second copy. Scout is reached from Home.
                 //
                 // The roster grid below is the one exception. It was added
                 // after a coach saw their own players on the profile athletes
@@ -221,6 +281,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
+                  Row(children: [
+                    Expanded(
+                        child: _credentialBox(
+                            'Experience',
+                            (data['yearsOfExperience'] as String?)
+                                        ?.isNotEmpty ==
+                                    true
+                                ? data['yearsOfExperience'] as String
+                                : '—')),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: _credentialBox(
+                            'Level',
+                            (data['coachingLevel'] as String?)?.isNotEmpty ==
+                                    true
+                                ? data['coachingLevel'] as String
+                                : '—')),
+                  ]),
+                  if ((data['coachingBio'] as String? ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(data['coachingBio'] as String,
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 13,
+                            height: 1.5)),
+                  ],
+                  const SizedBox(height: 20),
+                  _sectionLabel('Team'),
+                  const SizedBox(height: 8),
                   GestureDetector(
                     onTap: () => Get.toNamed('/team/roster'),
                     child: Container(
@@ -288,40 +377,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ]),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Expanded(
-                        child: _credentialBox(
-                            'Experience',
-                            (data['yearsOfExperience'] as String?)
-                                        ?.isNotEmpty ==
-                                    true
-                                ? data['yearsOfExperience'] as String
-                                : '—')),
-                    const SizedBox(width: 10),
-                    Expanded(
-                        child: _credentialBox(
-                            'Level',
-                            (data['coachingLevel'] as String?)?.isNotEmpty ==
-                                    true
-                                ? data['coachingLevel'] as String
-                                : '—')),
-                  ]),
-                  if ((data['coachingBio'] as String? ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Text(data['coachingBio'] as String,
-                        style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 13,
-                            height: 1.5)),
-                  ],
-                  const SizedBox(height: 20),
-                  Text('Players',
-                      style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   StreamBuilder<QuerySnapshot>(
                     stream: TeamService.streamRoster(_uid),
                     builder: (context, rosterSnap) => TeamRosterGrid(
@@ -334,27 +390,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       loading: rosterSnap.connectionState ==
                           ConnectionState.waiting,
                       emptyMessage:
-                          'No players yet. Use Scout Players to find athletes '
-                          'and invite them to your team.',
+                          'No players yet. Tap your team to invite athletes.',
                     ),
                   ),
                   const SizedBox(height: 20),
-                  Row(children: [
-                    Expanded(
-                        child: _addButton(Icons.groups_outlined,
-                            'Manage Roster', () => Get.toNamed('/team/roster'))),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _addButton(Icons.search_rounded,
-                            'Scout Players', () => Get.toNamed('/scout'))),
-                  ]),
+                  _sectionLabel('Tournaments'),
+                  const SizedBox(height: 8),
+                  TournamentRecord(coachId: _uid),
                 ],
 
-                // Organization identity hub (organizer only) — a condensed
-                // summary card; Settings remains the full-detail view (also
-                // showing certifications/barangay, deliberately left out
-                // here to match the coach section's restraint above).
+                // Organizer section — a copy of the public organizer profile
+                // (organizer_profile_view_screen.dart), which the user
+                // preferred, without its Approved Organizer pill. No action
+                // buttons: Edit Profile is in Settings, and Create Event is
+                // on the Events tab. Approval state reaches a pending or
+                // refused organizer through the Home to-do card.
                 if (role == 'organizer') ...[
+                  OrganizerTrackRecord(organizerId: _uid),
+                  const SizedBox(height: 20),
+                  _sectionLabel('Organization'),
+                  const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -382,65 +437,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   teamName.isNotEmpty
                                       ? teamName
                                       : 'Your Organization',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                       color: AppTheme.textPrimary,
                                       fontSize: 14,
                                       fontWeight: FontWeight.w800)),
-                              if ((data['organizationType'] as String?)
-                                      ?.isNotEmpty ==
-                                  true) ...[
-                                const SizedBox(height: 2),
-                                Text(data['organizationType'] as String,
-                                    style: TextStyle(
-                                        color: AppTheme.sub, fontSize: 12)),
-                              ],
+                              const SizedBox(height: 2),
+                              Text(orgType.isNotEmpty ? orgType : '—',
+                                  style: TextStyle(
+                                      color: AppTheme.sub, fontSize: 12)),
                             ]),
                       ),
-                      const SizedBox(width: 8),
-                      _organizerStatusBadge(
-                          data['organizerStatus'] as String?),
                     ]),
                   ),
-                  const SizedBox(height: 14),
-                  if ((data['sportsOrganized'] as List?)?.isNotEmpty ==
-                      true) ...[
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: (data['sportsOrganized'] as List)
-                          .map((s) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                    color: AppTheme.cardNested,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border:
-                                        Border.all(color: AppTheme.border)),
-                                child: Text(s.toString(),
-                                    style: TextStyle(
-                                        color: AppTheme.sub, fontSize: 11)),
-                              ))
-                          .toList(),
+                  // Set at registration and not editable in Edit Profile, so
+                  // an empty one gets no prompt — it would be a dead end.
+                  if (certifications.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    _sectionLabel('Certifications'),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                          color: AppTheme.cardNested,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppTheme.border)),
+                      child: Text(certifications,
+                          style: TextStyle(
+                              color: AppTheme.sub,
+                              fontSize: 13,
+                              height: 1.5)),
                     ),
-                    const SizedBox(height: 14),
                   ],
-                  FutureBuilder<AggregateQuerySnapshot>(
-                    // Only the number is shown, so a count aggregation costs
-                    // one read instead of one per event created.
-                    future: FirebaseFirestore.instance
-                        .collection('events')
-                        .where('organizerId', isEqualTo: _uid)
-                        .count()
-                        .get(),
-                    builder: (context, eventsSnap) {
-                      final count = eventsSnap.data?.count;
-                      return _credentialBox(
-                          'Events Created', count == null ? '—' : '$count');
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  _addButton(LucideIcons.plus, 'Create Event',
-                      () => Get.toNamed('/events/create')),
                 ],
               ],
             );
@@ -450,10 +480,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// The athlete portfolio: both Add buttons and both media sections, driven
-  /// by one listener on users/{uid}/media. The buttons need the same counts
-  /// the section headers show, so they share a stream rather than each
-  /// opening their own and risking a moment where they disagree.
+  /// The athlete portfolio: both media sections, driven by one listener on
+  /// users/{uid}/media. Each section carries its own Add, inside its card
+  /// while empty and beside its counter after that, so an upload starts next
+  /// to where it will land. MediaSection hides Add at the cap.
   Widget _portfolio(BuildContext context) {
     return StreamBuilder<List<MediaItem>>(
       stream: MediaService.streamMedia(_uid),
@@ -465,52 +495,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final videos =
             all.where((m) => m.type == MediaType.video).toList(growable: false);
 
-        // While loading, treat nothing as at-cap: greying the buttons out on
-        // an unknown count would look like the feature is broken.
-        final photosFull = !loading && photos.length >= MediaService.maxPhotos;
-        final videosFull = !loading && videos.length >= MediaService.maxVideos;
-
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Expanded(
-                child: _addButton(
-                  LucideIcons.video,
-                  _uploadingVideo
-                      ? _videoBusyLabel()
-                      : videosFull
-                          ? 'Highlights full'
-                          : 'Add Video',
-                  (_uploadingVideo || videosFull)
-                      ? null
-                      : () => _addVideo(context),
-                  busy: _uploadingVideo,
-                  disabled: videosFull,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _addButton(
-                  LucideIcons.image,
-                  _uploadingPhoto
-                      ? 'Uploading...'
-                      : photosFull
-                          ? 'Photos full'
-                          : 'Add Photo',
-                  (_uploadingPhoto || photosFull)
-                      ? null
-                      : () => _addPhoto(context),
-                  busy: _uploadingPhoto,
-                  disabled: photosFull,
-                ),
-              ),
-            ]),
-            if (_uploadingVideo) ...[
-              const SizedBox(height: 12),
-              _videoProgressBar(),
-            ],
-            const SizedBox(height: 26),
             MediaSection(
               items: videos,
               loading: loading,
@@ -518,6 +505,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               title: 'Video Highlights',
               icon: LucideIcons.video,
               max: MediaService.maxVideos,
+              onAdd: () => _addVideo(context),
+              emptyAddLabel: 'Upload a clip',
+              busy: _uploadingVideo,
+              status: _uploadingVideo ? _videoProgressBar() : null,
               onTapItem: (item) => showVideoHighlight(
                 context,
                 item,
@@ -532,6 +523,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               title: 'Photo Highlights',
               icon: LucideIcons.image,
               max: MediaService.maxPhotos,
+              onAdd: () => _addPhoto(context),
+              emptyAddLabel: 'Add a photo',
+              busy: _uploadingPhoto,
               onTapItem: (item) => showPhotoViewer(
                 context,
                 item,
@@ -543,9 +537,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
   }
-
-  String _videoBusyLabel() =>
-      _videoPhase == MediaUploadPhase.compressing ? 'Compressing...' : 'Uploading...';
 
   Widget _videoProgressBar() {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -892,62 +883,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 fontWeight: FontWeight.w900)),
       );
 
-  Widget _addButton(IconData icon, String label, VoidCallback? onTap,
-      {bool busy = false, bool disabled = false}) {
-    // A quota-blocked button drops the gold entirely rather than dimming it:
-    // at a glance it should read as "not available", not "tap harder".
-    final fg = disabled ? AppTheme.muted : AppTheme.accentText;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-            color: disabled ? AppTheme.cardNested : AppTheme.accentSurface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-                color: disabled ? AppTheme.border : AppTheme.accent)),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          if (busy)
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(color: fg, strokeWidth: 2),
-            )
-          else
-            Icon(disabled ? LucideIcons.circleSlash : icon, color: fg, size: 16),
-          const SizedBox(width: 8),
-          Text(label,
-              style: TextStyle(
-                  color: fg, fontSize: 13, fontWeight: FontWeight.w700)),
-        ]),
-      ),
-    );
-  }
-
-  /// Same footprint as [_addButton] so the two rows line up, but on the
-  /// neutral card surface.
-  Widget _secondaryButton(IconData icon, String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-            color: AppTheme.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.border)),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, color: AppTheme.textPrimary, size: 16),
-          const SizedBox(width: 8),
-          Text(label,
-              style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700)),
-        ]),
-      ),
-    );
-  }
-
   Widget _credentialBox(String label, String value) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -970,24 +905,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _organizerStatusBadge(String? status) {
-    final (label, color) = switch (status) {
-      'approved' => ('Approved', AppTheme.success),
-      'rejected' => ('Rejected', AppTheme.error),
-      'revoked' => ('Revoked', AppTheme.error),
-      _ => ('Pending Review', AppTheme.warning),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.4))),
-      child: Text(label,
-          style: TextStyle(
-              color: color, fontSize: 11, fontWeight: FontWeight.w700)),
-    );
-  }
+  /// Section heading, e.g. the coach's "Team" and the organizer's
+  /// "Organization".
+  Widget _sectionLabel(String text) => Text(text,
+      style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700));
 
   String _categoryLabel(MediaCategory c) {
     switch (c) {

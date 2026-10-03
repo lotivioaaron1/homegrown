@@ -10,6 +10,8 @@ import '../../services/tournament_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/bracket.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/organizer_status.dart';
+import '../../widgets/player_avatar.dart';
 import '../events/venue_map_picker_screen.dart';
 import '../profile/edit_profile_screen.dart';
 
@@ -40,6 +42,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   // having declared at least one sport to organize.
   List<String> _allowedSports = [];
   bool _isApprovedOrganizer = false;
+  String? _organizerStatus;
   bool _loadingAllowedSports = true;
 
   String _sport = '';
@@ -47,8 +50,15 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
   bool _isPublic = true;
   bool _isSaving = false;
 
+  /// A badminton singles draw: each entrant is one athlete rather than a
+  /// coach's team. Only offered for badminton.
+  bool _singles = false;
+
   /// Entrants in seed order — index 0 is the top seed.
   final List<TournamentEntrant> _entrants = [];
+
+  /// What an entrant is called in this bracket's copy.
+  String get _entrantNoun => _singles ? 'player' : 'team';
 
   @override
   void initState() {
@@ -74,7 +84,8 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
     setState(() {
       _allowedSports = sports;
       if (sports.length == 1) _sport = sports.first;
-      _isApprovedOrganizer = data['organizerStatus'] == 'approved';
+      _organizerStatus = data['organizerStatus'] as String?;
+      _isApprovedOrganizer = _organizerStatus == 'approved';
       _loadingAllowedSports = false;
     });
   }
@@ -281,6 +292,181 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
     }
   }
 
+  /// Teams and single athletes can't share a bracket, so switching format
+  /// starts the list again.
+  void _setSingles(bool singles) {
+    if (_singles == singles) return;
+    setState(() {
+      _singles = singles;
+      _entrants.clear();
+    });
+  }
+
+  /// Lists every athlete who plays this sport, minus the ones already
+  /// entered. Open to anyone, coached or not, as an open tournament is.
+  ///
+  /// A copy of [_pickTeamSheet]'s layout rather than a shared one, so the
+  /// team picker stays exactly as it was.
+  void _pickPlayerSheet() {
+    final future = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'athlete')
+        .where('primarySports', arrayContains: _sport)
+        .get();
+    final search = TextEditingController();
+    final taken = _entrants.map((e) => e.coachId).toSet();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => FutureBuilder<QuerySnapshot>(
+        future: future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox(
+                height: 240,
+                child: Center(
+                    child: CircularProgressIndicator(
+                        color: AppTheme.accent, strokeWidth: 2)));
+          }
+          final allPlayers = (snapshot.data?.docs ?? [])
+              .map((d) => {...d.data() as Map<String, dynamic>, 'uid': d.id})
+              .where((a) => !taken.contains(a['uid'] as String))
+              .toList();
+
+          return StatefulBuilder(
+            builder: (ctx, setModal) {
+              final query = search.text.trim().toLowerCase();
+              final filtered = query.isEmpty
+                  ? allPlayers
+                  : allPlayers
+                      .where((a) => (a['fullName'] as String? ?? '')
+                          .toLowerCase()
+                          .contains(query))
+                      .toList();
+
+              return DraggableScrollableSheet(
+                expand: false,
+                initialChildSize: 0.7,
+                maxChildSize: 0.92,
+                builder: (_, ctrl) => Column(children: [
+                  const SizedBox(height: 12),
+                  Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                          color: AppTheme.border,
+                          borderRadius: BorderRadius.circular(2))),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                    child: Text('Add a player',
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: TextField(
+                      controller: search,
+                      autofocus: true,
+                      style: TextStyle(color: AppTheme.textPrimary),
+                      onChanged: (_) => setModal(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search player name...',
+                        hintStyle: TextStyle(color: AppTheme.muted),
+                        prefixIcon: Icon(Icons.search_rounded,
+                            color: AppTheme.muted, size: 20),
+                        filled: true,
+                        fillColor: AppTheme.bg,
+                        contentPadding: const EdgeInsets.symmetric(
+                            vertical: 12, horizontal: 16),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                                taken.isEmpty
+                                    ? 'No $_sport players found'
+                                    : 'No other $_sport players left to add',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: AppTheme.muted, fontSize: 13)),
+                          ))
+                        : ListView.builder(
+                            controller: ctrl,
+                            itemCount: filtered.length,
+                            itemBuilder: (_, i) {
+                              final a = filtered[i];
+                              final name = a['fullName'] as String? ?? '';
+                              final shown =
+                                  name.isEmpty ? 'Unnamed Player' : name;
+                              final photoUrl = a['photoUrl'] as String?;
+                              final position = a['position'] as String? ?? '';
+                              return ListTile(
+                                leading: PlayerAvatar(
+                                    name: shown, photoUrl: photoUrl, size: 40),
+                                title: Text(shown,
+                                    style: TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600)),
+                                subtitle: position.isEmpty
+                                    ? null
+                                    : Text(position,
+                                        style: TextStyle(
+                                            color: AppTheme.sub,
+                                            fontSize: 11)),
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  _addPlayer(
+                                    uid: a['uid'] as String,
+                                    fullName: shown,
+                                    position: position,
+                                    photoUrl: photoUrl,
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ]),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  /// No roster to fetch: a singles entrant is the athlete alone, taken
+  /// straight from the profile the picker already read.
+  void _addPlayer({
+    required String uid,
+    required String fullName,
+    required String position,
+    String? photoUrl,
+  }) {
+    setState(() => _entrants.add(TournamentEntrant.singles(
+          seed: _entrants.length + 1,
+          uid: uid,
+          fullName: fullName,
+          position: position,
+          photoUrl: photoUrl,
+        )));
+  }
+
   void _moveEntrant(int index, int delta) {
     final target = index + delta;
     if (target < 0 || target >= _entrants.length) return;
@@ -303,8 +489,8 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
       return;
     }
     if (_entrants.length < Tournament.minEntrants) {
-      _snack('Not Enough Teams',
-          'A bracket needs at least ${Tournament.minEntrants} teams. '
+      _snack(_singles ? 'Not Enough Players' : 'Not Enough Teams',
+          'A bracket needs at least ${Tournament.minEntrants} ${_entrantNoun}s. '
           'For a single game, create an event instead.');
       return;
     }
@@ -317,6 +503,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         name: _nameCtrl.text.trim(),
         description: _descCtrl.text.trim(),
         sport: _sport,
+        format: _singles ? Tournament.formatSingles : Tournament.formatTeam,
         isPublic: _isPublic,
         venue: _venue!.name,
         venueAddress: _venue!.address,
@@ -350,11 +537,13 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
       );
     }
     if (!_isApprovedOrganizer) {
+      final copy = organizerStatusCopy(_organizerStatus)!;
       return _blockingScreen(
-        icon: Icons.hourglass_top_rounded,
-        title: "Your organizer account isn't currently approved",
-        subtitle: 'Contact the app admin for details. You may just need to '
-            'wait for review, or your account may need another look.',
+        icon: isRefusedOrganizer(_organizerStatus)
+            ? Icons.block_rounded
+            : Icons.hourglass_top_rounded,
+        title: copy.title,
+        subtitle: copy.body,
       );
     }
     if (_allowedSports.isEmpty) {
@@ -432,10 +621,34 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                                 // Entrants are coaches of the old sport, so
                                 // they can't carry over to a new one.
                                 _entrants.clear();
+                                _singles = false;
                               }),
                             ))
                         .toList(),
                   ),
+                  if (_sport == 'Badminton') ...[
+                    const SizedBox(height: 20),
+                    _label('Format'),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, children: [
+                      _chip(
+                        label: 'Team',
+                        selected: !_singles,
+                        onTap: () => _setSingles(false),
+                      ),
+                      _chip(
+                        label: 'Singles',
+                        selected: _singles,
+                        onTap: () => _setSingles(true),
+                      ),
+                    ]),
+                    const SizedBox(height: 6),
+                    Text(
+                        _singles
+                            ? 'Each entry is one athlete, playing on their own.'
+                            : "Each entry is a coach's team and its roster.",
+                        style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+                  ],
                   const SizedBox(height: 20),
                   _label('Venue'),
                   const SizedBox(height: 8),
@@ -579,7 +792,7 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        _label('Teams'),
+        _label(_singles ? 'Players' : 'Teams'),
         const Spacer(),
         Text('$count of ${Tournament.maxEntrants}',
             style: TextStyle(color: AppTheme.sub, fontSize: 12)),
@@ -597,20 +810,21 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         if (count > 0) const SizedBox(height: 8),
         if (canAdd)
           GestureDetector(
-            onTap: _pickTeamSheet,
+            onTap: _singles ? _pickPlayerSheet : _pickTeamSheet,
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
                   color: AppTheme.card,
                   borderRadius: BorderRadius.circular(_kRadius),
                   border: Border.all(color: AppTheme.border)),
-              child: const Row(
+              child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.add_rounded, color: AppTheme.accent, size: 18),
-                    SizedBox(width: 6),
-                    Text('Add a team',
-                        style: TextStyle(
+                    const Icon(Icons.add_rounded,
+                        color: AppTheme.accent, size: 18),
+                    const SizedBox(width: 6),
+                    Text('Add a $_entrantNoun',
+                        style: const TextStyle(
                             color: AppTheme.accent,
                             fontSize: 13,
                             fontWeight: FontWeight.w700)),
@@ -661,7 +875,12 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
                         fontSize: 13,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text('${entrant.coachName} · ${entrant.players.length} players',
+                Text(
+                    _singles
+                        ? (entrant.players.first.position.isEmpty
+                            ? '$_sport player'
+                            : entrant.players.first.position)
+                        : '${entrant.coachName} · ${entrant.players.length} players',
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ],
@@ -713,8 +932,10 @@ class _CreateTournamentScreenState extends State<CreateTournamentScreen> {
         const SizedBox(width: 10),
         Expanded(
           child: Text(
-            '$count teams · $rounds rounds · starts at the $opener\n'
-            '${count - 1} matches to play'
+            '$count ${_entrantNoun}s · $rounds rounds · starts at the $opener\n'
+            // Single elimination plays count − 1 games; the battle for
+            // third adds one more.
+            '$count matches to play, including a battle for third'
             '${byes == 0 ? '' : ' · top $byes ${byes == 1 ? 'seed gets a bye' : 'seeds get byes'}'}',
             style: TextStyle(color: AppTheme.sub, fontSize: 11, height: 1.5),
           ),

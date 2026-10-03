@@ -109,7 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ]),
                 const SizedBox(height: 24),
 
-                _editProfileCard(),
+                _editProfileCard(role),
                 const SizedBox(height: 16),
 
                 if (role == 'athlete') ...[
@@ -141,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // ── Edit Profile entry ─────────────────────────────────────────────────
-  Widget _editProfileCard() {
+  Widget _editProfileCard(String role) {
     return GestureDetector(
       onTap: () => Get.to(() => const EditProfileScreen()),
       child: Container(
@@ -170,7 +170,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppTheme.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w700)),
-                Text('Name, photo, bio and athletic details',
+                Text(switch (role) {
+                  'organizer' => 'Name, photo, bio and sports you organize',
+                  'coach' => 'Name, photo, bio and coaching details',
+                  _ => 'Name, photo, bio and athletic details',
+                },
                     style: TextStyle(color: AppTheme.sub, fontSize: 11)),
               ],
             ),
@@ -531,11 +535,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             );
           }),
+          // Agreed to at registration, so it has to stay findable afterwards
+          // — the moderation rules in it are what a suspension points back to.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openLink(AppLinks.terms),
+            child: _settingsRow(
+              icon: LucideIcons.scrollText,
+              label: 'Terms of Use',
+              sub: 'The rules for using Homegrown',
+              trailing: Icon(LucideIcons.externalLink,
+                  color: AppTheme.muted, size: 16),
+            ),
+          ),
           // Play requires the privacy policy to be reachable from inside the
           // app, not only from the store listing.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _openPrivacyPolicy,
+            onTap: () => _openLink(AppLinks.privacyPolicy),
             child: _settingsRow(
               icon: LucideIcons.shieldCheck,
               label: 'Privacy Policy',
@@ -610,12 +627,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _openPrivacyPolicy() async {
-    final opened = await AppLinks.open(AppLinks.privacyPolicy);
+  /// Opens one of the hosted documents, or says where to find it if no browser
+  /// would take the link.
+  Future<void> _openLink(String url) async {
+    final opened = await AppLinks.open(url);
     if (!opened) {
       Get.snackbar(
         'Could not open the link',
-        'Visit ${AppLinks.privacyPolicy} in your browser.',
+        'Visit $url in your browser.',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: AppTheme.card,
         colorText: AppTheme.textPrimary,
@@ -630,7 +649,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// only — the alternative while developing is wiping the app's data.
   ///
   /// Pushed rather than replaced so backing out returns here. Note that the
-  /// intro's own Get Started still routes on to /register, which is a little
+  /// intro's own Create Account still routes on to /register, which is a little
   /// odd when you are already signed in; acceptable for a debug shortcut.
   Future<void> _replayOnboarding() async {
     await clearOnboardingComplete();

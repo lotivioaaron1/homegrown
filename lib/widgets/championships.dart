@@ -1,0 +1,494 @@
+// lib/widgets/championships.dart
+//
+// Where a tournament title is shown off beyond its own page: a shelf on
+// profiles, tournament records on coach and athlete profiles, a row on team
+// pages, and a spotlight on Home. Each reads the finished tournaments once
+// and picks out what it needs with lib/utils/championships.dart.
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:intl/intl.dart';
+
+import '../models/tournament.dart';
+import '../services/tournament_service.dart';
+import '../theme/app_theme.dart';
+import '../utils/championships.dart';
+
+void _openChampionship(Tournament t) =>
+    Get.toNamed('/tournaments/champion', arguments: {'tournamentId': t.id});
+
+String _monthYear(Tournament t) =>
+    t.completedAt == null ? '' : DateFormat('MMM y').format(t.completedAt!);
+
+/// Rebuilds [builder] with every finished tournament. The stream is held in
+/// State, so a parent rebuilding doesn't re-subscribe it.
+class _CompletedTournaments extends StatefulWidget {
+  final Widget Function(List<Tournament> tournaments) builder;
+  const _CompletedTournaments({required this.builder});
+
+  @override
+  State<_CompletedTournaments> createState() => _CompletedTournamentsState();
+}
+
+class _CompletedTournamentsState extends State<_CompletedTournaments> {
+  late final _stream = TournamentService.completedStream();
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<Tournament>>(
+        stream: _stream,
+        builder: (context, snap) => widget.builder(snap.data ?? const []),
+      );
+}
+
+/// "Championships" on an athlete's or coach's profile: one card per title,
+/// newest first, each opening its championship page.
+class ChampionshipShelf extends StatelessWidget {
+  final String uid;
+
+  /// Space around the shelf, applied only when there is a shelf to show.
+  final EdgeInsets padding;
+
+  const ChampionshipShelf({
+    super.key,
+    required this.uid,
+    this.padding = const EdgeInsets.only(top: 18),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _CompletedTournaments(builder: (tournaments) {
+      final titles = titlesFor(tournaments, uid);
+      if (titles.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: padding,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.emoji_events_rounded,
+                color: AppTheme.accentText, size: 15),
+            const SizedBox(width: 6),
+            Text('CHAMPIONSHIPS · ${titles.length}',
+                style: TextStyle(
+                    color: AppTheme.accentText,
+                    fontSize: 11,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w800)),
+          ]),
+          const SizedBox(height: 10),
+          for (final t in titles) _TitleCard(t),
+        ]),
+      );
+    });
+  }
+}
+
+class _TitleCard extends StatelessWidget {
+  final Tournament t;
+  const _TitleCard(this.t);
+
+  @override
+  Widget build(BuildContext context) {
+    final details = [
+      t.sport,
+      if ((t.championTeamName ?? '').isNotEmpty) t.championTeamName!,
+      if (_monthYear(t).isNotEmpty) _monthYear(t),
+    ].join(' · ');
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openChampionship(t),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.accent)),
+        child: Row(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+                color: AppTheme.accentSurface, shape: BoxShape.circle),
+            child: Icon(Icons.emoji_events_rounded,
+                color: AppTheme.accentText, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${t.name} Champion',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(details,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                ]),
+          ),
+          Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
+        ]),
+      ),
+    );
+  }
+}
+
+/// "Tournaments" on a coach's own profile: the team's record in one line,
+/// then a card per title. Unlike the shelf it always shows, so a coach can
+/// see their tournaments counted before the first win.
+class TournamentRecord extends StatefulWidget {
+  final String coachId;
+  const TournamentRecord({super.key, required this.coachId});
+
+  @override
+  State<TournamentRecord> createState() => _TournamentRecordState();
+}
+
+class _TournamentRecordState extends State<TournamentRecord> {
+  late final _stream = TournamentService.completedStream();
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<Tournament>>(
+        stream: _stream,
+        builder: (context, snap) {
+          // Nothing until the first read lands: an empty list here would
+          // briefly claim the team has never finished a tournament.
+          if (!snap.hasData) return const SizedBox.shrink();
+          final tournaments = snap.data!;
+          final played = tournamentsPlayed(tournaments, widget.coachId);
+          final titles = teamTitles(tournaments, widget.coachId);
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tournamentRecordLabel(played.length, titles.length),
+                    style: TextStyle(color: AppTheme.sub, fontSize: 13)),
+                if (titles.isNotEmpty) const SizedBox(height: 10),
+                for (final t in titles) _TitleCard(t),
+              ]);
+        },
+      );
+}
+
+/// "Tournaments" on an athlete's profile, their own and the one a coach
+/// scouts: the record in one line, the latest tournament they played with
+/// how their team finished, then any older titles. A runner-up finish used
+/// to show nowhere, as only titles did. Nothing at all until they have
+/// finished a tournament, since there is nothing for them to act on.
+class AthleteTournaments extends StatefulWidget {
+  final String uid;
+
+  /// Space around the block, applied only when there is a block to show.
+  final EdgeInsets padding;
+
+  const AthleteTournaments({
+    super.key,
+    required this.uid,
+    this.padding = const EdgeInsets.only(top: 18),
+  });
+
+  @override
+  State<AthleteTournaments> createState() => _AthleteTournamentsState();
+}
+
+class _AthleteTournamentsState extends State<AthleteTournaments> {
+  late final _stream = TournamentService.completedStream();
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<Tournament>>(
+        stream: _stream,
+        builder: (context, snap) {
+          final tournaments = snap.data ?? const <Tournament>[];
+          final played = tournamentsPlayedBy(tournaments, widget.uid);
+          if (played.isEmpty) return const SizedBox.shrink();
+          final latest = played.first;
+          final titles = titlesFor(tournaments, widget.uid);
+          return Padding(
+            padding: widget.padding,
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(Icons.emoji_events_rounded,
+                    color: AppTheme.accentText, size: 15),
+                const SizedBox(width: 6),
+                Text('TOURNAMENTS',
+                    style: TextStyle(
+                        color: AppTheme.accentText,
+                        fontSize: 11,
+                        letterSpacing: 1.1,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                      tournamentRecordLabel(played.length, titles.length),
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              if (isChampion(latest, widget.uid))
+                _TitleCard(latest)
+              else
+                // Keyed so a newer tournament finishing while this is open
+                // gets its own slots, not the previous one's.
+                _RunCard(latest, entrantWith(latest, widget.uid)!,
+                    key: ValueKey(latest.id)),
+              for (final t in titles)
+                if (t.id != latest.id) _TitleCard(t),
+            ]),
+          );
+        },
+      );
+}
+
+/// A tournament an athlete played without winning: neutral, where a title
+/// is gold, with how the team finished on the right. Opens the bracket, so
+/// they can see the path their team took.
+class _RunCard extends StatefulWidget {
+  final Tournament t;
+  final TournamentEntrant team;
+  const _RunCard(this.t, this.team, {super.key});
+
+  @override
+  State<_RunCard> createState() => _RunCardState();
+}
+
+class _RunCardState extends State<_RunCard> {
+  late final _slots = TournamentService.slotsStream(widget.t.id);
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.t;
+    final details = [widget.team.teamName, _monthYear(t)]
+        .where((s) => s.isNotEmpty)
+        .join(' · ');
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () =>
+          Get.toNamed('/tournaments/detail', arguments: {'tournamentId': t.id}),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: AppTheme.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.border)),
+        child: Row(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+                color: AppTheme.cardNested, shape: BoxShape.circle),
+            child: Icon(Icons.emoji_events_outlined,
+                color: AppTheme.muted, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(t.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(details,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                ]),
+          ),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _slots,
+            builder: (context, snap) {
+              // No chip until the bracket lands, rather than a guess that
+              // changes under the reader.
+              if (!snap.hasData) return const SizedBox.shrink();
+              final finish = finishLabel(t,
+                  TournamentService.slotsFrom(snap.data!), widget.team.coachId);
+              if (finish == null) return const SizedBox.shrink();
+              return Container(
+                margin: const EdgeInsets.only(left: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                    color: AppTheme.cardNested,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppTheme.border)),
+                child: Text(finish,
+                    style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700)),
+              );
+            },
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.chevron_right_rounded, color: AppTheme.muted, size: 20),
+        ]),
+      ),
+    );
+  }
+}
+
+/// A team's titles on its team page: "2× Champion" and a chip per title
+/// (the newest three), each opening its championship page.
+class TeamTitlesRow extends StatelessWidget {
+  final String coachId;
+
+  /// Space around the row, applied only when there is a row to show.
+  final EdgeInsets padding;
+
+  const TeamTitlesRow({
+    super.key,
+    required this.coachId,
+    this.padding = const EdgeInsets.only(top: 12),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _CompletedTournaments(builder: (tournaments) {
+      final titles = teamTitles(tournaments, coachId);
+      if (titles.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: padding,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+              color: AppTheme.accentSurface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.accent)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(Icons.emoji_events_rounded,
+                  color: AppTheme.accentText, size: 18),
+              const SizedBox(width: 8),
+              Text(titleCountLabel(titles.length),
+                  style: TextStyle(
+                      color: AppTheme.accentText,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800)),
+            ]),
+            const SizedBox(height: 8),
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final t in titles.take(3))
+                GestureDetector(
+                  onTap: () => _openChampionship(t),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: AppTheme.card,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppTheme.accent)),
+                    child: Text(
+                        [t.name, _monthYear(t)]
+                            .where((s) => s.isNotEmpty)
+                            .join(' · '),
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700)),
+                  ),
+                ),
+            ]),
+          ]),
+        ),
+      );
+    });
+  }
+}
+
+/// "New champions" on Home, for everyone: the tournaments won in the last
+/// week (at most two), each opening its championship page.
+class ChampionsSpotlight extends StatelessWidget {
+  /// Space around the spotlight, applied only when there is one to show.
+  final EdgeInsets padding;
+
+  /// An organizer whose own tournaments are left out, as their Home already
+  /// shows those champions.
+  final String? exceptOrganizer;
+
+  const ChampionsSpotlight({
+    super.key,
+    this.padding = const EdgeInsets.fromLTRB(20, 14, 20, 0),
+    this.exceptOrganizer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _CompletedTournaments(builder: (tournaments) {
+      final recent = recentChampions(tournaments,
+              exceptOrganizer: exceptOrganizer)
+          .take(2)
+          .toList();
+      if (recent.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: padding,
+        child: Column(children: [for (final t in recent) _spotlight(t)]),
+      );
+    });
+  }
+
+  Widget _spotlight(Tournament t) {
+    final when = t.completedAt == null
+        ? ''
+        : ' · ${DateFormat('MMM d').format(t.completedAt!)}';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openChampionship(t),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: AppTheme.accentSurface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.accent)),
+        child: Row(children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(
+                color: AppTheme.accent, shape: BoxShape.circle),
+            child: const Icon(Icons.emoji_events_rounded,
+                color: AppTheme.buttonFg, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('NEW CHAMPIONS',
+                      style: TextStyle(
+                          color: AppTheme.accentText,
+                          fontSize: 10,
+                          letterSpacing: 1.2,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('${t.championTeamName ?? 'A team'} won ${t.name}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('${t.sport}$when',
+                      style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+                ]),
+          ),
+          Icon(Icons.chevron_right_rounded,
+              color: AppTheme.accentText, size: 22),
+        ]),
+      ),
+    );
+  }
+}

@@ -87,6 +87,11 @@ class BracketSlot {
   final int round;
   final int slot;
 
+  /// The battle for third place: the two semifinal losers, playing for 2nd
+  /// and 3rd runner-up. It sits in the final round as slot 2 and, like the
+  /// final, advances nobody, so this flag is what tells the two apart.
+  final bool isThirdPlace;
+
   final SlotEntrant? entrantA;
   final SlotEntrant? entrantB;
 
@@ -99,6 +104,11 @@ class BracketSlot {
 
   /// The events/{id} spawned for this matchup, once scheduled.
   final String? eventId;
+
+  /// When the scheduled game starts, copied from its event so the bracket
+  /// can show it without reading every event. Null before scheduling, and on
+  /// matchups scheduled before this was stored.
+  final DateTime? kickoff;
 
   /// The matches/{id} written when the result was recorded.
   final String? matchId;
@@ -113,12 +123,14 @@ class BracketSlot {
     required this.organizerId,
     required this.round,
     required this.slot,
+    this.isThirdPlace = false,
     this.entrantA,
     this.entrantB,
     this.nextSlotId,
     this.nextSlotSide,
     this.status = statusAwaiting,
     this.eventId,
+    this.kickoff,
     this.matchId,
     this.scoreA,
     this.scoreB,
@@ -126,7 +138,7 @@ class BracketSlot {
     this.completedAt,
   });
 
-  bool get isFinal => nextSlotId == null;
+  bool get isFinal => nextSlotId == null && !isThirdPlace;
   bool get isDecided => winnerCoachId != null;
   bool get isBye => status == statusBye;
   bool get isScheduled => status == statusScheduled;
@@ -143,12 +155,14 @@ class BracketSlot {
         'organizerId': organizerId,
         'round': round,
         'slot': slot,
+        'thirdPlace': isThirdPlace,
         'entrantA': entrantA?.toMap(),
         'entrantB': entrantB?.toMap(),
         'nextSlotId': nextSlotId,
         'nextSlotSide': nextSlotSide,
         'status': status,
         'eventId': eventId,
+        'kickoff': kickoff != null ? Timestamp.fromDate(kickoff!) : null,
         'matchId': matchId,
         'scoreA': scoreA,
         'scoreB': scoreB,
@@ -167,12 +181,14 @@ class BracketSlot {
       organizerId: map['organizerId'] as String? ?? '',
       round: (map['round'] as num?)?.toInt() ?? 1,
       slot: (map['slot'] as num?)?.toInt() ?? 1,
+      isThirdPlace: map['thirdPlace'] as bool? ?? false,
       entrantA: entrant(map['entrantA']),
       entrantB: entrant(map['entrantB']),
       nextSlotId: map['nextSlotId'] as String?,
       nextSlotSide: map['nextSlotSide'] as String?,
       status: map['status'] as String? ?? statusAwaiting,
       eventId: map['eventId'] as String?,
+      kickoff: (map['kickoff'] as Timestamp?)?.toDate(),
       matchId: map['matchId'] as String?,
       scoreA: (map['scoreA'] as num?)?.toInt(),
       scoreB: (map['scoreB'] as num?)?.toInt(),

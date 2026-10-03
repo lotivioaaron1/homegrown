@@ -78,6 +78,49 @@ String roundLabel(int round, int roundCount) {
   return 'Round of ${1 << (fromEnd + 1)}';
 }
 
+/// The battle for third place, as the bracket stands in [slots]: slot 2 of
+/// the final round, holding the loser of each decided semifinal on the side
+/// that semifinal's winner takes in the final (semifinal 1's loser on A,
+/// semifinal 2's on B). Ready once both are known.
+///
+/// Used both when a bracket is created (nothing decided, so it's empty) and
+/// when an organizer adds one to an older bracket whose semifinals may
+/// already be played.
+BracketSlot thirdPlaceSlotFor(
+  List<BracketSlot> slots,
+  int roundCount, {
+  required String organizerId,
+}) {
+  SlotEntrant? loserOn(String side) {
+    for (final s in slots) {
+      if (s.round != roundCount - 1 || s.isThirdPlace) continue;
+      if (s.nextSlotSide != side || !s.isDecided || s.isBye) continue;
+      return s.winnerCoachId == s.entrantA?.coachId ? s.entrantB : s.entrantA;
+    }
+    return null;
+  }
+
+  final a = loserOn('A');
+  final b = loserOn('B');
+  return BracketSlot(
+    id: slotId(roundCount, 2),
+    organizerId: organizerId,
+    round: roundCount,
+    slot: 2,
+    isThirdPlace: true,
+    entrantA: a,
+    entrantB: b,
+    status: a != null && b != null
+        ? BracketSlot.statusReady
+        : BracketSlot.statusAwaiting,
+  );
+}
+
+/// The name of the game a slot holds: "Battle for third", or its round.
+String slotLabel(BracketSlot slot, int roundCount) => slot.isThirdPlace
+    ? 'Battle for third'
+    : roundLabel(slot.round, roundCount);
+
 /// Builds the complete bracket for [seededEntrants], which must already be
 /// ordered by seed — index 0 is seed 1, the top seed.
 ///

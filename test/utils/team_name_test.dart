@@ -58,4 +58,24 @@ void main() {
           "Coach Ben's team");
     });
   });
+
+  // Home asks a coach to name their team exactly when athletes would
+  // otherwise see the "Coach Ana's team" fallback, so this must agree with
+  // teamDisplayName on what counts as a real name.
+  group('hasCustomTeamName', () {
+    test('a real name counts', () {
+      expect(hasCustomTeamName('Arimbay Hoopers'), isTrue);
+    });
+
+    test('null, empty and whitespace do not', () {
+      expect(hasCustomTeamName(null), isFalse);
+      expect(hasCustomTeamName(''), isFalse);
+      expect(hasCustomTeamName('   '), isFalse);
+    });
+
+    test('the old "your team" placeholder does not, in any case', () {
+      expect(hasCustomTeamName('your team'), isFalse);
+      expect(hasCustomTeamName('  Your Team '), isFalse);
+    });
+  });
 }

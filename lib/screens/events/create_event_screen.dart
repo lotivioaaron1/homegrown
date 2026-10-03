@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../constants/maps_config.dart';
+import '../../constants/sport_icons.dart';
 import '../../theme/app_theme.dart';
 import '../../models/venue.dart';
 import '../../services/notification_service.dart';
@@ -17,11 +18,13 @@ import '../../widgets/player_avatar.dart';
 import '../profile/edit_profile_screen.dart';
 import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/event_roster_check.dart';
+import '../../utils/event_types.dart';
+import '../../utils/organizer_status.dart';
 import '../../utils/team_name.dart';
 
 const _kRadius   = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
-const List<String> _kEventTypes = ['Tournament', 'Friendly', 'League'];
 
 class CreateEventScreen extends StatefulWidget {
   const CreateEventScreen({super.key});
@@ -54,11 +57,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   String? _teamACoachName; String? _teamBCoachName;
   String? _teamALogoUrl; String? _teamBLogoUrl;
   bool _expandedA = false; bool _expandedB = false;
+  // The review step's "Registered players" dropdown.
+  bool _rosterExpanded = false;
 
   // ── Sport restricted to what this organizer declared, and gated on
   // admin approval (see firestore.rules / admin_review_screen.dart) ──
   List<String> _allowedSports = [];
   bool _isApprovedOrganizer = false;
+  String? _organizerStatus;
   bool _loadingAllowedSports = true;
 
   @override
@@ -125,7 +131,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         // organizers (an SK Liga running both a basketball and a volleyball
         // tournament) still pick deliberately.
         if (sports.length == 1) _sport = sports.first;
-        _isApprovedOrganizer = data['organizerStatus'] == 'approved';
+        _organizerStatus = data['organizerStatus'] as String?;
+        _isApprovedOrganizer = _organizerStatus == 'approved';
         _loadingAllowedSports = false;
       });
     }
@@ -426,11 +433,23 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       if (_eventDate == null) { _snack('Select Date', 'Please select a date.'); return; }
       if (_selectedVenue == null) { _snack('Select Venue', 'Please select a venue.'); return; }
     }
-    if (_step == 1 && _addedPlayers.isEmpty) {
-      _snack('No Players', 'Pick at least one team with players.'); return;
+    if (_step == 1) {
+      final problem = teamsProblem(
+        sport: _sport,
+        pickedA: _teamACoachId != null,
+        pickedB: _teamBCoachId != null,
+        countA: _sideCount('A'),
+        countB: _sideCount('B'),
+        nameA: _teamAName,
+        nameB: _teamBName,
+      );
+      if (problem != null) { _snack('Teams Not Ready', problem); return; }
     }
     setState(() => _step++);
   }
+
+  int _sideCount(String side) =>
+      _addedPlayers.where((p) => p['source'] == 'team$side').length;
 
   void _prevStep() { if (_step > 0) setState(() => _step--); }
 
@@ -550,7 +569,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 child: Center(child: CircularProgressIndicator(
                     color: AppTheme.accent, strokeWidth: 2)));
           }
+          // The other side's coach is left out: one team can't play itself.
+          final otherCoach = side == 'A' ? _teamBCoachId : _teamACoachId;
           final allTeams = (snapshot.data?.docs ?? [])
+              .where((d) => d.id != otherCoach)
               .map((d) => {...d.data() as Map<String, dynamic>, 'uid': d.id})
               .toList();
 
@@ -768,6 +790,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final logoUrl   = side == 'A' ? _teamALogoUrl : _teamBLogoUrl;
     final expanded  = side == 'A' ? _expandedA : _expandedB;
     final players   = _addedPlayers.where((p) => p['source'] == 'team$side').toList();
+    final min       = minPlayersPerSide(_sport);
+    final short     = players.length < min;
 
     return Container(
       decoration: BoxDecoration(
@@ -810,9 +834,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         style: TextStyle(color: AppTheme.sub, fontSize: 11)),
                   ],
                   const SizedBox(height: 2),
-                  Text('${players.length} player${players.length == 1 ? '' : 's'}',
-                      style: const TextStyle(color: AppTheme.accent, fontSize: 11,
-                          fontWeight: FontWeight.w700)),
+                  Text(
+                      '${players.length} player${players.length == 1 ? '' : 's'}'
+                      '${short ? ' · needs $min' : ''}',
+                      style: TextStyle(
+                          color: short ? AppTheme.errorText : AppTheme.accent,
+                          fontSize: 11, fontWeight: FontWeight.w700)),
                 ]),
               ),
               GestureDetector(
@@ -1008,11 +1035,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       );
     }
     if (!_isApprovedOrganizer) {
+      final copy = organizerStatusCopy(_organizerStatus)!;
       return _blockingScreen(
-        icon: Icons.hourglass_top_rounded,
-        title: "Your organizer account isn't currently approved",
-        subtitle: 'Contact the app admin for details. You may just need to '
-            'wait for review, or your account may need another look.',
+        icon: isRefusedOrganizer(_organizerStatus)
+            ? Icons.block_rounded
+            : Icons.hourglass_top_rounded,
+        title: copy.title,
+        subtitle: copy.body,
       );
     }
     if (_allowedSports.isEmpty) {
@@ -1120,9 +1149,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           const _SectionLabel(label: 'Event Type'),
           const SizedBox(height: 8),
           Wrap(spacing: 8,
-            children: _kEventTypes.map((t) => _Chip(
+            children: kPickableEventTypes.map((t) => _Chip(
               label: t, sel: _eventType == t,
               onTap: () => setState(() => _eventType = t))).toList()),
+          // What the choice changes, so "what's the difference?" is answered
+          // where it's made. Tournaments aren't picked here: a bracket makes
+          // its own games.
+          const SizedBox(height: 6),
+          if (_eventType.isNotEmpty)
+            Text(eventTypeHint(_eventType),
+                style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+          Text('Cup games are created from Tournaments.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 11)),
           const SizedBox(height: 16),
           const _SectionHeader(icon: Icons.schedule_rounded,
               title: 'Schedule & Venue', subtitle: 'When and where'),
@@ -1262,7 +1300,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           const SizedBox(height: 16),
           const _SectionLabel(label: 'Pick a team for each side'),
           const SizedBox(height: 4),
-          Text('Tap a picked team to review its roster.',
+          Text('$_sport needs at least ${minPlayersPerSide(_sport)} players '
+              'per side. Tap a picked team to review its roster.',
               style: TextStyle(color: AppTheme.muted, fontSize: 11)),
           const SizedBox(height: 8),
           _teamCard('A'),
@@ -1285,56 +1324,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         const _SectionHeader(icon: Icons.checklist_rounded,
           title: 'Review & Publish', subtitle: 'Confirm details'),
         const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: AppTheme.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.accent, width: 1.5)),
-          child: Column(children: [
-            _Row(label: 'Event',    value: _nameCtrl.text.trim()),
-            _Row(label: 'Sport',    value: _sport),
-            _Row(label: 'Type',     value: _eventType),
-            _Row(label: 'Date',
-              value: _eventDate != null
-                  ? '${_formatDate()} · ${_formatTime()}' : 'Not set'),
-            _Row(label: 'Venue',
-              value: _selectedVenue?.name ?? '—', isAccent: true),
-            _Row(label: 'GPS',
-              value: _selectedVenue != null
-                  ? '${_selectedVenue!.lat.toStringAsFixed(4)}, '
-                    '${_selectedVenue!.lng.toStringAsFixed(4)}'
-                  : '—'),
-            _Row(label: 'Players',
-              value: '${_addedPlayers.length} registered', isAccent: true),
-          ]),
-        ),
-        const SizedBox(height: 20),
-        const _SectionLabel(label: 'Registered Players'),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(color: AppTheme.card,
-              borderRadius: BorderRadius.circular(_kRadius),
-              border: Border.all(color: AppTheme.border)),
-          child: Column(children: _addedPlayers.asMap().entries.map((e) {
-            final isLast = e.key == _addedPlayers.length - 1;
-            final p = e.value;
-            return Container(
-              decoration: BoxDecoration(border: Border(
-                bottom: isLast ? BorderSide.none
-                    : BorderSide(color: AppTheme.border))),
-              child: ListTile(dense: true,
-                leading: PlayerAvatar(
-                    name: p['fullName'] as String? ?? '',
-                    photoUrl: p['photoUrl'] as String?,
-                    size: 34, radius: 10, fontSize: 12),
-                title: Text(p['fullName'] ?? '', style: TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 13,
-                  fontWeight: FontWeight.w600)),
-                subtitle: Text(
-                  '${p['position'] ?? ''} · '
-                  '${(p['team'] as String? ?? 'A') == 'A' ? _teamAName : _teamBName}',
-                  style: TextStyle(color: AppTheme.sub, fontSize: 11))));
-          }).toList())),
+        _reviewEventCard(),
+        const SizedBox(height: 14),
+        _reviewMatchupCard(),
         const SizedBox(height: 20),
         const _SectionLabel(label: 'Visibility'),
         const SizedBox(height: 8),
@@ -1347,29 +1339,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           _Chip(label: 'Private', sel: !_isPublic,
               onTap: () => setState(() => _isPublic = false)),
         ]),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: AppTheme.accentSurface,
-              borderRadius: BorderRadius.circular(_kRadius),
-              border: Border.all(color: AppTheme.accent)),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Icon(Icons.gps_fixed_rounded,
-                color: AppTheme.accent, size: 18),
-            const SizedBox(width: 10),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Precise Location Saved', style: TextStyle(
-                color: AppTheme.accentText, fontSize: 12,
-                fontWeight: FontWeight.w700)),
-              const SizedBox(height: 3),
-              Text('${_selectedVenue?.name} GPS coordinates '
-                  'will be used for exact map pin placement.',
-                style: TextStyle(color: AppTheme.sub,
-                    fontSize: 12, height: 1.5)),
-            ])),
-          ]),
-        ),
         const SizedBox(height: 24),
         _isLoading && !_isDraft
             ? const Center(child: CircularProgressIndicator(
@@ -1386,6 +1355,217 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   child: Text('Save as Draft', style: TextStyle(
                     color: AppTheme.sub, fontSize: 15,
                     fontWeight: FontWeight.w700)))),
+      ]),
+    );
+  }
+
+  /// What, when and where. The type's hint is repeated here because Liga
+  /// game and Tune-up otherwise read alike, yet only one moves Elo; and the
+  /// date carries its weekday so a mis-tapped day is easy to spot.
+  Widget _reviewEventCard() {
+    final venue = _selectedVenue;
+    final desc  = _descCtrl.text.trim();
+    final hint  = eventTypeHint(_eventType);
+    final address = venue?.address.trim() ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppTheme.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: Text(_nameCtrl.text.trim(),
+              maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 18,
+                  fontWeight: FontWeight.w800, height: 1.25))),
+          _EditLink(onTap: () => setState(() => _step = 0)),
+        ]),
+        const SizedBox(height: 10),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          _Pill(label: _sport, icon: sportIcon(_sport)),
+          _Pill(label: eventTypeLabel(_eventType),
+              highlighted: eventTypeLabel(_eventType) == kLigaGame),
+        ]),
+        if (hint.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(hint, style: TextStyle(
+              color: AppTheme.sub, fontSize: 11, height: 1.4)),
+        ],
+        if (desc.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(desc, maxLines: 3, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppTheme.sub, fontSize: 12, height: 1.5)),
+        ],
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Divider(color: AppTheme.border, height: 1)),
+        _ReviewInfoRow(icon: Icons.calendar_today_rounded, lines: [
+          Text(_eventDate != null
+                  ? DateFormat('EEEE, MMM d, yyyy').format(_eventDate!)
+                  : 'No date set',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 14,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          // Start time is optional on step 1, and a game saved without one
+          // lands at midnight — worth flagging before it's published.
+          Text(_eventTime != null ? _formatTime() : 'No start time set',
+              style: TextStyle(
+                  color: _eventTime != null ? AppTheme.sub : AppTheme.errorText,
+                  fontSize: 12)),
+        ]),
+        const SizedBox(height: 12),
+        _ReviewInfoRow(icon: Icons.place_outlined, lines: [
+          Text(venue?.name ?? '—', maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 14,
+                  fontWeight: FontWeight.w700)),
+          if (address.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(address, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppTheme.sub, fontSize: 12)),
+          ],
+          if (venue != null) ...[
+            const SizedBox(height: 4),
+            Row(children: [
+              Icon(Icons.gps_fixed_rounded, color: AppTheme.muted, size: 12),
+              const SizedBox(width: 4),
+              Flexible(child: Text(
+                  'Pinned · ${venue.lat.toStringAsFixed(4)}, '
+                  '${venue.lng.toStringAsFixed(4)}',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppTheme.muted, fontSize: 11))),
+            ]),
+          ],
+        ]),
+      ]),
+    );
+  }
+
+  /// Who plays whom, laid out like the event page's header so the organizer
+  /// previews what athletes will see. Every registered player is folded into
+  /// one dropdown, grouped by side, so a 12-a-side roster doesn't push
+  /// Publish off the screen. Removing a player stays on step 2 (Edit).
+  Widget _reviewMatchupCard() {
+    return Container(
+      decoration: BoxDecoration(color: AppTheme.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.accent, width: 1.5)),
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(children: [
+            Row(children: [
+              Expanded(child: Text('Teams', style: TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 13,
+                  fontWeight: FontWeight.w700))),
+              _EditLink(onTap: () => setState(() => _step = 1)),
+            ]),
+            const SizedBox(height: 8),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: _ReviewTeamBlock(name: _teamAName,
+                  coachName: _teamACoachName, logoUrl: _teamALogoUrl,
+                  count: _sideCount('A'))),
+              // Centred on the 56dp logos either side.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 11, 6, 0),
+                child: Container(
+                  width: 34, height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: AppTheme.cardNested,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppTheme.border)),
+                  child: Text('VS', style: TextStyle(color: AppTheme.muted,
+                      fontSize: 11, fontWeight: FontWeight.w900)),
+                ),
+              ),
+              Expanded(child: _ReviewTeamBlock(name: _teamBName,
+                  coachName: _teamBCoachName, logoUrl: _teamBLogoUrl,
+                  count: _sideCount('B'))),
+            ]),
+          ]),
+        ),
+        Divider(color: AppTheme.border, height: 1),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _rosterExpanded = !_rosterExpanded),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(children: [
+              Icon(Icons.groups_rounded, color: AppTheme.sub, size: 18),
+              const SizedBox(width: 10),
+              Expanded(child: Text('Registered players', style: TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 13,
+                  fontWeight: FontWeight.w600))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: AppTheme.accentSurface,
+                    borderRadius: BorderRadius.circular(20)),
+                child: Text('${_addedPlayers.length}', style: TextStyle(
+                    color: AppTheme.accentText, fontSize: 11,
+                    fontWeight: FontWeight.w800)),
+              ),
+              const SizedBox(width: 6),
+              AnimatedRotation(
+                turns: _rosterExpanded ? 0.5 : 0,
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                child: Icon(Icons.keyboard_arrow_down_rounded,
+                    color: AppTheme.muted, size: 20)),
+            ]),
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _rosterExpanded
+              ? Column(children: [
+                  Divider(color: AppTheme.border, height: 1),
+                  _reviewRosterGroup('A'),
+                  _reviewRosterGroup('B'),
+                  const SizedBox(height: 8),
+                ])
+              : const SizedBox(width: double.infinity),
+        ),
+      ]),
+    );
+  }
+
+  /// One side's players under the dropdown, keyed on the same `team` field
+  /// [_onPublish] saves, so what's listed here is what gets published.
+  Widget _reviewRosterGroup(String side) {
+    final name = side == 'A' ? _teamAName : _teamBName;
+    final players = _addedPlayers
+        .where((p) => (p['team'] as String? ?? 'A') == side).toList();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('${name.toUpperCase()} · ${players.length}',
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: AppTheme.muted, fontSize: 10.5,
+                fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+        const SizedBox(height: 4),
+        for (final p in players)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(children: [
+              PlayerAvatar(
+                  name: p['fullName'] as String? ?? '',
+                  photoUrl: p['photoUrl'] as String?,
+                  size: 32, radius: 9, fontSize: 11),
+              const SizedBox(width: 12),
+              Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(p['fullName'] as String? ?? '',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppTheme.textPrimary,
+                        fontSize: 13, fontWeight: FontWeight.w600)),
+                if ((p['position'] as String? ?? '').isNotEmpty)
+                  Text(p['position'] as String,
+                      style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+              ])),
+            ]),
+          ),
       ]),
     );
   }
@@ -1460,22 +1640,110 @@ class _SectionLabel extends StatelessWidget {
         fontSize: 13, fontWeight: FontWeight.w700));
 }
 
-class _Row extends StatelessWidget {
-  final String label, value; final bool isAccent;
-  const _Row({required this.label, required this.value,
-      this.isAccent = false});
+/// "Edit" on a review card: jumps straight to the step that owns those
+/// details instead of backing out one step at a time. Everything entered is
+/// state on this screen, so nothing is lost on the way.
+class _EditLink extends StatelessWidget {
+  final VoidCallback onTap;
+  const _EditLink({required this.onTap});
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(children: [
-      Text(label, style: TextStyle(color: AppTheme.sub, fontSize: 13)),
-      const Spacer(),
-      Flexible(child: Text(value, textAlign: TextAlign.right,
-        style: TextStyle(
-          color: isAccent ? AppTheme.accent : AppTheme.textPrimary,
-          fontSize: 13, fontWeight: FontWeight.w600),
-        overflow: TextOverflow.ellipsis)),
-    ]));
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 0, 6),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.edit_outlined, color: AppTheme.accentText, size: 13),
+        const SizedBox(width: 4),
+        Text('Edit', style: TextStyle(color: AppTheme.accentText,
+            fontSize: 12, fontWeight: FontWeight.w700)),
+      ])));
+}
+
+class _Pill extends StatelessWidget {
+  final String label; final IconData? icon; final bool highlighted;
+  const _Pill({required this.label, this.icon, this.highlighted = false});
+  @override
+  Widget build(BuildContext context) {
+    final fg = highlighted ? AppTheme.accentText : AppTheme.textPrimary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+          color: highlighted ? AppTheme.accentSurface : AppTheme.cardNested,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: highlighted ? AppTheme.accent : AppTheme.border)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null) ...[
+          Icon(icon, color: highlighted ? fg : AppTheme.sub, size: 13),
+          const SizedBox(width: 5),
+        ],
+        Text(label, style: TextStyle(
+            color: fg, fontSize: 11.5, fontWeight: FontWeight.w700)),
+      ]));
+  }
+}
+
+/// An icon tile beside a short stack of lines — the date and venue rows of
+/// the review card.
+class _ReviewInfoRow extends StatelessWidget {
+  final IconData icon; final List<Widget> lines;
+  const _ReviewInfoRow({required this.icon, required this.lines});
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(width: 32, height: 32,
+        decoration: BoxDecoration(color: AppTheme.cardNested,
+            borderRadius: BorderRadius.circular(10)),
+        child: Icon(icon, color: AppTheme.sub, size: 16)),
+      const SizedBox(width: 12),
+      Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, children: lines)),
+    ]);
+}
+
+/// One side of the review matchup. A local look-alike of the event page's
+/// team block, fed the logo URL step 2 already holds rather than streaming
+/// the coach's user doc for it.
+class _ReviewTeamBlock extends StatelessWidget {
+  final String name; final String? coachName, logoUrl; final int count;
+  const _ReviewTeamBlock({required this.name, required this.coachName,
+      required this.logoUrl, required this.count});
+  @override
+  Widget build(BuildContext context) {
+    final logo = logoUrl;
+    final placeholder =
+        Icon(Icons.shield_outlined, color: AppTheme.muted, size: 26);
+    return Column(children: [
+      Container(
+        width: 56, height: 56,
+        decoration: BoxDecoration(color: AppTheme.cardNested,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.border)),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(13),
+          child: logo != null && logo.isNotEmpty
+              ? Image.network(logo, fit: BoxFit.cover, width: 56, height: 56,
+                  errorBuilder: (_, __, ___) => placeholder)
+              : placeholder),
+      ),
+      const SizedBox(height: 8),
+      Text(name, textAlign: TextAlign.center, maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: AppTheme.textPrimary, fontSize: 13,
+              fontWeight: FontWeight.w700, height: 1.25)),
+      if (coachName != null && coachName!.isNotEmpty) ...[
+        const SizedBox(height: 2),
+        Text('Coach $coachName', textAlign: TextAlign.center,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+      ],
+      const SizedBox(height: 4),
+      Text('$count player${count == 1 ? '' : 's'}', style: TextStyle(
+          color: AppTheme.accentText, fontSize: 11,
+          fontWeight: FontWeight.w700)),
+    ]);
+  }
 }
 
 class _Chip extends StatelessWidget {

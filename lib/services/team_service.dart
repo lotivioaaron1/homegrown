@@ -134,6 +134,13 @@ class TeamService {
   ///
   /// Throws [AlreadyOnTeamException] if the athlete already plays for another
   /// team in this coach's sport.
+  ///
+  /// Joining also switches the athlete's `openToRecruitment` off, so Scout
+  /// stops advertising a player who already has a team. It is not switched
+  /// back on when they leave or are removed: removal runs under the coach's
+  /// session, which can't write the athlete's profile, so an automatic reopen
+  /// could only ever cover one of the two exits. The athlete reopens it from
+  /// Edit Profile instead.
   static Future<void> acceptInvite(String inviteId) async {
     final ref = _col.doc(inviteId);
     final invite = await ref.get();
@@ -157,10 +164,17 @@ class TeamService {
       throw const TeamFullException();
     }
 
-    await ref.update({
-      'status': 'accepted',
-      'respondedAt': FieldValue.serverTimestamp(),
-    });
+    // One batch, so an accepted player can never be left still showing as
+    // open to recruitment because the second write didn't land.
+    final batch = FirebaseFirestore.instance.batch()
+      ..update(ref, {
+        'status': 'accepted',
+        'respondedAt': FieldValue.serverTimestamp(),
+      })
+      ..update(
+          FirebaseFirestore.instance.collection('users').doc(athleteId),
+          {'openToRecruitment': false});
+    await batch.commit();
 
     if (await rosterCountFor(coachId) >= maxPlayers) {
       await _notifyLeftoverPendingInvites(

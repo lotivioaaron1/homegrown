@@ -12,13 +12,13 @@ import '../../models/venue.dart';
 import '../../services/notification_service.dart';
 import '../../services/places_service.dart';
 import '../../utils/event_recipients.dart';
+import '../../utils/event_types.dart';
 import '../../utils/firestore_helpers.dart';
 import 'venue_map_picker_screen.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius = 14.0;
 const _kErrorRed = Color(0xFFFF5C5C);
-const List<String> _kEventTypes = ['Tournament', 'Friendly', 'League'];
 const List<int> _kMaxPlayers = [10, 15, 20];
 
 /// Edits an existing event's metadata — name, description, sport, type,
@@ -51,6 +51,8 @@ class _EditEventScreenState extends State<EditEventScreen> {
   // Who gets an "event updated" notification: the roster plus both coaches.
   // Separate from _playerUids, which also decides whether the sport is locked.
   List<String> _notifyUids = [];
+  // Nobody has been told about a draft yet, so editing one notifies nobody.
+  bool _isDraft = false;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -92,7 +94,9 @@ class _EditEventScreenState extends State<EditEventScreen> {
     _nameCtrl.text = data['name'] as String? ?? '';
     _descCtrl.text = data['description'] as String? ?? '';
     _sport = data['sport'] as String? ?? '';
-    _eventType = data['eventType'] as String? ?? '';
+    // Events saved as Friendly, League or Tournament start on the choice
+    // that now means the same thing.
+    _eventType = pickableTypeFor(data['eventType'] as String?) ?? '';
     final date = asTimestamp(data['eventDate'])?.toDate();
     if (date != null) {
       _eventDate = DateTime(date.year, date.month, date.day);
@@ -114,6 +118,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
     // Players plus both head coaches — the coaches need to know the date or
     // venue moved just as much as the roster does.
     _notifyUids = eventAudienceUids(data);
+    _isDraft = data['status'] == 'draft';
 
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
@@ -168,7 +173,7 @@ class _EditEventScreenState extends State<EditEventScreen> {
       });
 
       final eventLabel = '${_nameCtrl.text.trim()} on ${_formatDate()}';
-      for (final uid in _notifyUids) {
+      for (final uid in _isDraft ? const <String>[] : _notifyUids) {
         await NotificationService.create(
           userId: uid,
           type: 'event_updated',
@@ -611,12 +616,17 @@ class _EditEventScreenState extends State<EditEventScreen> {
           const SizedBox(height: 8),
           Wrap(
               spacing: 8,
-              children: _kEventTypes
+              children: kPickableEventTypes
                   .map((t) => _chip(
                       label: t,
                       sel: _eventType == t,
                       onTap: () => setState(() => _eventType = t)))
                   .toList()),
+          if (_eventType.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(eventTypeHint(_eventType),
+                style: TextStyle(color: AppTheme.sub, fontSize: 11)),
+          ],
           const SizedBox(height: 16),
           Row(children: [
             Expanded(child: _dateTile()),

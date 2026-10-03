@@ -13,6 +13,7 @@ import '../../services/directions_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/firestore_helpers.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/event_types.dart';
 
 // ─────────────────────────────────────────────
 // Config
@@ -281,7 +282,8 @@ class _VenueLocatorScreenState extends State<VenueLocatorScreen> {
   void _showSheet(Map<String, dynamic> ev, LatLng dest) {
     final name  = ev['name']        as String?    ?? '';
     final sport = ev['sport']       as String?    ?? '';
-    final type  = ev['eventType']   as String?    ?? '';
+    // Old Friendly/League events read in the current words.
+    final type  = eventTypeLabel(ev['eventType'] as String?);
     final venue = ev['venue']       as String?    ?? '';
     final addr  = ev['venueAddress'] as String?   ?? venue;
     final count = ev['playerCount'] as int?       ?? 0;
