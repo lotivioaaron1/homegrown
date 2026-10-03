@@ -14,6 +14,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/barangay_picker_sheet.dart';
 import '../../widgets/position_picker_sheet.dart';
 import '../../widgets/fill_viewport_scroll.dart';
+import '../../widgets/privacy_consent_text.dart';
 import '../../utils/error_messages.dart';
 
 const _kRadius   = 14.0;
@@ -399,6 +400,11 @@ class _GoogleProfileSetupScreenState
 
         const SizedBox(height: 32),
         const Spacer(),
+        // The first screen a new Google user sees, so the one place they can
+        // be shown what they are agreeing to before giving any more details.
+        // The email screens carry the same line above their Create Account.
+        const PrivacyConsentText(lead: 'By continuing'),
+        const SizedBox(height: 14),
         _PrimaryButton(
           label:  'Continue',
           onTap:  _canProceed() ? _nextStep : null),

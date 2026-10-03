@@ -535,11 +535,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             );
           }),
+          // Agreed to at registration, so it has to stay findable afterwards
+          // — the moderation rules in it are what a suspension points back to.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openLink(AppLinks.terms),
+            child: _settingsRow(
+              icon: LucideIcons.scrollText,
+              label: 'Terms of Use',
+              sub: 'The rules for using Homegrown',
+              trailing: Icon(LucideIcons.externalLink,
+                  color: AppTheme.muted, size: 16),
+            ),
+          ),
           // Play requires the privacy policy to be reachable from inside the
           // app, not only from the store listing.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _openPrivacyPolicy,
+            onTap: () => _openLink(AppLinks.privacyPolicy),
             child: _settingsRow(
               icon: LucideIcons.shieldCheck,
               label: 'Privacy Policy',
@@ -614,12 +627,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _openPrivacyPolicy() async {
-    final opened = await AppLinks.open(AppLinks.privacyPolicy);
+  /// Opens one of the hosted documents, or says where to find it if no browser
+  /// would take the link.
+  Future<void> _openLink(String url) async {
+    final opened = await AppLinks.open(url);
     if (!opened) {
       Get.snackbar(
         'Could not open the link',
-        'Visit ${AppLinks.privacyPolicy} in your browser.',
+        'Visit $url in your browser.',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: AppTheme.card,
         colorText: AppTheme.textPrimary,
