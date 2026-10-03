@@ -152,8 +152,11 @@ class SportBallScenePainter extends CustomPainter {
   static const _kDriftPhase = (basketball: 0.0, volleyball: 2.1, shuttle: 4.2);
 
   /// Rest angles. The basketball's seams are tilted off the vertical so it
-  /// does not read as a diagram.
+  /// does not read as a diagram. The volleyball's are turned so its left
+  /// half, the half left on screen, shows panels running across the top and
+  /// down the side.
   static const _kBasketballRest = -0.35;
+  static const _kVolleyballRest = 0.26;
   static const _kShuttleRest = 0.6;
 
   @override
@@ -203,7 +206,8 @@ class SportBallScenePainter extends CustomPainter {
     final travel = (1 - _kArrive.transform(p)) * r * 2.4;
     final c = rest.translate(travel, _sway(_kDriftPhase.volleyball));
 
-    _faded(canvas, p, () => paintVolleyball(canvas, c, r, travel / r));
+    _faded(canvas, p,
+        () => paintVolleyball(canvas, c, r, _kVolleyballRest + travel / r));
   }
 
   void _shuttlecock(
@@ -388,9 +392,9 @@ void paintBasketball(Canvas canvas, Offset c, double r, double spin) {
 
 /// A volleyball of radius [r] centred on [c], its panels turned by [spin].
 ///
-/// Three seams curl out from the middle like a pinwheel, each with a second
-/// line beside it to make a panel — the silhouette people recognise from the
-/// ball itself, without drawing all eighteen panels.
+/// Three seams curl out from the middle like a pinwheel, and each third of the
+/// ball between two of them is split into three strips — the silhouette
+/// people recognise from the ball itself, without drawing all eighteen panels.
 void paintVolleyball(Canvas canvas, Offset c, double r, double spin) {
   _base(canvas, c, r, const [
     Color(0xFFFFFFFF),
@@ -403,16 +407,15 @@ void paintVolleyball(Canvas canvas, Offset c, double r, double spin) {
   final outline = Path()..addOval(ball);
   final seam = _seamPaint(r);
 
-  // Each main seam is an arc of a circle that passes through the ball's
-  // centre, so it starts at the middle and curls out to the rim; three of
-  // them a third of a turn apart make the pinwheel. Where that arc meets the
-  // rim follows from the geometry: a circle of radius h centred h from the
-  // middle crosses the unit rim where 2h²(1 + cos θ) = 1.
-  const hub = 0.9;
-  final seamEnd = math.pi + math.acos(1 - 1 / (2 * hub * hub));
-  final seamRim = Offset(hub * (1 + math.cos(seamEnd)), hub * math.sin(seamEnd));
-  final rimAngle = math.atan2(seamRim.dy, seamRim.dx);
+  // Each seam is an arc of a circle the ball's own size, centred on its rim,
+  // so it starts at the middle and curls out to the rim; three of them a
+  // third of a turn apart make the pinwheel. The middle, that centre and the
+  // point where the seam meets the rim are all one radius apart, so the seam
+  // runs a sixth of the way round its circle and lands on the rim a sixth of
+  // a turn on from its centre.
   const third = 2 * math.pi / 3;
+  const curl = math.pi / 3;
+  Offset hub(double turn) => Offset(math.cos(turn), math.sin(turn)) * r;
 
   canvas.save();
   canvas.clipPath(outline);
@@ -420,42 +423,34 @@ void paintVolleyball(Canvas canvas, Offset c, double r, double spin) {
   canvas.rotate(spin);
   for (var k = 0; k < 3; k++) {
     final a = k * third;
-    Rect circleAt(double turn, double radius) => Rect.fromCircle(
-        center: Offset(math.cos(turn), math.sin(turn)) * (r * hub),
-        radius: radius);
-    final seamCircle = circleAt(a, r * hub);
+    final seamCircle = Rect.fromCircle(center: hub(a), radius: r);
+    final nextCircle = Rect.fromCircle(center: hub(a + third), radius: r);
 
-    canvas.drawArc(seamCircle, math.pi + a, seamEnd - math.pi, false, seam);
+    // Anticlockwise from the middle, the way the panels turn on the ball.
+    canvas.drawArc(seamCircle, math.pi + a, -curl, false, seam);
 
-    // The sector between this seam and the next, clockwise. The panel lines
-    // are clipped to it, so each one starts on the neighbouring seam instead
-    // of floating in the middle of the ball.
+    // The third of the ball this seam bulges into: out along it, clockwise
+    // round the rim to the next seam, and back in along that one.
     final sector = Path()
       ..moveTo(0, 0)
-      ..arcTo(seamCircle, math.pi + a, seamEnd - math.pi, false)
+      ..arcTo(seamCircle, math.pi + a, -curl, false)
       ..arcTo(Rect.fromCircle(center: Offset.zero, radius: r * 1.02),
-          rimAngle + a, third, false)
-      ..arcTo(circleAt(a + third, r * hub), seamEnd + a + third,
-          math.pi - seamEnd, false)
+          a + curl, third, false)
+      ..arcTo(nextCircle, math.pi + a + third - curl, curl, false)
       ..close();
 
     canvas.save();
     canvas.clipPath(sector);
-    // Two lines running alongside this seam split the sector into three
-    // strips, which is how a volleyball's panels actually run. They are the
-    // seam's own arc slid sideways rather than smaller circles around the
-    // same centre — those curve tighter than the seam and read as a target.
-    // Each is drawn as half a circle, far longer than shows, and left to the
-    // sector clip to trim it to rim-to-rim.
-    final across = Offset(math.cos(a), math.sin(a));
-    for (final shift in const [0.27, 0.54]) {
-      canvas.drawArc(
-        seamCircle.shift(across * (r * shift)),
-        math.pi / 2 + a,
-        math.pi * 1.5,
-        false,
-        seam,
-      );
+    // Two lines follow the bulge of this seam and split the sector into
+    // three strips, each running from the rim until it meets the next seam,
+    // which is how a volleyball's panels actually run. They are circles
+    // around the seam's own centre, so they keep their distance from it the
+    // whole way; on this, its outer side, they are wider than the seam and
+    // flatter. On the inner side the same circles curve tighter than the
+    // seam and read as a target. Each is drawn whole and left to the sector
+    // clip, which it crosses only once, to trim it.
+    for (final spread in const [1.38, 1.74]) {
+      canvas.drawCircle(hub(a), r * spread, seam);
     }
     canvas.restore();
   }
