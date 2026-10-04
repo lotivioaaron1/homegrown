@@ -6,7 +6,13 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 /// The welcome scene: a basketball, a volleyball and a shuttlecock, one per
-/// sport the app covers, arriving on the splash and then hanging in the air.
+/// sport the app covers, dropping in from above the screen and then hanging in
+/// the air.
+///
+/// Each moves like the thing it is. The basketball falls and bounces highest,
+/// the softer volleyball comes back lower and settles sooner, and the
+/// shuttlecock does not bounce at all: it floats down cork first, as a real
+/// one does, and rocks to a stop.
 ///
 /// Drawn rather than shipped as artwork so the seams can turn while the light
 /// stays put. A ball exported as a picture has its shading baked in, so
@@ -15,10 +21,11 @@ import '../theme/app_theme.dart';
 /// only the seams move, which is also what makes the three read as one scene
 /// rather than three stickers.
 ///
-/// It paints outside its own box on purpose. The splash places it in a padded
-/// column, where it takes whatever height is left above the text, so it can
-/// never end up behind the headline; [bleed] reaches past that column's side
-/// padding so the balls can run off the screen edges.
+/// It paints outside its own box on purpose. The splash gives it the half of
+/// the screen above the wordmark, and a ball only ever bounces upwards from
+/// where it comes to rest, so none can end up behind the wordmark; [bleed]
+/// reaches past the column's side padding so the balls can run off the screen
+/// edges, and each starts its fall above the box's top edge, off the screen.
 ///
 /// Decorative, so it is hidden from screen readers.
 class SportBallScene extends StatefulWidget {
@@ -133,17 +140,38 @@ class SportBallScenePainter extends CustomPainter {
   // ── Motion ────────────────────────────────────
   //
   // Each ball's slice of [entrance]. They start about 120ms apart over the
-  // splash's 700ms window, so the eye can follow one at a time.
+  // splash's 1150ms window, so the eye can follow one at a time.
 
-  static const _kBasketball = (begin: 0.0, end: 0.72);
-  static const _kVolleyball = (begin: 0.16, end: 0.86);
-  static const _kShuttle = (begin: 0.30, end: 1.0);
+  static const _kBasketball = (begin: 0.0, end: 0.90);
+  static const _kVolleyball = (begin: 0.10, end: 0.95);
+  static const _kShuttle = (begin: 0.20, end: 1.0);
+
+  /// The liveliest ball, so it bounces highest and longest.
+  static const _kBasketballBounce = BounceCurve(restitution: 0.5, bounces: 3);
+
+  /// A volleyball is softer: it comes back lower and settles sooner.
+  static const _kVolleyballBounce = BounceCurve(restitution: 0.42, bounces: 2);
+
+  /// Where in [entrance] the basketball first hits the ground.
+  ///
+  /// The splash lands its wordmark on this beat, and reads it from here so
+  /// that retuning the bounce moves the wordmark with it.
+  static double get basketballLanding =>
+      _kBasketball.begin +
+      (_kBasketball.end - _kBasketball.begin) * _kBasketballBounce.landing;
 
   /// A strong ease-out for things arriving: fast off the mark, long settle.
   static const _kArrive = Cubic(0.23, 1, 0.32, 1);
 
   /// Settles slightly past its mark and back, for the shuttlecock's tilt.
   static const _kOvershoot = Cubic(0.34, 1.36, 0.64, 1);
+
+  /// How far above the top of the scene a ball starts, clear of the edge.
+  static const _kOffscreen = 8.0;
+
+  /// How much a ball flattens on its hardest touchdown. Small on purpose:
+  /// these are lit, solid-looking balls, and a cartoon squash would fight that.
+  static const _kSquash = 0.08;
 
   /// How far each ball drifts while idle, in logical pixels.
   static const _kDriftPx = 4.0;
@@ -152,9 +180,14 @@ class SportBallScenePainter extends CustomPainter {
   static const _kDriftPhase = (basketball: 0.0, volleyball: 2.1, shuttle: 4.2);
 
   /// Rest angles. The basketball's seams are tilted off the vertical so it
-  /// does not read as a diagram.
+  /// does not read as a diagram. The volleyball's are turned so its left
+  /// half, the half left on screen, shows panels running across the top and
+  /// down the side. The shuttlecock leans only a little, so it still points
+  /// down at the wordmark below it, and swings in from leaning the other way.
   static const _kBasketballRest = -0.35;
-  static const _kShuttleRest = 0.6;
+  static const _kVolleyballRest = 0.26;
+  static const _kShuttleStart = -0.25;
+  static const _kShuttleRest = 0.25;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -181,14 +214,18 @@ class SportBallScenePainter extends CustomPainter {
     final p = _slice(_kBasketball);
     if (p == 0) return;
     final r = unit * 0.29;
-    final rest = Offset(left + width * 0.22, height * 0.30);
+    final rest = Offset(left + width * 0.16, height * 0.36);
 
-    // Dropped in from above: falls, lands, one small hop.
-    final fall = (1 - const _DropBounce().transform(p)) * r * 1.5;
+    // Dropped from just above the top of the screen: falls, lands, and
+    // bounces to a stop. Never below its resting point, so it never comes
+    // down towards the wordmark.
+    final drop = rest.dy + r + _kOffscreen;
+    final fall = (1 - _kBasketballBounce.transform(p)) * drop;
     final c = rest.translate(0, -fall + _sway(_kDriftPhase.basketball));
     final spin = _kBasketballRest - 0.6 * (1 - _kArrive.transform(p));
 
-    _faded(canvas, p, () => paintBasketball(canvas, c, r, spin));
+    _squashed(canvas, c, r, _kBasketballBounce.impact(p),
+        () => paintBasketball(canvas, c, r, spin));
   }
 
   void _volleyball(
@@ -196,14 +233,16 @@ class SportBallScenePainter extends CustomPainter {
     final p = _slice(_kVolleyball);
     if (p == 0) return;
     final r = unit * 0.25;
-    final rest = Offset(left + width * 0.86, height * 0.56);
+    final rest = Offset(left + width * 0.86, height * 0.46);
 
-    // Rolled in from the right. Turning by distance over radius is rolling
-    // without slipping, so the spin matches the travel exactly.
-    final travel = (1 - _kArrive.transform(p)) * r * 2.4;
-    final c = rest.translate(travel, _sway(_kDriftPhase.volleyball));
+    // Dropped the same way, its panels turning a little as it falls.
+    final drop = rest.dy + r + _kOffscreen;
+    final fall = (1 - _kVolleyballBounce.transform(p)) * drop;
+    final c = rest.translate(0, -fall + _sway(_kDriftPhase.volleyball));
+    final spin = _kVolleyballRest + 0.5 * (1 - _kArrive.transform(p));
 
-    _faded(canvas, p, () => paintVolleyball(canvas, c, r, travel / r));
+    _squashed(canvas, c, r, _kVolleyballBounce.impact(p),
+        () => paintVolleyball(canvas, c, r, spin));
   }
 
   void _shuttlecock(
@@ -211,15 +250,18 @@ class SportBallScenePainter extends CustomPainter {
     final p = _slice(_kShuttle);
     if (p == 0) return;
     final length = unit * 0.34;
-    final rest = Offset(left + width * 0.40, height * 0.76);
+    final rest = Offset(left + width * 0.50, height * 0.70);
 
-    // Cork first, the way a shuttlecock actually falls, with the tilt
-    // swinging slightly past its mark and back.
-    final fall = (1 - _kArrive.transform(p)) * unit * 0.45;
+    // Floats down cork first, the way a shuttlecock actually falls. It does
+    // not bounce: its feathers drag it to a gentle stop instead, and its tilt
+    // swings slightly past its mark and back.
+    final drop = rest.dy + length / 2 + _kOffscreen;
+    final fall = (1 - _kArrive.transform(p)) * drop;
     final c = rest.translate(0, -fall + _sway(_kDriftPhase.shuttle));
-    final tilt = 0.15 + (_kShuttleRest - 0.15) * _kOvershoot.transform(p);
+    final tilt = _kShuttleStart +
+        (_kShuttleRest - _kShuttleStart) * _kOvershoot.transform(p);
 
-    _faded(canvas, p, () => paintShuttlecock(canvas, c, length, tilt));
+    paintShuttlecock(canvas, c, length, tilt);
   }
 
   /// This ball's progress through its own slice of [entrance].
@@ -231,16 +273,24 @@ class SportBallScenePainter extends CustomPainter {
   double _sway(double phase) =>
       (math.sin(drift * 2 * math.pi + phase) - math.sin(phase)) * _kDriftPx;
 
-  /// Fades a ball in over the first 40% of its slice. Never scaled up from
-  /// nothing: it arrives at its full size, which is what real objects do.
-  void _faded(Canvas canvas, double p, VoidCallback paintBall) {
-    final alpha = (p / 0.4).clamp(0.0, 1.0);
-    if (alpha >= 1) {
+  /// Paints a ball of radius [r] at [c] flattened by [impact] (0..1) against
+  /// the ground it is hitting.
+  ///
+  /// Pinned at its lowest point, so the squash never pushes it past where it
+  /// touched down, and widened by half what it loses in height so it keeps
+  /// roughly its volume, as a real ball does.
+  void _squashed(Canvas canvas, Offset c, double r, double impact,
+      VoidCallback paintBall) {
+    if (impact == 0) {
       paintBall();
       return;
     }
-    canvas.saveLayer(
-        null, Paint()..color = Colors.black.withValues(alpha: alpha));
+    final q = _kSquash * impact;
+    final ground = c.dy + r;
+    canvas.save();
+    canvas.translate(c.dx, ground);
+    canvas.scale(1 + q / 2, 1 - q);
+    canvas.translate(-c.dx, -ground);
     paintBall();
     canvas.restore();
   }
@@ -252,25 +302,81 @@ class SportBallScenePainter extends CustomPainter {
       oldDelegate.bleed != bleed;
 }
 
-/// Falls under gravity, lands at 62%, and makes one small hop before settling.
+/// Falls under gravity, then bounces on the spot where it lands — what a real
+/// ball dropped onto a floor does.
 ///
-/// Accelerating into the landing is deliberate here even though ease-in is
+/// Each rebound leaves the ground at [restitution] times the speed the ball
+/// hit it, so each hop climbs [restitution]² as high as the one before and
+/// lasts [restitution] times as long. With 0.5 and three bounces that is
+/// exactly [Curves.bounceOut]; the parameters let each ball bounce like itself.
+///
+/// Accelerating into each landing is deliberate here even though ease-in is
 /// wrong for interface motion: this is a ball falling, and a ball that slows
 /// down as it nears the ground reads as being lowered on a string.
-class _DropBounce extends Curve {
-  const _DropBounce();
+class BounceCurve extends Curve {
+  /// The fraction of its speed the ball keeps through each bounce.
+  final double restitution;
 
-  static const _land = 0.62;
-  static const _hop = 0.12;
+  /// How many times it leaves the ground again before it settles.
+  final int bounces;
+
+  const BounceCurve({this.restitution = 0.5, this.bounces = 3})
+      : assert(restitution > 0 && restitution < 1),
+        assert(bounces >= 0);
+
+  /// How long a touchdown is felt either side of the moment of contact, in
+  /// lengths of the first fall: a frame or two at the speeds used here.
+  static const _kContact = 0.06;
+
+  /// The whole motion, in lengths of the first fall.
+  double get _span {
+    var span = 1.0;
+    var e = 1.0;
+    for (var k = 0; k < bounces; k++) {
+      e *= restitution;
+      span += 2 * e;
+    }
+    return span;
+  }
+
+  /// Where in 0..1 the ball first touches down.
+  double get landing => 1 / _span;
+
+  /// How hard the ball is meeting the ground at [t], for squash: 1 on the
+  /// first touchdown, [restitution] on the next and so on, fading to nothing
+  /// a moment either side of each.
+  ///
+  /// The final settle is not counted. It is the gentlest contact anyway, and
+  /// it is where the ball stays — a ball at rest is round.
+  double impact(double t) {
+    final x = t * _span;
+    var touchdown = 1.0;
+    var e = 1.0;
+    for (var k = 0; k < bounces; k++) {
+      final near = 1 - (x - touchdown).abs() / _kContact;
+      if (near > 0) return e * near;
+      e *= restitution;
+      touchdown += 2 * e;
+    }
+    return 0;
+  }
 
   @override
   double transformInternal(double t) {
-    if (t < _land) {
-      final f = t / _land;
-      return f * f;
+    var x = t * _span;
+    if (x < 1) return x * x;
+    x -= 1;
+    var e = 1.0;
+    for (var k = 0; k < bounces; k++) {
+      e *= restitution;
+      final hop = 2 * e;
+      if (x < hop) {
+        final s = x / hop;
+        return 1 - e * e * 4 * s * (1 - s);
+      }
+      x -= hop;
     }
-    final s = (t - _land) / (1 - _land);
-    return 1 - _hop * 4 * s * (1 - s);
+    return 1;
   }
 }
 
@@ -388,9 +494,9 @@ void paintBasketball(Canvas canvas, Offset c, double r, double spin) {
 
 /// A volleyball of radius [r] centred on [c], its panels turned by [spin].
 ///
-/// Three seams curl out from the middle like a pinwheel, each with a second
-/// line beside it to make a panel — the silhouette people recognise from the
-/// ball itself, without drawing all eighteen panels.
+/// Three seams curl out from the middle like a pinwheel, and each third of the
+/// ball between two of them is split into three strips — the silhouette
+/// people recognise from the ball itself, without drawing all eighteen panels.
 void paintVolleyball(Canvas canvas, Offset c, double r, double spin) {
   _base(canvas, c, r, const [
     Color(0xFFFFFFFF),
@@ -403,16 +509,15 @@ void paintVolleyball(Canvas canvas, Offset c, double r, double spin) {
   final outline = Path()..addOval(ball);
   final seam = _seamPaint(r);
 
-  // Each main seam is an arc of a circle that passes through the ball's
-  // centre, so it starts at the middle and curls out to the rim; three of
-  // them a third of a turn apart make the pinwheel. Where that arc meets the
-  // rim follows from the geometry: a circle of radius h centred h from the
-  // middle crosses the unit rim where 2h²(1 + cos θ) = 1.
-  const hub = 0.9;
-  final seamEnd = math.pi + math.acos(1 - 1 / (2 * hub * hub));
-  final seamRim = Offset(hub * (1 + math.cos(seamEnd)), hub * math.sin(seamEnd));
-  final rimAngle = math.atan2(seamRim.dy, seamRim.dx);
+  // Each seam is an arc of a circle the ball's own size, centred on its rim,
+  // so it starts at the middle and curls out to the rim; three of them a
+  // third of a turn apart make the pinwheel. The middle, that centre and the
+  // point where the seam meets the rim are all one radius apart, so the seam
+  // runs a sixth of the way round its circle and lands on the rim a sixth of
+  // a turn on from its centre.
   const third = 2 * math.pi / 3;
+  const curl = math.pi / 3;
+  Offset hub(double turn) => Offset(math.cos(turn), math.sin(turn)) * r;
 
   canvas.save();
   canvas.clipPath(outline);
@@ -420,42 +525,34 @@ void paintVolleyball(Canvas canvas, Offset c, double r, double spin) {
   canvas.rotate(spin);
   for (var k = 0; k < 3; k++) {
     final a = k * third;
-    Rect circleAt(double turn, double radius) => Rect.fromCircle(
-        center: Offset(math.cos(turn), math.sin(turn)) * (r * hub),
-        radius: radius);
-    final seamCircle = circleAt(a, r * hub);
+    final seamCircle = Rect.fromCircle(center: hub(a), radius: r);
+    final nextCircle = Rect.fromCircle(center: hub(a + third), radius: r);
 
-    canvas.drawArc(seamCircle, math.pi + a, seamEnd - math.pi, false, seam);
+    // Anticlockwise from the middle, the way the panels turn on the ball.
+    canvas.drawArc(seamCircle, math.pi + a, -curl, false, seam);
 
-    // The sector between this seam and the next, clockwise. The panel lines
-    // are clipped to it, so each one starts on the neighbouring seam instead
-    // of floating in the middle of the ball.
+    // The third of the ball this seam bulges into: out along it, clockwise
+    // round the rim to the next seam, and back in along that one.
     final sector = Path()
       ..moveTo(0, 0)
-      ..arcTo(seamCircle, math.pi + a, seamEnd - math.pi, false)
+      ..arcTo(seamCircle, math.pi + a, -curl, false)
       ..arcTo(Rect.fromCircle(center: Offset.zero, radius: r * 1.02),
-          rimAngle + a, third, false)
-      ..arcTo(circleAt(a + third, r * hub), seamEnd + a + third,
-          math.pi - seamEnd, false)
+          a + curl, third, false)
+      ..arcTo(nextCircle, math.pi + a + third - curl, curl, false)
       ..close();
 
     canvas.save();
     canvas.clipPath(sector);
-    // Two lines running alongside this seam split the sector into three
-    // strips, which is how a volleyball's panels actually run. They are the
-    // seam's own arc slid sideways rather than smaller circles around the
-    // same centre — those curve tighter than the seam and read as a target.
-    // Each is drawn as half a circle, far longer than shows, and left to the
-    // sector clip to trim it to rim-to-rim.
-    final across = Offset(math.cos(a), math.sin(a));
-    for (final shift in const [0.27, 0.54]) {
-      canvas.drawArc(
-        seamCircle.shift(across * (r * shift)),
-        math.pi / 2 + a,
-        math.pi * 1.5,
-        false,
-        seam,
-      );
+    // Two lines follow the bulge of this seam and split the sector into
+    // three strips, each running from the rim until it meets the next seam,
+    // which is how a volleyball's panels actually run. They are circles
+    // around the seam's own centre, so they keep their distance from it the
+    // whole way; on this, its outer side, they are wider than the seam and
+    // flatter. On the inner side the same circles curve tighter than the
+    // seam and read as a target. Each is drawn whole and left to the sector
+    // clip, which it crosses only once, to trim it.
+    for (final spread in const [1.38, 1.74]) {
+      canvas.drawCircle(hub(a), r * spread, seam);
     }
     canvas.restore();
   }
