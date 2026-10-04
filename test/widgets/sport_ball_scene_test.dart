@@ -9,7 +9,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:homegrown/widgets/sport_ball_scene.dart';
 
-Widget _scene(double entrance, {bool idle = false, bool reduced = false}) =>
+Widget _scene(double entrance,
+        {bool idle = false,
+        bool reduced = false,
+        SportBallLayout layout = SportBallLayout.overHeadline}) =>
     Directionality(
       textDirection: TextDirection.ltr,
       child: SportBallScene(
@@ -17,22 +20,26 @@ Widget _scene(double entrance, {bool idle = false, bool reduced = false}) =>
         idle: idle,
         reducedMotion: reduced,
         bleed: 24,
+        layout: layout,
       ),
     );
 
 void main() {
-  for (final size in const [Size(320, 480), Size(412, 915), Size(800, 400)]) {
-    testWidgets('paints every stage of the arrival at $size', (tester) async {
-      tester.view.physicalSize = size;
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
+  for (final layout in SportBallLayout.values) {
+    for (final size in const [Size(320, 480), Size(412, 915), Size(800, 400)]) {
+      testWidgets('paints every stage of the arrival, ${layout.name}, at $size',
+          (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
 
-      // 0.33 is the basketball's first touchdown, where it squashes.
-      for (final t in const [0.0, 0.1, 0.33, 0.35, 0.5, 0.72, 0.9, 1.0]) {
-        await tester.pumpWidget(_scene(t));
-        expect(tester.takeException(), isNull);
-      }
-    });
+        // 0.33 is the basketball's first touchdown, where it squashes.
+        for (final t in const [0.0, 0.1, 0.33, 0.35, 0.5, 0.72, 0.9, 1.0]) {
+          await tester.pumpWidget(_scene(t, layout: layout));
+          expect(tester.takeException(), isNull);
+        }
+      });
+    }
   }
 
   testWidgets('paints nothing, without failing, in a box with no height',

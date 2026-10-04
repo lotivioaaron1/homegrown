@@ -5,6 +5,22 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
+/// Where the balls in a [SportBallScene] come to rest.
+///
+/// The splash has two looks, and the balls are arranged for what sits
+/// beneath them in each.
+enum SportBallLayout {
+  /// Spread over the space above a left-aligned headline: the basketball high
+  /// on the left, the volleyball lower on the right, and the shuttlecock low
+  /// in between. The opening screen's arrangement.
+  overHeadline,
+
+  /// A V around a wordmark centred below them: the basketball and the
+  /// volleyball high on either side, and the shuttlecock between them
+  /// pointing down at it. The arrangement after Sign out.
+  aroundCentre,
+}
+
 /// The welcome scene: a basketball, a volleyball and a shuttlecock, one per
 /// sport the app covers, dropping in from above the screen and then hanging in
 /// the air.
@@ -47,12 +63,16 @@ class SportBallScene extends StatefulWidget {
   /// How far past its left and right edges the scene paints.
   final double bleed;
 
+  /// Where the balls come to rest, which depends on what sits beneath them.
+  final SportBallLayout layout;
+
   const SportBallScene({
     super.key,
     required this.entrance,
     this.idle = false,
     this.reducedMotion = false,
     this.bleed = 0,
+    this.layout = SportBallLayout.overHeadline,
   });
 
   @override
@@ -108,6 +128,7 @@ class _SportBallSceneState extends State<SportBallScene>
               entrance: widget.entrance.value,
               drift: _drift.value,
               bleed: widget.bleed,
+              layout: widget.layout,
             ),
           ),
         ),
@@ -131,10 +152,14 @@ class SportBallScenePainter extends CustomPainter {
   /// As [SportBallScene.bleed].
   final double bleed;
 
+  /// As [SportBallScene.layout].
+  final SportBallLayout layout;
+
   const SportBallScenePainter({
     required this.entrance,
     this.drift = 0,
     this.bleed = 0,
+    this.layout = SportBallLayout.overHeadline,
   });
 
   // ── Motion ────────────────────────────────────
@@ -182,12 +207,40 @@ class SportBallScenePainter extends CustomPainter {
   /// Rest angles. The basketball's seams are tilted off the vertical so it
   /// does not read as a diagram. The volleyball's are turned so its left
   /// half, the half left on screen, shows panels running across the top and
-  /// down the side. The shuttlecock leans only a little, so it still points
-  /// down at the wordmark below it, and swings in from leaning the other way.
+  /// down the side. The shuttlecock's depend on the layout — see [_rest].
   static const _kBasketballRest = -0.35;
   static const _kVolleyballRest = 0.26;
-  static const _kShuttleStart = -0.25;
-  static const _kShuttleRest = 0.25;
+
+  /// Where each ball comes to rest in [layout], as fractions of the scene's
+  /// bled width and of its height, and the angles the shuttlecock swings
+  /// between as it settles.
+  ///
+  /// Over the headline the shuttlecock lands well tilted, at the bottom of a
+  /// loose diagonal from the basketball. Around the centred wordmark it leans
+  /// only a little, so it still points down at the wordmark below it, and
+  /// swings in from leaning the other way.
+  ({
+    Offset basketball,
+    Offset volleyball,
+    Offset shuttle,
+    double shuttleFrom,
+    double shuttleTo,
+  }) get _rest => switch (layout) {
+        SportBallLayout.overHeadline => (
+            basketball: const Offset(0.22, 0.30),
+            volleyball: const Offset(0.86, 0.56),
+            shuttle: const Offset(0.40, 0.76),
+            shuttleFrom: 0.15,
+            shuttleTo: 0.6,
+          ),
+        SportBallLayout.aroundCentre => (
+            basketball: const Offset(0.16, 0.36),
+            volleyball: const Offset(0.86, 0.46),
+            shuttle: const Offset(0.50, 0.70),
+            shuttleFrom: -0.25,
+            shuttleTo: 0.25,
+          ),
+      };
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -196,6 +249,8 @@ class SportBallScenePainter extends CustomPainter {
     final left = -bleed;
     final width = size.width + bleed * 2;
     final height = size.height;
+    final rest = _rest;
+    Offset at(Offset f) => Offset(left + width * f.dx, height * f.dy);
 
     // One unit for every ball's size. Width alone would grow them into each
     // other on a short screen; height alone would make them tiny on a narrow
@@ -204,17 +259,16 @@ class SportBallScenePainter extends CustomPainter {
 
     // Farthest first, so the basketball overlaps the volleyball and not the
     // other way round if a very short screen ever pushes them together.
-    _volleyball(canvas, left, width, height, unit);
-    _basketball(canvas, left, width, height, unit);
-    _shuttlecock(canvas, left, width, height, unit);
+    _volleyball(canvas, at(rest.volleyball), unit);
+    _basketball(canvas, at(rest.basketball), unit);
+    _shuttlecock(canvas, at(rest.shuttle), unit, rest.shuttleFrom,
+        rest.shuttleTo);
   }
 
-  void _basketball(
-      Canvas canvas, double left, double width, double height, double unit) {
+  void _basketball(Canvas canvas, Offset rest, double unit) {
     final p = _slice(_kBasketball);
     if (p == 0) return;
     final r = unit * 0.29;
-    final rest = Offset(left + width * 0.16, height * 0.36);
 
     // Dropped from just above the top of the screen: falls, lands, and
     // bounces to a stop. Never below its resting point, so it never comes
@@ -228,12 +282,10 @@ class SportBallScenePainter extends CustomPainter {
         () => paintBasketball(canvas, c, r, spin));
   }
 
-  void _volleyball(
-      Canvas canvas, double left, double width, double height, double unit) {
+  void _volleyball(Canvas canvas, Offset rest, double unit) {
     final p = _slice(_kVolleyball);
     if (p == 0) return;
     final r = unit * 0.25;
-    final rest = Offset(left + width * 0.86, height * 0.46);
 
     // Dropped the same way, its panels turning a little as it falls.
     final drop = rest.dy + r + _kOffscreen;
@@ -245,12 +297,11 @@ class SportBallScenePainter extends CustomPainter {
         () => paintVolleyball(canvas, c, r, spin));
   }
 
-  void _shuttlecock(
-      Canvas canvas, double left, double width, double height, double unit) {
+  void _shuttlecock(Canvas canvas, Offset rest, double unit, double tiltFrom,
+      double tiltTo) {
     final p = _slice(_kShuttle);
     if (p == 0) return;
     final length = unit * 0.34;
-    final rest = Offset(left + width * 0.50, height * 0.70);
 
     // Floats down cork first, the way a shuttlecock actually falls. It does
     // not bounce: its feathers drag it to a gentle stop instead, and its tilt
@@ -258,8 +309,7 @@ class SportBallScenePainter extends CustomPainter {
     final drop = rest.dy + length / 2 + _kOffscreen;
     final fall = (1 - _kArrive.transform(p)) * drop;
     final c = rest.translate(0, -fall + _sway(_kDriftPhase.shuttle));
-    final tilt = _kShuttleStart +
-        (_kShuttleRest - _kShuttleStart) * _kOvershoot.transform(p);
+    final tilt = tiltFrom + (tiltTo - tiltFrom) * _kOvershoot.transform(p);
 
     paintShuttlecock(canvas, c, length, tilt);
   }
@@ -299,7 +349,8 @@ class SportBallScenePainter extends CustomPainter {
   bool shouldRepaint(SportBallScenePainter oldDelegate) =>
       oldDelegate.entrance != entrance ||
       oldDelegate.drift != drift ||
-      oldDelegate.bleed != bleed;
+      oldDelegate.bleed != bleed ||
+      oldDelegate.layout != layout;
 }
 
 /// Falls under gravity, then bounces on the spot where it lands — what a real

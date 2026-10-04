@@ -20,27 +20,30 @@ import '../widgets/sport_ball_scene.dart';
 ///
 /// The ground is flat [_kInk], the same near-black as the Android launch
 /// screen and the adaptive icon's plate, so the OS hands over to Flutter with
-/// nothing changing colour. On it, the wordmark sits on the screen's centre
-/// line with a short loading rail under it. A basketball, a volleyball and a
-/// shuttlecock ([SportBallScene]) have the half above it, and the half below
-/// is kept for the welcome actions a first launch ends on.
+/// nothing changing colour. On it, a basketball, a volleyball and a
+/// shuttlecock ([SportBallScene]) drop in from above the screen and bounce to
+/// a stop, and the wordmark lands on the basketball's first touchdown.
+///
+/// It has two looks, one per way in:
+///
+/// * **Opening** — every app launch, including a first one that ends on the
+///   welcome actions. The balls fill the top of the screen, and the wordmark,
+///   the "Every Game Counts." headline, the loading rail and the actions sit
+///   left-aligned on plain ink below them.
+/// * **After Sign out** — the wordmark alone on the screen's centre line, over
+///   a short loading bar, with the balls in the half above it.
 ///
 /// Two earlier versions put something *behind* the lockup — a blurred
 /// photograph under a scrim, and before that a gradient with the wordmark in an
 /// orbiting ring — and both were replaced on the same complaint: the
 /// background competed with it. The balls are not a background. They keep to
-/// the top half and only ever bounce upwards from where they come to rest, so
-/// nothing is ever drawn under a letter.
+/// the space above the text and only ever bounce upwards from where they come
+/// to rest, so nothing is ever drawn under a letter.
 ///
 /// The reveal is staged rather than simultaneous: half a second of nothing,
-/// then the balls drop in from above the screen and bounce to a stop, the
-/// wordmark lands on the basketball's first touchdown, and the rail follows.
-/// The empty beat is load-bearing — it is what makes everything read as
-/// arriving instead of having always been there.
-///
-/// There used to be a two-line headline, "Every Game Counts.", under the
-/// wordmark. It went when the wordmark moved to the centre: with the balls
-/// doing the talking, the wordmark carries the screen on its own.
+/// then the balls, then the wordmark, the headline where there is one, and
+/// the rail. The empty beat is load-bearing — it is what makes everything read
+/// as arriving instead of having always been there.
 class SplashScreen extends StatefulWidget {
   /// Stands in for the launch's own lookup of where to land.
   ///
@@ -49,7 +52,15 @@ class SplashScreen extends StatefulWidget {
   /// waits, which a test without Firebase otherwise cannot reach.
   final Future<String?> Function()? resolveDestination;
 
-  const SplashScreen({super.key, this.resolveDestination});
+  /// Shows the look for the moment after Sign out — the wordmark alone at the
+  /// centre — rather than the opening one with its headline.
+  ///
+  /// Only the `/signed-out` route sets it. Where the screen leads is decided
+  /// the same way either way; after a sign-out that is the sign-in screen.
+  final bool afterSignOut;
+
+  const SplashScreen(
+      {super.key, this.resolveDestination, this.afterSignOut = false});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -57,10 +68,12 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  /// The intro's stagger: black hold, balls, wordmark, rail.
+  /// The intro's stagger: black hold, balls, wordmark, headline, rail.
   late AnimationController _introController;
   late Animation<double> _ballsAnim;
   late Animation<double> _markAnim;
+  late Animation<double> _taglineAnim;
+  late Animation<double> _taglineRise;
   late Animation<double> _railAnim;
 
   /// The progress rail's value, 0..1. Separate from [_introController] because
@@ -68,10 +81,11 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _progress;
 
   /// The welcome actions' entrance, once a first launch has resolved: the
-  /// rail fades away, and the pitch and the two buttons rise in one after
-  /// another.
+  /// rail hands over — settling into a divider on the opening screen, fading
+  /// away after Sign out — and the pitch and the two buttons rise in one
+  /// after another.
   late AnimationController _cta;
-  late Animation<double> _railOut;
+  late Animation<double> _railHandover;
   late Animation<double> _pitchIn;
   late Animation<double> _createIn;
   late Animation<double> _signInIn;
@@ -110,6 +124,13 @@ class _SplashScreenState extends State<SplashScreen>
   /// How long the wordmark takes to land. It starts on the basketball's first
   /// touchdown — see [initState] — so the hit is what seems to bring it in.
   static const _kMarkMs = 400;
+
+  /// The headline, on the opening screen: how long after the wordmark starts
+  /// it follows, and how long it takes. It starts 50ms before the wordmark
+  /// lands on purpose — a hard gap reads as two animations stopping and
+  /// starting, a small overlap reads as one element following another.
+  static const _kTaglineDelay = 350;
+  static const _kTaglineMs = 650;
 
   static const _kRailFadeStart = 1300;
   static const _kRailFadeEnd = 1600;
@@ -159,6 +180,11 @@ class _SplashScreenState extends State<SplashScreen>
   static final _inkSoft = Colors.white.withValues(alpha: 0.72);
   static final _railTrack = Colors.white.withValues(alpha: 0.12);
 
+  /// What the opening screen's full rail fades to once loading is over and it
+  /// stays on as the divider above the actions. Gold would put a second gold
+  /// bar directly over the gold button.
+  static final _railDivider = Colors.white.withValues(alpha: 0.28);
+
   /// Side padding for the column, which the ball scene paints past so the
   /// balls can run off the screen edges.
   static const _kGutter = 24.0;
@@ -179,6 +205,8 @@ class _SplashScreenState extends State<SplashScreen>
 
     // On the basketball's first touchdown, read from the scene rather than
     // copied here, so retuning the bounce moves this beat with it.
+    // Each look keeps its own entrance curve: the opening wordmark rises into
+    // place, the centred one after Sign out scales in.
     final markStart = _kBlackHold +
         (_kBallsEnd - _kBlackHold) * SportBallScenePainter.basketballLanding;
     _markAnim = CurvedAnimation(
@@ -186,9 +214,19 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Interval(
         markStart / _kIntroMs,
         (markStart + _kMarkMs) / _kIntroMs,
-        curve: _kArrive,
+        curve: widget.afterSignOut ? _kArrive : Curves.easeOutCubic,
       ),
     );
+    final taglineStart = markStart + _kTaglineDelay;
+    _taglineAnim = CurvedAnimation(
+      parent: _introController,
+      curve: Interval(
+        taglineStart / _kIntroMs,
+        (taglineStart + _kTaglineMs) / _kIntroMs,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    _taglineRise = Tween<double>(begin: 22, end: 0).animate(_taglineAnim);
     _railAnim = CurvedAnimation(
       parent: _introController,
       // Lands as the rail begins to move, so it is never visible sitting still.
@@ -200,7 +238,7 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     // Fractions of _kCtaReveal; about 55ms between each element.
-    _railOut = CurvedAnimation(
+    _railHandover = CurvedAnimation(
       parent: _cta,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
@@ -452,7 +490,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).height < 700;
-    if (_centred) {
+    if (widget.afterSignOut && _centred) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _checkFit());
     }
 
@@ -467,8 +505,8 @@ class _SplashScreenState extends State<SplashScreen>
       child: Scaffold(
         backgroundColor: _kInk,
         // Not inset at the top: the balls fall in from behind the transparent
-        // status bar, the way they run off the sides. The wordmark below them
-        // is nowhere near it.
+        // status bar, the way they run off the sides. The text below them is
+        // nowhere near it.
         body: SafeArea(
           top: false,
           // Scrolls rather than overflows once the text outgrows the viewport,
@@ -476,50 +514,127 @@ class _SplashScreenState extends State<SplashScreen>
           child: FillViewportScroll(
             padding:
                 EdgeInsets.fromLTRB(_kGutter, 0, _kGutter, compact ? 20 : 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // While the wordmark is centred, the two halves share the
-                // height evenly, which is what keeps it on the centre line.
-                // Where the welcome actions would not then fit, the bottom
-                // half shrinks to just what they need and the balls give up
-                // their height first — see [_checkFit].
-                Expanded(
-                  child: SportBallScene(
-                    entrance: _ballsAnim,
-                    idle: _showButtons,
-                    reducedMotion: _reducedMotion,
-                    bleed: _kGutter,
-                  ),
-                ),
-                SizedBox(height: compact ? 16 : 24),
-                _identity(compact),
-                SizedBox(height: compact ? 18 : 22),
-                _rail(compact),
-                if (_centred)
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: _welcome(compact),
-                    ),
-                  )
-                else ...[
-                  SizedBox(height: compact ? 18 : 22),
-                  _welcome(compact),
-                ],
-              ],
-            ),
+            child: widget.afterSignOut
+                ? _centredLayout(compact)
+                : _openingLayout(compact),
           ),
         ),
       ),
     );
   }
 
-  /// The wordmark, centred, landing as the basketball first hits the ground.
+  /// The balls, arranged for what sits beneath them in this look.
+  Widget _scene(SportBallLayout layout) => SportBallScene(
+        entrance: _ballsAnim,
+        idle: _showButtons,
+        reducedMotion: _reducedMotion,
+        bleed: _kGutter,
+        layout: layout,
+      );
+
+  /// Every app launch: the balls above, then the wordmark and headline, the
+  /// pitch, the rail and the actions, all left-aligned.
+  Widget _openingLayout(bool compact) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Whatever height the text leaves, so a ball can never sit behind a
+        // line of it on any screen. The scene is the flexible part, so it
+        // gives up its height first when the text outgrows the screen.
+        Expanded(child: _scene(SportBallLayout.overHeadline)),
+        _headline(compact),
+        SizedBox(height: compact ? 10 : 14),
+        _pitch(compact),
+        SizedBox(height: compact ? 18 : 22),
+        _lineRail(),
+        SizedBox(height: compact ? 18 : 22),
+        _actions(),
+      ],
+    );
+  }
+
+  /// After Sign out: the wordmark alone on the screen's centre line, the balls
+  /// in the half above it.
+  Widget _centredLayout(bool compact) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // While the wordmark is centred, the two halves share the height
+        // evenly, which is what keeps it on the centre line. Where the welcome
+        // actions would not then fit, the bottom half shrinks to just what
+        // they need and the balls give up their height first — see
+        // [_checkFit].
+        Expanded(child: _scene(SportBallLayout.aroundCentre)),
+        SizedBox(height: compact ? 16 : 24),
+        _centredMark(compact),
+        SizedBox(height: compact ? 18 : 22),
+        _barRail(compact),
+        if (_centred)
+          Expanded(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: _welcome(compact),
+            ),
+          )
+        else ...[
+          SizedBox(height: compact ? 18 : 22),
+          _welcome(compact),
+        ],
+      ],
+    );
+  }
+
+  /// The opening screen's lockup: the wordmark over the headline,
+  /// left-aligned, revealed in that order.
   ///
-  /// With no headline beneath it any more it carries the screen on its own,
-  /// which is why it is bigger than it was when it sat over one.
-  Widget _identity(bool compact) {
+  /// The wordmark names the app and the headline carries the screen, which is
+  /// why the headline keeps its full size: it was once cut to a small single
+  /// line and the screen lost its voice.
+  Widget _headline(bool compact) {
+    return AnimatedBuilder(
+      animation: _introController,
+      builder: (context, child) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Always the on-dark variant — this scene is dark in both themes,
+            // so the light-background artwork would put black letters on a
+            // near-black ground.
+            Opacity(
+              opacity: _markAnim.value,
+              child: Transform.translate(
+                offset: Offset(0, (1 - _markAnim.value) * 18),
+                child:
+                    HomegrownWordmark(width: compact ? 128 : 150, onDark: true),
+              ),
+            ),
+            SizedBox(height: compact ? 12 : 16),
+            Opacity(
+              opacity: _taglineAnim.value,
+              child: Transform.translate(
+                offset: Offset(0, _taglineRise.value),
+                child: child,
+              ),
+            ),
+          ],
+        );
+      },
+      child: Text(
+        'Every Game\nCounts.',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: compact ? 32 : 38,
+          fontWeight: FontWeight.w900,
+          height: 1.14,
+          letterSpacing: -1.0,
+        ),
+      ),
+    );
+  }
+
+  /// The wordmark after Sign out: centred, alone, and bigger than it is over
+  /// the headline, since here it carries the screen on its own.
+  Widget _centredMark(bool compact) {
     return AnimatedBuilder(
       animation: _markAnim,
       builder: (context, child) => Opacity(
@@ -540,12 +655,12 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  /// What a first launch ends on: the one-line pitch over Create Account and
-  /// Log in, pinned to the bottom of the screen.
+  /// The centred look's welcome block: the pitch over Create Account and Log
+  /// in, pinned to the bottom of the screen.
   ///
-  /// Always laid out, so nothing moves when it appears. A returning user never
-  /// sees it — this screen hands them straight on — so on every other launch
-  /// it is simply empty space below the wordmark.
+  /// Always laid out, so nothing moves when it appears. After a sign-out the
+  /// screen goes straight on to sign-in, so in practice this is empty space
+  /// below the wordmark.
   Widget _welcome(bool compact) {
     return Column(
       key: _welcomeKey,
@@ -571,7 +686,9 @@ class _SplashScreenState extends State<SplashScreen>
         // "Leaderboard" rather than "Elo": it is the word a newcomer already
         // knows, and Elo is explained once they are inside.
         'Track your stats. Get scouted by coaches. Climb the leaderboard.',
-        textAlign: TextAlign.center,
+        // Under the left-aligned lockup on the opening screen, centred under
+        // the centred wordmark after Sign out.
+        textAlign: widget.afterSignOut ? TextAlign.center : TextAlign.start,
         style: TextStyle(
           color: _inkSoft,
           fontSize: compact ? 13.5 : 14.5,
@@ -581,25 +698,63 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  /// The loading rail: a short gold bar under the wordmark that fills while
-  /// the launch resolves, then fades away if a first launch hands over to the
-  /// welcome actions.
-  ///
-  /// It used to run the full width of the screen at 2px, which read as a
-  /// divider rather than as something loading, and once the actions were up
-  /// it stayed on as exactly that.
+  /// The opening screen's loading rail, which stays on afterwards as the
+  /// divider above the welcome actions.
   ///
   /// The fill used to be a bare ColoredBox in a loose Stack, which gave it no
   /// height at all: the track showed and the gold never did. StackFit.expand
   /// hands the fill the rail's full height.
-  Widget _rail(bool compact) {
+  Widget _lineRail() {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_introController, _progress, _cta]),
+      builder: (context, child) {
+        return Opacity(
+          opacity: _railAnim.value,
+          child: Semantics(
+            // Only while it means something. Once the actions are up it is a
+            // divider, and announcing "Loading" then would be wrong.
+            label: _showButtons ? null : 'Loading',
+            excludeSemantics: true,
+            child: SizedBox(
+              key: const Key('splash-rail'),
+              height: 2,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(1),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ColoredBox(color: _railTrack),
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: _progress.value.clamp(0.0, 1.0),
+                      child: ColoredBox(
+                        color: Color.lerp(AppTheme.accent, _railDivider,
+                            _railHandover.value)!,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The loading bar after Sign out: a short gold bar under the centred
+  /// wordmark, which fades away if the welcome actions take over.
+  ///
+  /// A full-width line under a centred wordmark read as a divider rather than
+  /// as something loading, which is why this look has its own.
+  Widget _barRail(bool compact) {
     final radius = BorderRadius.circular(2);
     return AnimatedBuilder(
       animation: Listenable.merge([_introController, _progress, _cta]),
       builder: (context, child) {
         return Center(
           child: Opacity(
-            opacity: _railAnim.value * (1 - _railOut.value),
+            opacity: _railAnim.value * (1 - _railHandover.value),
             child: Semantics(
               // Only while it means something. Once the actions are up the
               // loading is over, and announcing "Loading" then would be wrong.

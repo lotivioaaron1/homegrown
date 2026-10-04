@@ -253,7 +253,8 @@ class AuthController extends GetxController {
   Future<void> signOut() async {
     await _authService.signOut();
     try { await _googleSignIn.signOut(); } catch (_) {}
-    Get.offAllNamed('/splash');
+    // The splash in its after-sign-out look, which then goes on to sign-in.
+    Get.offAllNamed('/signed-out');
   }
 
   // ── Error reporting ───────────────────────────

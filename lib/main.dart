@@ -194,6 +194,8 @@ class HomegrownApp extends StatelessWidget {
       initialRoute: '/splash',
       getPages: [
         GetPage(name: '/splash',             page: () => const SplashScreen()),
+        // The same splash in its look for the moment after Sign out.
+        GetPage(name: '/signed-out',         page: () => const SplashScreen(afterSignOut: true)),
         GetPage(name: '/onboarding',          page: () => const OnboardingScreen()),
         GetPage(name: '/login',              page: () => const LoginScreen()),
         GetPage(name: '/verify-email',            page: () => const EmailVerificationScreen()),
