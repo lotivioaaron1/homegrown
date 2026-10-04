@@ -177,12 +177,4 @@ class RatingService {
       });
     });
   }
-
-  static Stream<QuerySnapshot> ratingHistoryStream(String uid, String sport) =>
-      _users
-          .doc(uid)
-          .collection('ratingHistory')
-          .where('sport', isEqualTo: sport)
-          .orderBy('createdAt', descending: true)
-          .snapshots();
 }

@@ -3,8 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// One rating change for a player, stored at
 /// users/{uid}/ratingHistory/{matchId}. Written by RatingService when a
-/// match is finalized; powers the rating trend on the performance
-/// dashboard and gives an audit trail for how a player's rating moved.
+/// match is finalized, as an audit trail for how a player's rating moved.
+/// Nothing in the app reads it back: the dashboard once showed it as a row
+/// of per-match changes, and that row was dropped.
 class RatingHistoryEntry {
   final String matchId;
   final String sport;

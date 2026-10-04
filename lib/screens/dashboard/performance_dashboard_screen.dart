@@ -3,17 +3,18 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../constants/sport_icons.dart';
 import '../../theme/app_theme.dart';
-import '../../services/rating_service.dart';
 import '../../services/ranking_service.dart';
 import '../../utils/leaderboard_ranks.dart';
 import '../../utils/stats_view.dart';
+import '../../widgets/best_game_card.dart';
 import '../../widgets/points_explainer_sheet.dart';
+import '../../widgets/points_trend_card.dart';
+import '../../widgets/stat_averages_grid.dart';
 
 class PerformanceDashboardScreen extends StatefulWidget {
   const PerformanceDashboardScreen({super.key});
@@ -26,7 +27,6 @@ class PerformanceDashboardScreen extends StatefulWidget {
 class _PerformanceDashboardScreenState
     extends State<PerformanceDashboardScreen> {
   String get uid => FirebaseAuth.instance.currentUser?.uid ?? '';
-  String? _selectedRatingSport;
 
   /// The sport the chart and Game History are narrowed to, or null for all.
   /// Only offered to athletes whose games span more than one sport.
@@ -36,12 +36,6 @@ class _PerformanceDashboardScreenState
     if (v is int) return v;
     if (v is double) return v.toInt();
     return 0;
-  }
-
-  double _toDouble(dynamic v) {
-    if (v is int) return v.toDouble();
-    if (v is double) return v;
-    return 0.0;
   }
 
   // Memoised so pull-to-refresh and rebuilds don't re-issue the rank
@@ -154,7 +148,11 @@ class _PerformanceDashboardScreenState
     final sports = sportsPlayed(stats);
     final activeSport = sports.contains(_statsSport) ? _statsSport : null;
     final shown = filterBySport(stats, activeSport);
-    final chartStats = chartGames(shown);
+    // Box-score averages only mean something within one sport, so they wait
+    // for a multi-sport athlete to pick one.
+    final averagesSport =
+        activeSport ?? (sports.length == 1 ? sports.single : null);
+    final best = bestGame(shown);
 
     return RefreshIndicator(
       color: AppTheme.accent,
@@ -174,11 +172,20 @@ class _PerformanceDashboardScreenState
             _buildSportFilter(sports, activeSport),
             const SizedBox(height: 14),
           ],
-          if (chartStats.isNotEmpty) ...[
-            _buildSectionTitle(
-                LucideIcons.trendingUp, 'Homegrown Points per Game'),
+          _buildSectionTitle(
+              LucideIcons.trendingUp, 'Homegrown Points per Game'),
+          const SizedBox(height: 8),
+          PointsTrendCard(games: shown),
+          const SizedBox(height: 16),
+          if (averagesSport != null &&
+              boxScoreAverages(averagesSport, shown).isNotEmpty) ...[
+            _buildSectionTitle(LucideIcons.chartColumn, 'Per-Game Averages'),
             const SizedBox(height: 8),
-            _buildChart(context, chartStats),
+            StatAveragesGrid(sport: averagesSport, games: shown),
+            const SizedBox(height: 16),
+          ],
+          if (best != null) ...[
+            BestGameCard(game: best),
             const SizedBox(height: 16),
           ],
           _buildSectionTitle(LucideIcons.history, 'Game History'),
@@ -225,167 +232,22 @@ class _PerformanceDashboardScreenState
   Widget _buildRatingsSection(Map<String, dynamic> userData) {
     final ratings = (userData['ratings'] as Map?)?.cast<String, dynamic>() ?? {};
     if (ratings.isEmpty) return const SizedBox.shrink();
-    _selectedRatingSport ??= ratings.keys.first;
 
+    // Just the current rating per sport. The chips used to select a sport
+    // for a row of per-match rating changes beneath them; that row is gone,
+    // so they're no longer tappable.
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _buildSectionTitle(LucideIcons.swords, 'Your Ratings'),
         const SizedBox(height: 8),
         Row(
-          children: ratings.entries.map((e) {
-            final sport = e.key;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: GestureDetector(
-                onTap: () => setState(() => _selectedRatingSport = sport),
-                child: _RatingChip(
-                  sport: sport,
-                  rating: _toInt(e.value),
-                  selected: _selectedRatingSport == sport,
-                ),
-              ),
-            );
-          }).toList(),
+          children: ratings.entries.map((e) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _RatingChip(sport: e.key, rating: _toInt(e.value)),
+              )).toList(),
         ),
-        const SizedBox(height: 12),
-        _buildRatingTrend(_selectedRatingSport!),
       ]),
-    );
-  }
-
-  Widget _buildRatingTrend(String sport) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: RatingService.ratingHistoryStream(uid, sport),
-      builder: (context, snap) {
-        final docs = (snap.data?.docs ?? []).take(6).toList().reversed.toList();
-        if (docs.isEmpty) {
-          return Text('No rated matches yet for this sport',
-              style: TextStyle(color: AppTheme.sub, fontSize: 12));
-        }
-        return SizedBox(
-          height: 44,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: docs.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final entry = docs[i].data() as Map<String, dynamic>;
-              final delta = _toInt(entry['delta']);
-              final won = entry['result'] == 'win';
-              final color = won ? AppTheme.success : AppTheme.error;
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.card,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: color.withValues(alpha: 0.5))),
-                child: Text(
-                  '${_toInt(entry['newRating'])} (${delta >= 0 ? '+' : ''}$delta)',
-                  style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  // ── Chart ─────────────────────────────────
-  // CHANGED: bottom axis now shows both the date and a truncated
-  // event name (two lines) instead of generic "G1/G2/G3" labels
-  // that told you nothing about which game was which.
-
-  Widget _buildChart(BuildContext context,
-      List<Map<String, dynamic>> chartStats) {
-    final maxPts = chartStats
-        .map((s) => _toDouble(s['pointsAwarded']))
-        .fold(0.0, (a, b) => a > b ? a : b);
-
-    return Container(
-      height: 190,
-      padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
-      decoration: BoxDecoration(color: AppTheme.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border)),
-      child: BarChart(
-        BarChartData(
-          maxY: (maxPts * 1.35).ceilToDouble(),
-          minY: 0,
-          gridData: FlGridData(
-            show: true,
-            drawVerticalLine: false,
-            getDrawingHorizontalLine: (_) =>
-                FlLine(color: AppTheme.border, strokeWidth: 1)),
-          borderData: FlBorderData(show: false),
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            bottomTitles: AxisTitles(sideTitles: SideTitles(
-              showTitles: true,
-              // Room for the two label lines at their readable 10/9px sizes.
-              reservedSize: 38,
-              getTitlesWidget: (value, meta) {
-                final i = value.toInt();
-                if (i < 0 || i >= chartStats.length) return const SizedBox();
-                final stat = chartStats[i];
-                final ts = stat['createdAt'] as Timestamp?;
-                final dateLabel =
-                    ts != null ? DateFormat('MMM d').format(ts.toDate()) : '';
-                final rawName = stat['eventName'] as String? ?? '';
-                final nameLabel = rawName.length > 7
-                    ? '${rawName.substring(0, 6)}…'
-                    : rawName;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Column(children: [
-                    Text(dateLabel, style: TextStyle(
-                        color: AppTheme.sub,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700)),
-                    Text(nameLabel, style: TextStyle(
-                        color: AppTheme.muted, fontSize: 9)),
-                  ]),
-                );
-              },
-            )),
-          ),
-          barGroups: chartStats.asMap().entries.map((e) {
-            final pts = _toDouble(e.value['pointsAwarded']);
-            final pct = maxPts > 0 ? pts / maxPts : 0.0;
-            final color = pct >= 0.8
-                ? AppTheme.accent
-                : pct >= 0.5
-                    ? const Color(0xFFFFD04D)
-                    : const Color(0xFFFFE9A0);
-            return BarChartGroupData(x: e.key, barRods: [
-              BarChartRodData(
-                toY: pts,
-                width: 18,
-                color: color,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(5)),
-              ),
-            ]);
-          }).toList(),
-          barTouchData: BarTouchData(
-            touchTooltipData: BarTouchTooltipData(
-              getTooltipColor: (_) => AppTheme.accentSurface,
-              tooltipRoundedRadius: 8,
-              getTooltipItem: (group, _, rod, __) => BarTooltipItem(
-                '${rod.toY.toInt()} pts',
-                TextStyle(
-                    color: AppTheme.accentText,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-        ),
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOut,
-      ),
     );
   }
 
@@ -535,23 +397,20 @@ class _HeroCard extends StatelessWidget {
 class _RatingChip extends StatelessWidget {
   final String sport;
   final int rating;
-  final bool selected;
-  const _RatingChip(
-      {required this.sport, required this.rating, required this.selected});
+  const _RatingChip({required this.sport, required this.rating});
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-            color: selected ? AppTheme.accentSurface : AppTheme.card,
+            color: AppTheme.accentSurface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-                color: selected ? AppTheme.accent : AppTheme.border)),
+            border: Border.all(color: AppTheme.accent)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(sport[0].toUpperCase() + sport.substring(1), style: TextStyle(
-              color: selected ? AppTheme.accentText : AppTheme.sub,
+              color: AppTheme.accentText,
               fontSize: 11, fontWeight: FontWeight.w600)),
           Text('$rating', style: TextStyle(
-              color: selected ? AppTheme.accentText : AppTheme.textPrimary,
+              color: AppTheme.accentText,
               fontSize: 16, fontWeight: FontWeight.w800)),
         ]),
       );
